@@ -1,4 +1,4 @@
-# 附录：术语表
+# 附录 B：术语表
 
 ## A
 
@@ -44,6 +44,20 @@ YXG 中控制类成员可见性的机制，包括 pub（公开）、pro（受保
 **短路求值（Short-circuit Evaluation）**
 逻辑表达式的求值策略。对于 A && B，如果 A 为 false 则不计算 B；对于 A || B，如果 A 为 true 则不计算 B。
 
+**动态数组（Dynamic Array）**
+用 `new T[n]` 在堆上分配的数组。底层带 4 字节长度头，传给函数时按「指针 + 长度」8 字节传递，`.length` 可用。与栈上静态数组（`int[] a = {1,2,3};`）相对。
+
+## E
+
+**异常（Exception）**
+运行期中断正常控制流、跳转到专门处理代码的机制。YXG 用 `try` / `catch` / `end` 实现，抛出的对象必须继承 `ERROR` 基类。
+
+**ERROR 基类**
+所有异常类的祖先。有一个 `info` 字段存错误信息，`catch (ERROR e)` 可捕获所有异常。
+
+**收尾块（end 块）**
+`try` 语句末尾的 `end { ... }` 块，无论是否发生异常都会执行，用于资源清理。对应其他语言的 `finally`。
+
 ## F
 
 **φ 节点（Phi Node）**
@@ -51,6 +65,18 @@ SSA 形式中的特殊节点，用于在控制流汇合点合并来自不同路�
 
 **符号表（Symbol Table）**
 存储程序中所有标识符信息的数据结构，包括变量名、类型、作用域等。
+
+**泛型（Generics）**
+让类或函数适用于多种类型的机制。YXG 用 `class Box<T>` 声明泛型类，`<T> T f(T x)` 声明泛型函数（类型参数在返回类型之前）。
+
+**泛型实例化（Generic Instantiation）**
+把泛型声明套上具体类型参数，生成一份专用代码的过程。`List<Student>` 会展开成 `List$Student`，内部所有 `T` 都替换成 `Student`。嵌套泛型会展开成 `List$List$JsonValue`。
+
+**虚函数派发（Virtual Dispatch）**
+方法调用在运行期按对象的实际类型决定目标。YXG 中父类方法加 `virtual`、子类方法加 `override` 后启用。
+
+**静态绑定（Static Binding）**
+方法调用在编译期就确定目标。YXG 中不加 `virtual` 的普通方法都是静态绑定，通过父类引用调用只会执行父类的版本。
 
 ## G
 
@@ -71,6 +97,9 @@ Intermediate Representation。编译器内部使用的、介于高级语言和�
 
 **寄存器分配（Register Allocation）**
 将程序中的虚拟变量映射到 CPU 物理寄存器的过程。YXG 使用 Chaitin-Briggs 图着色算法。
+
+**基本类型（Primitive Type）**
+语言内置的、不通过类定义的类型：int、uint、int64、float、ufloat、char、bool、string。
 
 ## L
 
@@ -112,10 +141,10 @@ Static Single Assignment。一种 IR 形式，要求每个变量只被赋值一�
 ## Y
 
 **YXG 语言**
-本书的主角——一门为教学设计的编译型编程语言，语法类似 C，支持面向对象。
+本书的主角——一门为教学设计的静态类型编译型语言，语法类似 C，支持面向对象、泛型、异常处理、模块系统，编译到 Windows x86 原生可执行文件。
 
 **YXG 编译器**
-将 YXG 源代码编译为 Windows 可执行文件的程序，完全用 C 语言手写。
+将 YXG 源代码编译为 Windows 可执行文件的程序，完全用 C 语言手写，不使用 Yacc/Lex/LLVM 等自动生成工具。
 
 ## Z
 
@@ -127,3 +156,9 @@ SSA 构造的关键概念。节点 B 的支配边界是那些不被 B 严格支�
 
 **中间代码生成（IR Generation）**
 将 AST 转换为 IR 的过程。遍历 AST，为每个节点生成对应的 IR 指令序列。
+
+**值语义（Value Semantics）**
+赋值时复制内容而非共享引用。YXG 的数组是值语义：`int[] b = a;` 会复制一份，改 b 不影响 a。
+
+**引用语义（Reference Semantics）**
+赋值时共享同一对象。YXG 的类实例是引用语义：`Student s = t;` 后两者指向同一个对象。

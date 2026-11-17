@@ -408,4 +408,4 @@ List<int> nums = ...;          // ❌ 没 import yxg.Collections.List
 
 ## 继续阅读
 
-下一篇综合运用多种特性，做一个完整的通讯录。
+下一篇进入到第五部分：图像与多媒体库

@@ -1,4 +1,4 @@
-# 附录：参考资料
+# 附录 C：参考资料
 
 ## 编译原理经典教材
 
@@ -47,6 +47,32 @@ YXG 编译器使用的汇编器，网站提供完整的指令参考和文档。
 **Intel 64 and IA-32 Architectures Software Developer's Manual**
 https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
 Intel 官方 x86/x64 指令集参考手册，包含每条指令的详细说明。
+
+## 本项目资料
+
+**YXG 源码仓库**
+编译器全部用 C 语言手写，主要文件：
+
+| 文件 | 职责 |
+|---|---|
+| `main.c` | 命令行入口、编译流水线编排 |
+| `Lexer.c` | 词法分析 |
+| `parser.c` | 递归下降语法分析 |
+| `Semantics.c` | 语义分析、类型检查、符号表 |
+| `IR.c` | 三地址码 IR 生成 |
+| `CFG.c` | 控制流图构建 |
+| `SSA.c` | SSA 构造与解构 |
+| `regmap.c` | 寄存器分配（Chaitin-Briggs） |
+| `Codegen_win32.c` | x86-32 NASM 汇编生成 |
+| `YString.c` | 动态字符串工具 |
+| `Error.c` | 错误诊断与报告 |
+| `runtime\*.asm` | 运行时支持（打印、越界检查、GC 等） |
+
+**标准库**
+`lib\yxg\` 下 33 个模块，用 YXG 语言自身编写（部分底层为 `native` 声明）。
+
+**测试用例**
+`repro\` 目录下 69 个回归用例，覆盖各语言特性。
 
 ## 相关工具
 
