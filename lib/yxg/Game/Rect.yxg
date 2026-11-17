@@ -1,0 +1,41 @@
+import game.vec2;
+
+pub class Rect {
+    pub float x;
+    pub float y;
+    pub float w;
+    pub float h;
+
+    pub Rect(float ax, float ay, float aw, float ah) {
+        this.x = ax; this.y = ay;
+        this.w = aw; this.h = ah;
+    }
+}
+
+pub Rect rect(float x, float y, float w, float h) {
+    return new Rect(x, y, w, h);
+}
+
+pub bool rect_contains(Rect r, float px, float py) {
+    return px >= r.x && px < r.x + r.w
+        && py >= r.y && py < r.y + r.h;
+}
+
+pub bool rect_contains_vec(Rect r, Vec2 p) {
+    return rect_contains(r, p.x, p.y);
+}
+
+pub bool rect_overlap(Rect a, Rect b) {
+    if a.x + a.w <= b.x { return false; }
+    if b.x + b.w <= a.x { return false; }
+    if a.y + a.h <= b.y { return false; }
+    if b.y + b.h <= a.y { return false; }
+    return true;
+}
+
+pub bool rect_contains_rect(Rect outer, Rect inner) {
+    return inner.x >= outer.x
+        && inner.y >= outer.y
+        && inner.x + inner.w <= outer.x + outer.w
+        && inner.y + inner.h <= outer.y + outer.h;
+}

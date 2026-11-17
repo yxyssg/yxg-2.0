@@ -1,0 +1,273 @@
+import yxg.Utils;
+import yxg.String;
+import yxg.Collections.List;
+import yxg.Session;
+
+pub void parse_pairs(string s, List<string> names, List<string> values, int sep, int eq) {
+    int n = String.len(s);
+    int i = 0;
+    int start = 0;
+    while i <= n {
+        int ch = 0;
+        if i < n {
+            ch = String.charAt(s, i);
+        }
+        if i == n || ch == sep {
+            string pair = _str_to_string(String.sub(s, start, i - start));
+            pair = _str_to_string(String.trim(pair));
+            if String.len(pair) > 0 {
+                int eqpos = String.indexOf(pair, eq);
+                if eqpos >= 0 {
+                    string k = _str_to_string(String.sub(pair, 0, eqpos));
+                    string v = _str_to_string(String.sub(pair, eqpos + 1, String.len(pair) - eqpos - 1));
+                    k = _str_to_string(String.trim(k));
+                    v = _str_to_string(String.trim(v));
+                    names.add(k);
+                    values.add(v);
+                }
+            }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+}
+
+pub class HttpRequest {
+    pub string method;
+    pub string path;
+    pub string version;
+    pub string body;
+
+    pri List<string> hdr_names;
+    pri List<string> hdr_values;
+    pri List<string> qry_names;
+    pri List<string> qry_values;
+    pri List<string> ck_names;
+    pri List<string> ck_values;
+
+    pub Session session;
+    pub bool has_session;
+
+    pub HttpRequest() {
+        method = "";
+        path = "";
+        version = "";
+        body = "";
+        hdr_names = new List<string>();
+        hdr_values = new List<string>();
+        qry_names = new List<string>();
+        qry_values = new List<string>();
+        ck_names = new List<string>();
+        ck_values = new List<string>();
+        session = null;
+        has_session = false;
+    }
+
+    pub string getHeader(string name) {
+        string lname = String.toLowerStr(name);
+        int i = 0;
+        while i < hdr_names.size() {
+            if hdr_names.get(i) == lname {
+                return hdr_values.get(i);
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    pub string getQuery(string name) {
+        int i = 0;
+        while i < qry_names.size() {
+            if qry_names.get(i) == name {
+                return qry_values.get(i);
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    pub string getCookie(string name) {
+        int i = 0;
+        while i < ck_names.size() {
+            if ck_names.get(i) == name {
+                return ck_values.get(i);
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    pub static HttpRequest parse(string raw) {
+        HttpRequest req = new HttpRequest();
+        int rawlen = String.len(raw);
+        if rawlen == 0 {
+            return req;
+        }
+
+        int line1_end = -1;
+        int i = 0;
+        while i < rawlen {
+            int c = String.charAt(raw, i);
+            if c == 10 {
+                line1_end = i;
+                break;
+            }
+            i = i + 1;
+        }
+        if line1_end < 0 {
+            return req;
+        }
+
+        string line1 = _str_to_string(String.sub(raw, 0, line1_end));
+        line1 = _str_to_string(String.trim(line1));
+
+        int sp1 = String.indexOf(line1, 32);
+        if sp1 >= 0 {
+            req.method = _str_to_string(String.sub(line1, 0, sp1));
+
+            int sp2 = -1;
+            int j = sp1 + 1;
+            while j < String.len(line1) {
+                if String.charAt(line1, j) == 32 {
+                    sp2 = j;
+                    break;
+                }
+                j = j + 1;
+            }
+            if sp2 >= 0 {
+                string target = _str_to_string(String.sub(line1, sp1 + 1, sp2 - sp1 - 1));
+                req.version = _str_to_string(String.sub(line1, sp2 + 1, String.len(line1) - sp2 - 1));
+
+                int qpos = String.indexOfStr(target, "?");
+                if qpos >= 0 {
+                    req.path = _str_to_string(String.sub(target, 0, qpos));
+                    string q = _str_to_string(String.sub(target, qpos + 1, String.len(target) - qpos - 1));
+                    parse_pairs(q, req.qry_names, req.qry_values, 38, 61);
+                } else {
+                    req.path = target;
+                }
+            }
+        }
+
+        int p = line1_end + 1;
+        while p < rawlen {
+            int line_end = p;
+            while line_end < rawlen {
+                int c = String.charAt(raw, line_end);
+                if c == 10 { break; }
+                line_end = line_end + 1;
+            }
+            string line = _str_to_string(String.sub(raw, p, line_end - p));
+            line = _str_to_string(String.trim(line));
+            if String.len(line) == 0 {
+                p = line_end + 1;
+                break;
+            }
+            int colon = String.indexOf(line, 58);
+            if colon >= 0 {
+                string name = _str_to_string(String.sub(line, 0, colon));
+                name = _str_to_string(String.toLowerStr(name));
+                string value = _str_to_string(String.sub(line, colon + 1, String.len(line) - colon - 1));
+                value = _str_to_string(String.trim(value));
+                req.hdr_names.add(name);
+                req.hdr_values.add(value);
+            }
+            p = line_end + 1;
+        }
+
+        if p < rawlen {
+            req.body = _str_to_string(String.sub(raw, p, rawlen - p));
+        }
+
+        string ck_raw = req.getHeader("cookie");
+        if String.len(ck_raw) > 0 {
+            parse_pairs(ck_raw, req.ck_names, req.ck_values, 59, 61);
+        }
+
+        return req;
+    }
+}
+
+pub class HttpResponse {
+    pub int status;
+    pub string body;
+
+    pri List<string> hdr_names;
+    pri List<string> hdr_values;
+    pri List<string> set_cookies;
+
+    pub HttpResponse() {
+        status = 200;
+        body = "";
+        hdr_names = new List<string>();
+        hdr_values = new List<string>();
+        set_cookies = new List<string>();
+    }
+
+    pub void setHeader(string name, string value) {
+        string lname = String.toLowerStr(name);
+        int i = 0;
+        while i < hdr_names.size() {
+            if hdr_names.get(i) == lname {
+                hdr_values.set(i, value);
+                return;
+            }
+            i = i + 1;
+        }
+        hdr_names.add(lname);
+        hdr_values.add(value);
+    }
+
+    pub void setCookie(string name, string value) {
+        set_cookies.add(name + "=" + value + "; Path=/");
+    }
+
+    pub void setCookieEx(string name, string value, int max_age) {
+        set_cookies.add(name + "=" + value + "; Max-Age=" + Convert.formatInt(max_age) + "; Path=/");
+    }
+
+    pub void write(string s) {
+        body = body + s;
+    }
+
+    pub string build() {
+        string reason = "OK";
+        if status == 404 { reason = "Not Found"; }
+        else if status == 500 { reason = "Internal Server Error"; }
+        else if status == 400 { reason = "Bad Request"; }
+
+        string resp = "HTTP/1.1 " + Convert.formatInt(status) + " " + reason + "\r\n";
+
+        if !has_header("content-type") {
+            resp = resp + "Content-Type: text/plain\r\n";
+        }
+        if !has_header("content-length") {
+            resp = resp + "Content-Length: " + Convert.formatInt(String.len(body)) + "\r\n";
+        }
+
+        int i = 0;
+        while i < hdr_names.size() {
+            resp = resp + hdr_names.get(i) + ": " + hdr_values.get(i) + "\r\n";
+            i = i + 1;
+        }
+        i = 0;
+        while i < set_cookies.size() {
+            resp = resp + "Set-Cookie: " + set_cookies.get(i) + "\r\n";
+            i = i + 1;
+        }
+        resp = resp + "Connection: close\r\n\r\n";
+        resp = resp + body;
+        return resp;
+    }
+
+    pri bool has_header(string name) {
+        int i = 0;
+        while i < hdr_names.size() {
+            if hdr_names.get(i) == name {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+}

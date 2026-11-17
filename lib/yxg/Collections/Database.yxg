@@ -1,0 +1,159 @@
+import yxg.File;
+import yxg.String;
+
+pub class DbError : ERROR {
+    pub DbError(string msg) {
+        this.info = msg;
+    }
+}
+
+pub class Database {
+    pro int _db;
+    pro bool _ok;
+
+    pub Database(string path) {
+        this._db = _sqlite_open(path, 6);
+        this._ok = (this._db != 0);
+    }
+
+    pub bool isOpen() {
+        return this._ok;
+    }
+
+    pub int handle() {
+        return this._db;
+    }
+
+    pub void close() {
+        if this._ok {
+            _sqlite_close(this._db);
+            this._db = 0;
+            this._ok = false;
+        }
+    }
+
+    pub int exec(string sql) {
+        if !this._ok { return -1; }
+        return _sqlite_exec(this._db, sql);
+    }
+
+    pub Statement prepare(string sql) {
+        if !this._ok { return null; }
+        int stmt = _sqlite_prepare(this._db, sql);
+        if stmt == 0 { return null; }
+        Statement s = new Statement(stmt, this);
+        return s;
+    }
+
+    pub int64 lastInsertId() {
+        if !this._ok { return 0; }
+        return _sqlite_last_insert_rowid(this._db);
+    }
+
+    pub int changes() {
+        if !this._ok { return 0; }
+        return _sqlite_changes(this._db);
+    }
+
+    pub string errmsg() {
+        if !this._ok { return ""; }
+        int ptr = _sqlite_errmsg(this._db);
+        if ptr == 0 { return ""; }
+        return Database._ptrToString(ptr);
+    }
+
+    pro static string _ptrToString(int ptr) {
+        int n = Database._cstrLen(ptr);
+        str s = String.sub("", 0, 0);
+        unsafe int* sp = &s as int*;
+        sp[0] = ptr;
+        sp[1] = n;
+        return _str_to_string(s);
+    }
+
+    pro static int _cstrLen(int ptr) {
+        int n = 0;
+        unsafe char* p = ptr as char*;
+        while p[n] != 0 { n = n + 1; }
+        return n;
+    }
+}
+
+pub class Statement {
+    pro int _stmt;
+    pro Database _db;
+    pro bool _finalized;
+
+    pub Statement(int stmt, Database db) {
+        this._stmt = stmt;
+        this._db = db;
+        this._finalized = false;
+    }
+
+    pub int handle() {
+        return this._stmt;
+    }
+
+    pub void bindInt(int idx, int v) {
+        _sqlite_bind_int(this._stmt, idx, v);
+    }
+
+    pub void bindInt64(int idx, int64 v) {
+        _sqlite_bind_int64(this._stmt, idx, v);
+    }
+
+    pub void bindText(int idx, string v) {
+        _sqlite_bind_text(this._stmt, idx, v);
+    }
+
+    pub void bindNull(int idx) {
+        _sqlite_bind_null(this._stmt, idx);
+    }
+
+    pub int step() {
+        return _sqlite_step(this._stmt);
+    }
+
+    pub void reset() {
+        _sqlite_reset(this._stmt);
+    }
+
+    pub void finalize() {
+        if !this._finalized {
+            _sqlite_finalize(this._stmt);
+            this._stmt = 0;
+            this._finalized = true;
+        }
+    }
+
+    pub int columnInt(int col) {
+        return _sqlite_column_int(this._stmt, col);
+    }
+
+    pub int64 columnInt64(int col) {
+        return _sqlite_column_int64(this._stmt, col);
+    }
+
+    pub string columnText(int col) {
+        int ptr = _sqlite_column_text(this._stmt, col);
+        if ptr == 0 { return ""; }
+        int len = _sqlite_column_bytes(this._stmt, col);
+        return Statement._bytesToString(ptr, len);
+    }
+
+    pub int columnType(int col) {
+        return _sqlite_column_type(this._stmt, col);
+    }
+
+    pub float columnFloat(int col) {
+        return this.columnInt(col) as float;
+    }
+
+    pro static string _bytesToString(int ptr, int len) {
+        str s = String.sub("", 0, 0);
+        unsafe int* sp = &s as int*;
+        sp[0] = ptr;
+        sp[1] = len;
+        return _str_to_string(s);
+    }
+}

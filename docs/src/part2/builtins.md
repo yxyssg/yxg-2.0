@@ -1,14 +1,14 @@
-# 内置函数参考
+﻿# 内置函数参考
 
 ## 概述
 
-YXG 编译器预注册了一系列运行时函数，无需 import 即可直接调用。这些函数提供了基本的 I/O、字符串操作、系统调用等功能。
+YXG 编译器预注册了一系列运行时函数，**无需 import 即可直接调用**。它们提供基本的 I/O、字符串操作、系统调用等功能。
 
 ## 输入输出
 
 ### print
 
-向控制台输出内容，自动识别类型并格式化。print 不需要括号：
+向控制台输出内容，自动识别类型并格式化。`print` 是语句，不需要括号。**逗号分隔的参数之间不会自动加空格，也不会自动换行**：
 
     int main() {
         print "Hello, World!";
@@ -17,8 +17,8 @@ YXG 编译器预注册了一系列运行时函数，无需 import 即可直接�
         print true;
         print 'A';
 
-        // 多个参数，自动用空格分隔
-        print "The answer is", 42;
+        // 多个参数：不加空格，要空格自己写
+        print "The answer is ", 42;
 
         // 打印数组
         int[] nums = {1, 2, 3};
@@ -39,82 +39,151 @@ YXG 编译器预注册了一系列运行时函数，无需 import 即可直接�
 
 ### input
 
-从控制台读取输入。使用 {} 作为占位符，变量需用 & 取地址：
+从标准输入读取一行，按空格/制表符切分，依次填入变量。
 
-    int main() {
+**语法**：
+
+    input(变量1, 变量2, ...);
+
+括号内是**变量名**，不是表达式，也不需要 `&` 取地址。
+
+**基本用法**：
+
+    pub void main() {
         int age;
         string name;
-
-        print "请输入姓名和年龄:";
-        input("{}{}", &name, &age);
-
-        print "姓名:", name;
-        print "年龄:", age;
-
-        return 0;
+        input(age, name);
+        print "age=", age, " name=", name, "\n";
     }
 
-input 的第一个参数是格式字符串，{} 按顺序对应后面的变量地址。支持的类型包括 int、float、char、string、bool。
+输入：
+
+    42 alice
+
+输出：
+
+    age=42 name=alice
+
+**类型转换规则**
+
+`input` 按每个变量**声明时的类型**解析，不是根据输入内容推断。解析失败时取默认值：
+
+| 变量类型 | 期望输入 | 解析失败时的值 |
+|---|---|---|
+| `int` / `uint` / `int64` / `uint64` | 十进制整数 | `0` |
+| `float` / `ufloat` | 浮点数（`3.14`、`-2.5`） | `0.0` |
+| `char` | 单个字符（取首字符） | `\0` |
+| `string` | 整个 token | 空串 |
+| `bool` | `true` / `false` / `0` / `1` | `false` |
+
+token 分隔符是空格和制表符，**换行结束本次输入**。
+
+**多行输入**
+
+每次 `input(...)` 读一行。要读多行就调用多次：
+
+    pub void main() {
+        int n;
+        input(n);
+        int i = 0;
+        while i < n {
+            int x;
+            input(x);
+            print "x=", x, "\n";
+            i = i + 1;
+        }
+    }
+
+输入：
+
+    3
+    10
+    20
+    30
+
+输出：
+
+    x=10
+    x=20
+    x=30
+
+> **注意**：`input` 依赖 Windows 控制台 API（`ReadConsoleW`），必须在真实控制台窗口运行。用管道或重定向喂入数据不会被读取，变量会保持原值。这在自动化测试里容易踩坑。
 
 ## 字符串格式化
 
 ### format
 
-格式化字符串并返回结果。使用 {} 作为占位符，按顺序填充参数：
+格式化字符串并返回 `string`。模板里的 `{}` 按顺序被后面的参数替换。
 
-    int main() {
-        string result = format("姓名:{}, 年龄:{}", "Alice", 25);
-        print result;
+**语法**：
 
-        return 0;
+    format("模板 {} {} ...", 值1, 值2, ...)
+
+`input` 是「从输入解析到变量」，`format` 正好相反——「从变量拼字符串」。
+
+**基本用法**：
+
+    pub void main() {
+        int a = 42;
+        string b = "hello";
+        float c = 3.14;
+        string s = format("a={}, b={}, c={}", a, b, c);
+        print s, "\n";
     }
 
 输出：
 
-    姓名:Alice, 年龄:25
+    a=42, b=hello, c=3.140000
 
-任何类型均可自动填入 {}：
+**类型映射**
 
-    print format("金币:{}", 100.5);
-    print format("等级:{}", "A");
-    print format("在线:{}", true);
+`format` 内部按运行时类型码处理：
 
-格式控制（在 {} 内用 : 后接格式说明符）：
+| YXG 类型 | 运行时类型码 | 输出形式 |
+|---|---|---|
+| `int` / `int8` / `int16` / `int32` / `int64` / `int128` | 0 | 十进制 |
+| `uint` / `uint64` 等 | 5 | 十进制无符号 |
+| `float` / `float64` 等 | 1 | `%f` 风格（如 `3.140000`） |
+| `ufloat` 系列 | 6 | 无符号浮点 |
+| `char` | 2 | 单字符 |
+| `string` / `str` | 3 | 字符串 |
+| `bool` | 4 | `true` / `false` |
 
-指定进制输出（参数需为整数）：
+实测各类型的输出：
 
-    print format("{:x}", 255);      // ff（十六进制小写）
-    print format("{:X}", 255);      // FF（十六进制大写）
-    print format("{:o}", 255);      // 377（八进制）
-    print format("{:b}", 255);      // 11111111（二进制）
-    print format("{:d}", 255);      // 255（十进制）
+    pub void main() {
+        print "[", format("{}", 3.14), "]\n";      // [3.140000]
+        print "[", format("{}", true), "]\n";      // [true]
+        print "[", format("{}", false), "]\n";     // [false]
+        print "[", format("{}", 'A'), "]\n";       // [A]
+        print "[", format("{}", 42), "]\n";        // [42]
+        print "[", format("{}", "str"), "]\n";     // [str]
+        print "[", format("{} {}", 1, 2), "]\n";   // [1 2]
+    }
 
-浮点数精度控制：
+**占位符数量与参数数量**
 
-    print format("{:.2f}", 3.14159);   // 3.14
-    print format("{:.0f}", 3.14159);   // 3
-    print format("{:.6f}", 3.0);       // 3.000000
+占位符按顺序消耗参数。模板里的 `{}` 多于实际参数时会读越界，少于实际参数时多余参数被忽略。**请保证两者数量一致。**
 
-定宽零填充整数：
+模板里没有 `{}` 时，参数不参与拼接：
 
-    print format("{:04d}", 7);         // 0007
-    print format("{:08x}", 255);       // 000000ff
-    print format("{:08X}", 255);       // 000000FF
-    print format("{:08b}", 5);         // 00000101
+    print format("no placeholder", 5);    // no placeholder
 
-转义花括号（连续两个花括号表示字面花括号）：
+**花括号转义**
 
-    print format("{{}}是占位符");       // {}是占位符
-    print format("A{}B", 1);           // A1B
+连续两个花括号表示一个字面花括号：
 
-综合示例：
+    print format("{{}}", 0);     // {}
 
-    print format("价格:{:.1f} 编号:{:07d}", 99.95, 42);
-    // 输出: 价格:100.0 编号:0000042
+**关于格式说明符**
+
+早期文档里写过 `{:x}`、`{:.2f}`、`{:04d}` 这类「`{}` 内加格式说明符」的写法。**这不是 `format` 的受支持语法**，`{}` 之间不应放任何字符。需要定宽或进制转换时，请用 `String` 库或自己写转换函数。
+
+> 当前实现里 `{:x}` / `{:X}` / `{:o}` / `{:b}` / `{:d}` / `{:.2f}` / `{:04d}` 恰好能被识别，但这属于实现细节，不保证跨版本稳定，不要依赖。
 
 ## 字符串操作函数
 
-这些函数可以直接调用，不过推荐使用 String 标准库的封装方法。
+这些是底层函数，**推荐使用 `String` 标准库的封装**（`String.len(s)` 等），语义更清楚。
 
 ### _str_length
 
@@ -122,100 +191,100 @@ input 的第一个参数是格式字符串，{} 按顺序对应后面的变量�
 
     int main() {
         string s = "Hello";
-        int len = _str_length(s);
-        print len;                   // 5
+        print _str_length(s);        // 5
         return 0;
     }
 
 ### _str_char_at
 
-返回字符串指定位置的字符（ASCII 码）：
+返回指定位置的字符的 ASCII 码：
 
     int main() {
         string s = "Hello";
-        int ch = _str_char_at(s, 0);
-        print ch;                    // 72（'H'）
+        print _str_char_at(s, 0);    // 72（'H'）
         return 0;
     }
 
 ### _str_substring
 
-提取子串：
+提取子串，参数为「原字符串、起始索引、长度」：
 
     int main() {
         string s = "Hello, World!";
-        string sub = _str_substring(s, 0, 5);
-        print sub;                   // Hello
+        print _str_substring(s, 0, 5);   // Hello
         return 0;
     }
 
-参数依次为：原字符串、起始索引、长度。
+### 字符串拼接：用 `+` 运算符
 
-### _str_concat
+**`_str_concat` 不是「返回新字符串」的函数**，它是 C 风格的原地 `strcat(dest, src)`：把 `src` 写到 `dest` 末尾并返回 `dest`。
 
-拼接两个字符串：
+所以下面这样用会崩溃（`dest` 是只读字符串字面量，写入触发访问违例）：
 
-    int main() {
-        string result = _str_concat("Hello, ", "World!");
-        print result;                // Hello, World!
-        return 0;
-    }
+    // 错误：会崩溃
+    string x = _str_concat("Hello, ", "World!");
 
-### _str_equal / _str_not_equal
-
-比较两个字符串是否相等：
+拼接字符串请直接用 `+` 运算符：
 
     int main() {
-        bool eq = _str_equal("abc", "abc");
-        bool ne = _str_not_equal("abc", "def");
-
-        print eq;                    // true
-        print ne;                    // true
+        string p = "Hello, ";
+        string q = "World!";
+        print p + q, "\n";        // Hello, World!
+        print "x" + "y", "\n";    // xy
         return 0;
     }
 
 ### _char_to_str
 
-将字符转换为字符串：
+字符转字符串：
 
     int main() {
-        string s = _char_to_str('A');
-        print s;                     // A
+        print _char_to_str('A');      // A
         return 0;
     }
 
 ### _str_plus_char
 
-字符串拼接字符：
+字符串 + 字符：
 
     int main() {
-        string s = _str_plus_char("Hello", '!');
-        print s;                     // Hello!
+        print _str_plus_char("Hello", '!');   // Hello!
         return 0;
     }
 
 ### _char_plus_str
 
-字符拼接字符串：
+字符 + 字符串：
 
     int main() {
-        string s = _char_plus_str('A', "BC");
-        print s;                     // ABC
+        print _char_plus_str('A', "BC");      // ABC
+        return 0;
+    }
+
+### 字符串比较
+
+`_str_equal` / `_str_not_equal` **在当前版本中不存在**。字符串比较直接用 `==` / `!=` 运算符：
+
+    int main() {
+        string a = "abc";
+        string b = "abc";
+        if a == b {
+            print "equal\n";
+        }
         return 0;
     }
 
 ## 数组操作
 
-### _array_to_string
-
-将数组转换为字符串表示：
+**没有 `_array_to_string` 这个内置函数。** `print` 自己就会把数组格式化成 `[1, 2, 3]`：
 
     int main() {
         int[] nums = {1, 2, 3, 4, 5};
-        string s = _array_to_string(nums);
-        print s;                     // [1, 2, 3, 4, 5]
+        print nums;              // [1, 2, 3, 4, 5]
         return 0;
     }
+
+需要字符串形式时，可以先 print 或者用 `String` 库手动拼接。
 
 ## 系统函数
 
@@ -224,7 +293,7 @@ input 的第一个参数是格式字符串，{} 按顺序对应后面的变量�
 退出程序并返回退出码：
 
     int main() {
-        print "程序即将退出";
+        print "即将退出";
         _system_exit(0);
         print "这行不会执行";
         return 0;
@@ -232,11 +301,11 @@ input 的第一个参数是格式字符串，{} 按顺序对应后面的变量�
 
 ### _system_sleep
 
-暂停程序执行指定毫秒数：
+暂停指定毫秒数：
 
     int main() {
         print "等待中...";
-        _system_sleep(1000);         // 暂停 1 秒
+        _system_sleep(1000);     // 暂停 1 秒
         print "完成";
         return 0;
     }
@@ -246,18 +315,16 @@ input 的第一个参数是格式字符串，{} 按顺序对应后面的变量�
 返回当前 Unix 时间戳（秒）：
 
     int main() {
-        int now = _system_time();
-        print "当前时间戳:", now;
+        print "当前时间戳:", _system_time();
         return 0;
     }
 
 ### _system_getenv
 
-获取环境变量的值：
+读取环境变量：
 
     int main() {
-        string path = _system_getenv("PATH");
-        print "PATH:", path;
+        print "PATH:", _system_getenv("PATH");
         return 0;
     }
 
@@ -266,38 +333,56 @@ input 的第一个参数是格式字符串，{} 按顺序对应后面的变量�
 执行系统命令并返回退出码：
 
     int main() {
-        int result = _system_call("dir");
-        print "命令退出码:", result;
+        print "退出码:", _system_call("dir");
         return 0;
     }
 
+## 命令行参数
+
+### 推荐写法：main 的参数
+
+最直接的方式是让 `main` 接收 `string[] args`：
+
+    pub void main(string[] args) {
+        print "参数个数: ", args.length, "\n";
+        int i = 0;
+        while i < args.length {
+            print i, ": ", args[i], "\n";
+            i = i + 1;
+        }
+    }
+
+`args[0]` 是程序自身路径，`args.length` 包含程序名。
+
 ### _GetCommandLineArgc
 
-返回命令行参数个数（包括程序名）：
+返回命令行参数个数（含程序名）：
 
     int main() {
-        int count = _GetCommandLineArgc();
-        print "参数个数:", count;
+        print "参数个数:", _GetCommandLineArgc();
         return 0;
     }
 
 ### _GetCommandLineArgv
 
-返回指定索引的命令行参数：
+**无参数**，返回整个 argv 指针数组：
 
     int main() {
-        string arg0 = _GetCommandLineArgv(0);
-        print "程序名:", arg0;
+        int argv = _GetCommandLineArgv();   // 返回指针
         return 0;
     }
 
+> 注意：它不接受索引参数。要按索引取单个参数请用 `_sys_argv_at(i)` 或者直接用 `main(string[] args)`。
+
 ### _sys_argv_at
 
-返回指定索引的命令行参数（与 _GetCommandLineArgv 功能相同）：
+按索引取命令行参数：
 
     int main() {
-        for int i = 0; i < _GetCommandLineArgc(); i++ {
-            print "argv[", i, "] =", _sys_argv_at(i);
+        int i = 0;
+        while i < _GetCommandLineArgc() {
+            print "argv[", i, "] = ", _sys_argv_at(i), "\n";
+            i = i + 1;
         }
         return 0;
     }
@@ -326,36 +411,47 @@ input 的第一个参数是格式字符串，{} 按顺序对应后面的变量�
 
 ## 浮点运算辅助函数
 
-这些函数用于浮点数的比较和取模，通常由编译器自动生成调用，用户一般不需要直接使用：
+以下函数用于浮点比较和取模，通常由编译器在需要时自动生成调用，用户一般不需要直接写：
 
 | 函数 | 说明 |
-|------|------|
-| _fgt(a, b) | 浮点大于比较 |
-| _fge(a, b) | 浮点大于等于比较 |
-| _feq(a, b) | 浮点等于比较 |
-| _fne(a, b) | 浮点不等于比较 |
-| _fle(a, b) | 浮点小于等于比较 |
-| _flt(a, b) | 浮点小于比较 |
-| _fmod_fpu(a, b) | 浮点取模 |
+|---|---|
+| `_fgt(a, b)` | 浮点大于比较 |
+| `_fge(a, b)` | 浮点大于等于比较 |
+| `_feq(a, b)` | 浮点等于比较 |
+| `_fne(a, b)` | 浮点不等于比较 |
+| `_fle(a, b)` | 浮点小于等于比较 |
+| `_flt(a, b)` | 浮点小于比较 |
+| `_fmod_fpu(a, b)` | 浮点取模 |
 
-## 内置函数与标准库对比
+## 内置函数与标准库对照
 
-很多内置函数在标准库中有更友好的封装：
+标准库对常用功能做了静态方法封装，推荐优先使用：
 
-| 内置函数 | 标准库方法 |
-|----------|-----------|
-| _str_length(s) | String str = new String(); str.len(s) |
-| _str_char_at(s, i) | str.charAt(s, i) |
-| _str_substring(s, start, len) | str.sub(s, start, len) |
-| _str_concat(a, b) | a + b（使用运算符） |
-| _system_exit(code) | System sys = new System(); sys.exit(code) |
-| _system_time() | sys.time() |
-| _system_sleep(ms) | sys.sleep(ms) |
-| _GetCommandLineArgc() | sys.argc() |
-| _sys_argv_at(i) | sys.argv(i) |
+| 内置函数 | 标准库写法 |
+|---|---|
+| `_str_length(s)` | `String.len(s)` |
+| `_str_char_at(s, i)` | `String.charAt(s, i)` |
+| `_str_substring(s, start, len)` | `String.sub(s, start, len)` |
+| `_str_concat(a, b)` | `a + b`（运算符） |
+| `_system_exit(code)` | `System.exit(code)` |
+| `_system_time()` | `System.time()` |
+| `_system_sleep(ms)` | `System.sleep(ms)` |
+| `_GetCommandLineArgc()` | `System.argc()` |
+| `_sys_argv_at(i)` | `System.argv(i)` |
 
-建议优先使用标准库，代码更清晰易读。
+标准库需要先 `import`：
+
+    import yxg.String;
+    import yxg.System;
+
+    int main() {
+        print String.len("hello"), "\n";
+        print System.time(), "\n";
+        return 0;
+    }
+
+注意这些都是 **`static` 方法**，用 `类名.方法()` 调用，不要通过实例调用。
 
 ## 继续阅读
 
-至此，YXG 语言参考部分全部结束。下一部分将深入编译器内部，从整体架构开始讲解。
+至此，YXG 语言参考部分结束。下一部分将深入编译器内部，从整体架构开始讲解。

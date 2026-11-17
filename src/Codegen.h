@@ -13,26 +13,53 @@ extern bool has_format;
 extern bool has_input;
 extern bool has_system_lib;
 extern bool has_gc;
+extern bool has_unsafe_lib;
+extern bool has_64bit_ops;
+extern bool has_exception_lib;
+extern bool has_file_lib;
+extern bool has_socket_lib;
+extern bool has_window_lib;
+extern bool has_image_lib;
+extern bool has_music_lib;
+extern bool has_video_lib;
+extern bool has_time_lib;
+extern bool has_thread_lib;
+extern bool has_sync_lib;
+extern bool has_function_lib;
+extern bool has_sqlite;
 
 #define MAX_TEMPS 256
 static char* temp_names[MAX_TEMPS];
 static DataType temp_types[MAX_TEMPS];
 static int temp_count = 0;
 
-typedef struct {
-    char** names;      // 临时变量名
-    DataType* types;   // 对应的数据类型
+typedef struct TEMPMAP {
+    char** names;
+    DataType* types;
+    int* offsets;
+    bool* is_dynamic_arrays;
+    int* array_sizes;
     int count;
     int capacity;
 } TempMap;
 
 static TempMap temp_map = {NULL, NULL, 0, 0};
 
-typedef enum StorageClass {
+typedef enum STORAGECLASS {
     STORAGE_GLOBAL,
     STORAGE_PARAM,
-    STORAGE_LOCAL
+    STORAGE_LOCAL,
+    STORAGE_STATIC_LOCAL,
+    STORAGE_STATIC_GUARD,
 } StorageClass;
+
+typedef struct GLOBALARRAYINIT {
+    char* name;
+    int   count;
+    int*  values;
+    DataType elem_type;
+    struct GLOBALARRAYINIT* next;
+} GlobalArrayInit;
 
 typedef enum VAR_TYPE
 {
@@ -55,6 +82,8 @@ typedef struct CONST
 
     StorageClass* storage;
     int* offset;
+
+    bool* is_dynamic_array;
 }Const;
 
 typedef struct {
@@ -70,6 +99,8 @@ int get_const(char* name);
 void add_symbol(DataType type, char* value, char* name,
                 Var_Type var_type, DataType value_type,
                 StorageClass storage, int offset,
-                bool is_array, int array_size);
+                bool is_array, int array_size,bool is_dynamic_array);
+void temp_map_compute_offsets(void);
+int  temp_map_get_offset(const char* name);
 void codegen_cleanup(void);
 #endif

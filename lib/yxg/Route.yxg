@@ -1,0 +1,188 @@
+import yxg.ThreadPool;
+import yxg.Collections.List;
+import yxg.String;
+import yxg.Utils;
+import yxg.File;
+
+pub class StaticMount {
+    pub string prefix;
+    pub string dir;
+}
+
+pub class MimeTypes {
+    pub static string of(string path) {
+        if String.endsWith(path, ".html") || String.endsWith(path, ".htm") { return "text/html; charset=utf-8"; }
+        if String.endsWith(path, ".css") { return "text/css; charset=utf-8"; }
+        if String.endsWith(path, ".js") { return "application/javascript; charset=utf-8"; }
+        if String.endsWith(path, ".json") { return "application/json; charset=utf-8"; }
+        if String.endsWith(path, ".txt") { return "text/plain; charset=utf-8"; }
+        if String.endsWith(path, ".xml") { return "application/xml; charset=utf-8"; }
+        if String.endsWith(path, ".svg") { return "image/svg+xml"; }
+        if String.endsWith(path, ".png") { return "image/png"; }
+        if String.endsWith(path, ".jpg") || String.endsWith(path, ".jpeg") { return "image/jpeg"; }
+        if String.endsWith(path, ".gif") { return "image/gif"; }
+        if String.endsWith(path, ".ico") { return "image/x-icon"; }
+        if String.endsWith(path, ".webp") { return "image/webp"; }
+        if String.endsWith(path, ".woff") { return "font/woff"; }
+        if String.endsWith(path, ".woff2") { return "font/woff2"; }
+        if String.endsWith(path, ".ttf") { return "font/ttf"; }
+        if String.endsWith(path, ".otf") { return "font/otf"; }
+        if String.endsWith(path, ".mp4") { return "video/mp4"; }
+        if String.endsWith(path, ".mp3") { return "audio/mpeg"; }
+        if String.endsWith(path, ".pdf") { return "application/pdf"; }
+        return "application/octet-stream";
+    }
+}
+
+pub class Route {
+    pub string method;
+    pub string path;
+    pub string[] segs;
+    pub TPHandler handler;
+}
+
+pub class Router : TPHandler {
+    pri List<Route> routes;
+    pri List<StaticMount> statics;
+
+    pub Router() {
+        this.routes = new List<Route>();
+        this.statics = new List<StaticMount>();
+    }
+
+    pub void get(string path, TPHandler h) {
+        this.add("GET", path, h);
+    }
+
+    pub void post(string path, TPHandler h) {
+        this.add("POST", path, h);
+    }
+
+    pub void put(string path, TPHandler h) {
+        this.add("PUT", path, h);
+    }
+
+    pub void del(string path, TPHandler h) {
+        this.add("DELETE", path, h);
+    }
+
+    pub void mount(string prefix, string dir) {
+        StaticMount m = new StaticMount();
+        m.prefix = prefix;
+        m.dir = dir;
+        this.statics.add(m);
+    }
+
+    pub void add(string method, string path, TPHandler h) {
+        Route r = new Route();
+        r.method = method;
+        r.path = path;
+        r.segs = String.split(path, "/");
+        r.handler = h;
+        this.routes.add(r);
+    }
+
+    pub override void handle(TPRequest req, TPResponse res) {
+        if req.method == "GET" {
+            int si = 0;
+            while si < this.statics.size() {
+                StaticMount m = this.statics.get(si);
+                bool prefix_match = false;
+                if String.startsWith(req.path, m.prefix) {
+                    int rlen = String.len(req.path);
+                    int plen = String.len(m.prefix);
+                    if rlen == plen {
+                        prefix_match = true;
+                    } else if String.charAt(req.path, plen) == 47 {
+                        prefix_match = true;
+                    }
+                }
+                if prefix_match {
+                    int plen = String.len(m.prefix);
+                    int rel_len = String.len(req.path) - plen;
+                    string rel = String.sub(req.path, plen, rel_len);
+                    if String.len(rel) > 0 && String.charAt(rel, 0) == 47 {
+                        rel = String.sub(rel, 1, String.len(rel) - 1);
+                    }
+                    if String.len(rel) == 0 {
+                        res.status = 404;
+                        res.text("404 Not Found");
+                        return;
+                    }
+                    string[] relSegs = String.split(rel, "/");
+                    int rsi = 0;
+                    bool bad = false;
+                    while rsi < relSegs.length {
+                        if relSegs[rsi] == ".." {
+                            bad = true;
+                            break;
+                        }
+                        rsi = rsi + 1;
+                    }
+                    if bad {
+                        res.status = 403;
+                        res.text("403 Forbidden");
+                        return;
+                    }
+                    string full = File.pathJoin(m.dir, rel);
+                    if !File.exists(full) || File.isDir(full) {
+                        res.status = 404;
+                        res.text("404 Not Found");
+                        return;
+                    }
+                    string data = File.readAllBytes(full);
+                    res.status = 200;
+                    res.headers = "Content-Type: " + MimeTypes.of(full) + "\r\n";
+                    res.body = data;
+                    return;
+                }
+                si = si + 1;
+            }
+        }
+
+        string[] reqSegs = String.split(req.path, "/");
+        int i = 0;
+        while i < this.routes.size() {
+            Route r = this.routes.get(i);
+            if r.method == req.method {
+                if r.segs.length == reqSegs.length {
+                    bool match = true;
+                    int j = 0;
+                    while j < r.segs.length {
+                        string pat = r.segs[j];
+                        string got = reqSegs[j];
+                        if String.len(pat) > 0 && String.charAt(pat, 0) == 58 {
+                            j = j + 1;
+                            continue;
+                        }
+                        if pat != got {
+                            match = false;
+                            break;
+                        }
+                        j = j + 1;
+                    }
+                    if match {
+                        req.paramNames.clear();
+                        req.paramValues.clear();
+                        j = 0;
+                        while j < r.segs.length {
+                            string pat = r.segs[j];
+                            if String.len(pat) > 0 && String.charAt(pat, 0) == 58 {
+                                string name = String.sub(pat, 1, String.len(pat) - 1);
+                                string got = reqSegs[j];
+                                req.paramNames.add(name);
+                                req.paramValues.add(got);
+                            }
+                            j = j + 1;
+                        }
+                        r.handler.handle(req, res);
+                        return;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        res.status = 404;
+        res.text("404 Not Found");
+    }
+}

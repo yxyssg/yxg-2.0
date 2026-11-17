@@ -1,0 +1,49 @@
+import yxg.Collections.Container;
+
+pub class <T> Stack : Container {
+    pub Stack() {
+        _init(64, sizeof(T));
+    }
+
+    pro unsafe T* _arr() {
+        return _buf;
+    }
+
+    pub void push(T item) {
+        if _len >= _cap {
+            int nc = _cap * 2;
+            if nc < 8 {
+                nc = 8;
+            }
+            _grow(nc);
+        }
+        unsafe T* d = _arr();
+        d[_len] = item;
+        _len = _len + 1;
+    }
+
+    pub T pop() {
+        if _len <= 0 {
+            throw new ContainerError("stack is empty");
+        }
+        _len = _len - 1;
+        unsafe T* d = _arr();
+        return d[_len];
+    }
+
+    pub T peek() {
+        if _len <= 0 {
+            throw new ContainerError("stack is empty");
+        }
+        unsafe T* d = _arr();
+        return d[_len - 1];
+    }
+
+    pub T get(int i) {
+        if i < 0 || i >= _len {
+            throw new ContainerError("stack index out of range");
+        }
+        unsafe T* d = _arr();
+        return d[i];
+    }
+}

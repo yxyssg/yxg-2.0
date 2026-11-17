@@ -1,4 +1,4 @@
-# 函数
+﻿# 函数
 
 ## 定义函数
 
@@ -17,7 +17,7 @@
 
     int main() {
         int result = add(3, 5);
-        print "3 + 5 =", result;
+        print "3 + 5 = ", result, "\n";
         return 0;
     }
 
@@ -25,18 +25,20 @@
 
     3 + 5 = 8
 
+print 语句本身不插入空格也不换行，输出中的空格和换行都来自字符串字面量里的 `" "` 和 `"\n"`。
+
 ## 参数
 
 函数可以接收零个或多个参数，每个参数需要声明类型和名称：
 
     // 无参数
     void sayHello() {
-        print "Hello!";
+        print "Hello!\n";
     }
 
     // 一个参数
     void greet(string name) {
-        print "Hello,", name;
+        print "Hello, ", name, "\n";
     }
 
     // 多个参数
@@ -52,9 +54,15 @@
         sayHello();
         greet("Alice");
         int m = max(10, 25, 15);
-        print "最大值:", m;
+        print "最大值: ", m, "\n";
         return 0;
     }
+
+输出：
+
+    Hello!
+    Hello, Alice
+    最大值: 25
 
 ## 返回值
 
@@ -81,13 +89,14 @@ void 函数没有返回值，return 语句可选：
     void printTwice(string s) {
         print s;
         print s;
+        print "\n";
     }
 
     void maybeReturn(int x) {
         if x < 0 {
             return;
         }
-        print "x is non-negative:", x;
+        print "x is non-negative: ", x, "\n";
     }
 
 ## 数组参数与返回值
@@ -113,11 +122,11 @@ void 函数没有返回值，return 语句可选：
     int main() {
         int[] nums = {1, 2, 3, 4, 5};
         int s = sum(nums);
-        print "总和:", s;
+        print "总和: ", s, "\n";
 
         int[] evens = makeArray(5);
         for int v : evens {
-            print v;
+            print v, "\n";
         }
 
         return 0;
@@ -132,19 +141,19 @@ void 函数没有返回值，return 语句可选：
     6
     8
 
-多维数组也可以作为参数：
+多维数组也可以作为参数。注意多维数组的 foreach 不好用，直接按下标遍历即可：
 
     void printMatrix(int[][] matrix) {
-        for int[] row : matrix {
-            for int elem : row {
-                print elem;
+        for int row = 0; row < matrix.length; row++ {
+            for int col = 0; col < matrix[row].length; col++ {
+                print matrix[row][col], "\n";
             }
         }
     }
 
-## 函数重载
+## 函数同名
 
-YXG 不支持函数重载。同一作用域内函数名必须唯一：
+YXG 不支持函数重载。同一作用域内函数名必须唯一，重复定义报 `error[E3002]: duplicate function 'add'`：
 
     // int add(int a, int b) { return a + b; }
     // float add(float a, float b) { return a + b; }   // 错误！重复定义
@@ -173,8 +182,8 @@ YXG 不支持函数重载。同一作用域内函数名必须唯一：
     }
 
     int main() {
-        print "5! =", factorial(5);
-        print "fib(7) =", fibonacci(7);
+        print "5! = ", factorial(5), "\n";
+        print "fib(7) = ", fibonacci(7), "\n";
         return 0;
     }
 
@@ -192,7 +201,7 @@ main 函数是程序的入口点，每个程序必须有且仅有一个。返回
 ### 无参数版本
 
     int main() {
-        print "Hello, YXG!";
+        print "Hello, YXG!\n";
         return 0;
     }
 
@@ -201,9 +210,9 @@ main 函数是程序的入口点，每个程序必须有且仅有一个。返回
 main 函数可以声明为接收 string[] 参数来获取命令行参数：
 
     int main(string[] args) {
-        print "参数个数:", args.length;
+        print "参数个数: ", args.length, "\n";
         for int i = 0; i < args.length; i++ {
-            print "args[", i, "] =", args[i];
+            print "args[", i, "] = ", args[i], "\n";
         }
         return 0;
     }
@@ -212,21 +221,19 @@ args[0] 始终是程序自身的路径，后续元素是用户传递的参数。
 
 ### 通过 System 库获取命令行参数
 
-除了在 main 函数签名中声明参数外，也可以使用 System 标准库在程序的任何位置获取命令行参数：
+除了在 main 函数签名中声明参数外，也可以使用 System 标准库在程序的任何位置获取命令行参数。System 的所有成员都是 static，直接通过类名 `System.xxx()` 调用，不要 new：
 
     import yxg.System;
 
     int main() {
-        System sys = new System();
-
-        int count = sys.argc();
-        print "参数个数:", count;
+        int count = System.argc();
+        print "参数个数: ", count, "\n";
 
         for int i = 0; i < count; i++ {
-            print "argv[", i, "] =", sys.argv(i);
+            print "argv[", i, "] = ", System.argv(i), "\n";
         }
 
-        sys.printArgs();
+        System.printArgs();
 
         return 0;
     }
@@ -236,21 +243,19 @@ System 库还提供了其他系统功能：
     import yxg.System;
 
     int main() {
-        System sys = new System();
-
-        int result = sys.system("dir");
-        int now = sys.time();
-        print "当前时间戳:", now;
-        sys.sleep(1000);
-        string path = sys.env("PATH");
-        print "PATH:", path;
+        int result = System.system("dir");
+        int now = System.time();
+        print "当前时间戳: ", now, "\n";
+        System.sleep(1000);
+        string path = System.env("PATH");
+        print "PATH: ", path, "\n";
 
         return 0;
     }
 
-## 函数声明与定义顺序
+## 函数定义顺序
 
-YXG 要求函数先定义后使用。如果函数 A 调用函数 B，B 必须在 A 之前定义：
+函数的定义与调用顺序没有强制要求。在 main 中调用的函数，只要在同一个文件里出现，无论写在 main 之前还是之后都能编译：
 
     int add(int a, int b) {
         return a + b;
@@ -258,15 +263,15 @@ YXG 要求函数先定义后使用。如果函数 A 调用函数 B，B 必须在
 
     int main() {
         int result = add(3, 5);
-        print result;
+        print result, "\n";
         return 0;
     }
 
-如果顺序反了会报错：
+把 add 写在 main 后面，输出同样是 `8`：
 
     int main() {
-        int result = add(3, 5);    // 错误！add 尚未定义
-        print result;
+        int result = add(3, 5);
+        print result, "\n";
         return 0;
     }
 
@@ -274,11 +279,19 @@ YXG 要求函数先定义后使用。如果函数 A 调用函数 B，B 必须在
         return a + b;
     }
 
+真正会报错的是「调用了根本不存在的函数」：
+
+    int main() {
+        int result = add(3, 5);    // 错误！没有定义 add
+        print result;
+        return 0;
+    }
+
 编译器报错：
 
     error[E3008]: function 'add' is not declared
 
-YXG 没有前向声明机制。解决循环调用的方法是合理组织代码顺序，或将相互调用的函数放在同一个类中。
+当函数分散在多个文件时，需要 import 对应的模块（见模块一章）。
 
 ## 局部变量与作用域
 
@@ -286,7 +299,7 @@ YXG 没有前向声明机制。解决循环调用的方法是合理组织代码�
 
     void myFunc() {
         int x = 10;
-        print x;
+        print x, "\n";
     }
 
     int main() {
@@ -299,13 +312,13 @@ YXG 没有前向声明机制。解决循环调用的方法是合理组织代码�
 
     void test(int n) {
         n = n + 1;
-        print "函数内:", n;
+        print "函数内: ", n, "\n";
     }
 
     int main() {
         int a = 5;
         test(a);
-        print "函数外:", a;
+        print "函数外: ", a, "\n";
         return 0;
     }
 
@@ -331,7 +344,7 @@ YXG 没有前向声明机制。解决循环调用的方法是合理组织代码�
         doubleElements(nums);
 
         for int v : nums {
-            print v;
+            print v, "\n";
         }
 
         return 0;
@@ -366,7 +379,7 @@ YXG 没有前向声明机制。解决循环调用的方法是合理组织代码�
 
 编译器报错：
 
-    error[E3019]: non-void function must return a value
+    error[E3019]: not all control paths return a value in function 'getValue'
 
 ### 参数数量不匹配
 
@@ -379,11 +392,11 @@ YXG 没有前向声明机制。解决循环调用的方法是合理组织代码�
 
 编译器报错：
 
-    error[E3009]: function 'add' expects 2 argument(s), got 1
+    error[E3009]: no matching function 'add' for 1 argument(s)
 
 ### 参数类型不匹配
 
-    void printNumber(int n) { print n; }
+    void printNumber(int n) { print n, "\n"; }
 
     int main() {
         printNumber("hello");        // 错误！
@@ -392,7 +405,9 @@ YXG 没有前向声明机制。解决循环调用的方法是合理组织代码�
 
 编译器报错：
 
-    error[E3003]: type mismatch: expected 'int', got 'string'
+    error[E3009]: no matching function 'printNumber' for 1 argument(s)
+
+参数类型不对时同样报 E3009（参数匹配失败），不会给出单独的「类型不匹配」编号。
 
 ## 继续阅读
 

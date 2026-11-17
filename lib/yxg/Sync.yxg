@@ -1,0 +1,85 @@
+// ============================================================
+// yxg.Sync — 线程同步原语
+// ============================================================
+
+pub class Mutex {
+    pro int handle;
+
+    pub Mutex() {
+        handle = _sync_mutex_create();
+    }
+
+    pub bool isValid() {
+        return handle != 0;
+    }
+
+
+    pub void lock() {
+        _sync_mutex_lock(handle);
+    }
+
+    pub void unlock() {
+        _sync_mutex_unlock(handle);
+    }
+
+    pub void destroy() {
+        if handle != 0 {
+            _sync_mutex_destroy(handle);
+            handle = 0;
+        }
+    }
+}
+
+pub class Event {
+    pro int handle;
+
+    pub Event() {
+        handle = _sync_event_create();
+    }
+
+    pub void set() {
+        _sync_event_set(handle);
+    }
+
+    pub void reset() {
+        _sync_event_reset(handle);
+    }
+
+    pub void wait() {
+        _sync_event_wait(handle);
+    }
+
+    pub int waitTimeout(int ms) {
+        return _sync_event_wait_timeout(handle, ms);
+    }
+
+    pub void destroy() {
+        if handle != 0 {
+            _sync_event_destroy(handle);
+            handle = 0;
+        }
+    }
+}
+
+pub class Semaphore {
+    pro int handle;
+
+    pub Semaphore(int initial, int maxCount) {
+        handle = _sync_semaphore_create(initial, maxCount);
+    }
+
+    pub void acquire() {
+        _sync_semaphore_acquire(handle);
+    }
+
+    pub void release() {
+        _sync_semaphore_release(handle);
+    }
+
+    pub void destroy() {
+        if handle != 0 {
+            _sync_semaphore_destroy(handle);
+            handle = 0;
+        }
+    }
+}

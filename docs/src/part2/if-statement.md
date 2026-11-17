@@ -14,11 +14,17 @@ if 语句根据条件决定是否执行代码块。条件直接跟在 if 后面�
         return 0;
     }
 
+给条件加上括号同样合法，两种写法完全等价：
+
+    if (score >= 60) {
+        print "及格";
+    }
+
 条件必须是一个 bool 类型的表达式。int 不能直接作为条件：
 
     int x = 10;
     // if x { ... }            // 错误！x 是 int，不是 bool
-    if x != 0 { ... }          // 正确
+    if x != 0 { print "非零"; }  // 正确
 
 ## if / else
 
@@ -83,20 +89,28 @@ if 语句可以嵌套：
 
 ## 代码块与单条语句
 
-如果分支只有一条语句，花括号可以省略：
+YXG 中 if / else 的分支必须写成花括号代码块，即使只有一条语句也不能省略：
 
     int main() {
         int x = 10;
 
-        if x > 5
+        if x > 5 {
             print "大于 5";
-        else
+        } else {
             print "小于等于 5";
+        }
 
         return 0;
     }
 
-但建议始终使用花括号，避免悬挂 else 问题。YXG 中 else 始终与最近的未匹配 if 配对。
+下面是错误写法：
+
+    // if x > 5
+    //     print "大于 5";        // 错误！expects BracketLeft
+
+    // if x > 5 print "大于 5";   // 错误！同样缺花括号
+
+始终使用花括号也能避免悬挂 else 问题。YXG 中 else 始终与最近的未匹配 if 配对。
 
 ## 条件表达式
 
@@ -111,9 +125,17 @@ if 语句可以嵌套：
         if a < 0 || b < 0 { print "at least one negative"; }
         if !(a > b) { print "a <= b"; }
 
-        bool isEven(int n) {
-            return n % 2 == 0;
-        }
+        return 0;
+    }
+
+辅助函数需要定义在 main 外面：
+
+    bool isEven(int n) {
+        return n % 2 == 0;
+    }
+
+    int main() {
+        int a = 10;
 
         if isEven(a) { print "a is even"; }
 
@@ -174,17 +196,18 @@ if 语句可以嵌套：
 
 ### 输入验证
 
+String 库的方法是 static 的，直接 `String.len(...)` 调用：
+
     import yxg.String;
 
     int main() {
-        String str = new String();
         string Input = "admin";
 
         if Input == "" {
             print "输入不能为空";
-        } else if str.len(Input) < 3 {
+        } else if String.len(Input) < 3 {
             print "输入太短";
-        } else if str.len(Input) > 20 {
+        } else if String.len(Input) > 20 {
             print "输入太长";
         } else {
             print "输入有效:", Input;
@@ -201,13 +224,22 @@ if 语句可以嵌套：
     // if x { ... }            // 错误！
     // error[E3020]: condition must be boolean, got 'int'
 
-### 忘记花括号导致逻辑错误
+### 忘记花括号
 
-    if score >= 60
+if 分支缺少花括号时直接编译失败：
+
+    int score = 85;
+    // if score >= 60
+    //     print "及格";        // 错误！expects BracketLeft
+
+多条语句必须全部放进同一个花括号块里：
+
+    if score >= 60 {
         print "及格";
-        print "恭喜！";         // 这行不受 if 控制，总会执行
+        print "恭喜！";
+    }
 
-缩进不决定代码块，只有花括号决定。建议始终使用花括号。
+缩进不决定代码块，只有花括号决定。始终使用花括号。
 
 ## 继续阅读
 

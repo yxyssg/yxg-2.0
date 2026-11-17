@@ -10,45 +10,63 @@
 #include <limits.h>
 
 static const Reg AVAILABLE_REGS[] = {
-    R_EAX, R_ECX, R_EDX, R_EBX, R_ESI, R_EDI
+    R_ECX, R_EDX, R_EBX, R_ESI, R_EDI
 };
-#define NUM_REGS 6
+#define NUM_REGS 5
 
 static const char* REG_NAMES[] = {
     "eax", "ecx", "edx", "ebx", "esi", "edi"
 };
 
-#define BIAS_HARD_DIV  30
-#define BIAS_HARD_RET  25
-#define BIAS_SOFT_DIV  20
+#define BIAS_HARD_DIV 30
+#define BIAS_HARD_RET 25
+#define BIAS_SOFT_DIV 20
 #define BIAS_SOFT_CALL 15
-#define BIAS_SOFT_MUL   8
-#define BIAS_CALLEE_L   6
-#define BIAS_CALLER_S   3
+#define BIAS_SOFT_MUL 8
+#define BIAS_CALLEE_L 6
+#define BIAS_CALLER_S 3
 
 #define LOOP_WEIGHT_BASE 1
 #define LOOP_WEIGHT_MULT 10
 
 typedef struct IGNode {
-    char*   var_name;
-    int     var_index;
-    int     degree;
-    int     orig_degree;
-    double  spill_cost;
-    int     loop_depth;
-    Reg     color;
-    int     spill_slot;
-    int     bias[NUM_REGS];
-    bool    is_float;
+    char* var_name;
+    int var_index;
+    int degree;
+    int orig_degree;
+    double spill_cost;
+    int loop_depth;
+    Reg color;
+    int spill_slot;
+    int bias[NUM_REGS];
+    bool is_float;
+    bool crosses_call;
 
-    bool*   adj;
-    int     adj_size;
-    int     node_index;
-    bool    spilled;
-    bool    simplified;
+    bool* adj;
+    int adj_size;
+    int node_index;
+    bool spilled;
+    bool simplified;
 } IGNode;
 
 RegMap* g_regmap = NULL;
+
+typedef struct RegMapFunc {
+    char* func_name;
+    RegMap* map;
+    struct RegMapFunc* next;
+} RegMapFunc;
+
+static RegMapFunc* regmap_funcs = NULL;
+
+static bool is_valid_identifier_name(const char* s) {
+    if (!s || !*s) return false;
+    if (!(isalpha((unsigned char)s[0]) || s[0] == '_')) return false;
+    for (const char* p = s + 1; *p; p++) {
+        if (!(isalnum((unsigned char)*p) || *p == '_')) return false;
+    }
+    return true;
+}
 
 static bool looks_like_label(const char* s) {
     if (!s || !*s) return false;
@@ -62,8 +80,6 @@ static void compute_live_intervals(CFG* cfg) {
     if (n == 0) return;
 
     if (cfg->intervals) {
-        for (int i = 0; i < cfg->interval_count; i++)
-            free(cfg->intervals[i].var_name);
         free(cfg->intervals);
         cfg->intervals = NULL;
     }
@@ -73,11 +89,11 @@ static void compute_live_intervals(CFG* cfg) {
     if (!cfg->intervals) OUT_OF_MEMORY();
 
     for (int i = 0; i < n; i++) {
-        cfg->intervals[i].var_name     = cfg->var_names[i];
-        cfg->intervals[i].start        = INT_MAX;
-        cfg->intervals[i].end          = -1;
+        cfg->intervals[i].var_name = cfg->var_names[i];
+        cfg->intervals[i].start = INT_MAX;
+        cfg->intervals[i].end = -1;
         cfg->intervals[i].assigned_reg = R_NONE;
-        cfg->intervals[i].spill_slot   = -1;
+        cfg->intervals[i].spill_slot = -1;
     }
 
     for (int bi = 0; bi < cfg->block_count; bi++) {
@@ -92,7 +108,8 @@ static void compute_live_intervals(CFG* cfg) {
                 for (const char* p = (*name == '-') ? name + 1 : name; *p; p++)
                     if (!isdigit((unsigned char)*p)) { is_num = false; break; }
 
-                if (!is_num && !looks_like_label(name)) {
+                if (!is_num && !looks_like_label(name)
+                     && name[0] != '.' && !strchr(name, '@')) {
                     for (int vi = 0; vi < n; vi++) {
                         if (strcmp(cfg->var_names[vi], name) == 0) {
                             if (local_id < cfg->intervals[vi].start)
@@ -117,7 +134,11 @@ static void compute_live_intervals(CFG* cfg) {
                     if (!isdigit((unsigned char)*p)) { is_num = false; break; }
 
                 if (!is_num && !looks_like_label(name) &&
-                    ir->type != IR_JMP && ir->type != IR_LABEL) {
+                    name[0] != '.' && !strchr(name, '@') &&
+                    is_valid_identifier_name(name) &&
+                    ir->type != IR_JMP && ir->type != IR_LABEL &&
+                    ir->type != IR_CALL && ir->type != IR_CALL_INDIRECT &&
+                    !(ir->type == IR_ADDRESS_OF && ir->is_function_addr)) {
                     for (int vi = 0; vi < n; vi++) {
                         if (strcmp(cfg->var_names[vi], name) == 0) {
                             if (local_id < cfg->intervals[vi].start)
@@ -135,8 +156,9 @@ static void compute_live_intervals(CFG* cfg) {
                 bool is_num = true;
                 for (const char* p = (*name == '-') ? name + 1 : name; *p; p++)
                     if (!isdigit((unsigned char)*p)) { is_num = false; break; }
-
                 if (!is_num && !looks_like_label(name) &&
+                    name[0] != '.' && !strchr(name, '@') &&
+                    is_valid_identifier_name(name) &&
                     ir->type != IR_JMPZ && ir->type != IR_JMPNZ) {
                     for (int vi = 0; vi < n; vi++) {
                         if (strcmp(cfg->var_names[vi], name) == 0) {
@@ -153,6 +175,36 @@ static void compute_live_intervals(CFG* cfg) {
             if (ir == bb->last_ir) break;
             ir = ir->next;
             local_id++;
+        }
+    }
+
+    for (int bi = 0; bi < cfg->block_count; bi++) {
+        BasicBlock* bb = cfg->blocks[bi];
+        if (!bb || !bb->first_ir) continue;
+        IR* ir = bb->first_ir;
+        while (ir && (ir->type == IR_LABEL || ir->type == IR_PARAM_DEF))
+            ir = ir->next;
+        while (ir && ir->type == IR_PHI) {
+            for (int p = 0; p < ir->phi_arg_count && p < bb->pred_count; p++) {
+                const char* name = ir->phi_arg_names[p];
+                if (!name || !name[0]) continue;
+                bool is_num = true;
+                for (const char* q = (*name == '-') ? name + 1 : name; *q; q++)
+                    if (!isdigit((unsigned char)*q)) { is_num = false; break; }
+                if (is_num || looks_like_label(name)
+                    || name[0] == '.' || strchr(name, '@')) continue;
+                for (int vi = 0; vi < n; vi++) {
+                    if (strcmp(cfg->var_names[vi], name) != 0) continue;
+                    int use_id = bb->preds[p]->linear_end;
+                    if (cfg->intervals[vi].end < use_id)
+                        cfg->intervals[vi].end = use_id;
+                    if (cfg->intervals[vi].start < 0
+                        || use_id < cfg->intervals[vi].start)
+                        cfg->intervals[vi].start = use_id;
+                    break;
+                }
+            }
+            ir = ir->next;
         }
     }
 
@@ -352,6 +404,30 @@ static void compute_bias_scores(CFG* cfg, IGNode* nodes, int count) {
     free(vi_to_ni);
 }
 
+static void mark_call_crossing(CFG* cfg, IGNode* nodes, int count) {
+    if (count == 0) return;
+    for (int bi = 0; bi < cfg->block_count; bi++) {
+        BasicBlock* bb = cfg->blocks[bi];
+        if (!bb || !bb->first_ir) continue;
+        int local_id = bb->linear_start;
+        IR* ir = bb->first_ir;
+        while (ir) {
+            if (ir->type == IR_CALL || ir->type == IR_CALL_INDIRECT ||
+                (ir->type == IR_ARRAY_STORE && ir->elem_size <= 4)) {
+                for (int i = 0; i < count; i++) {
+                    int vi = nodes[i].var_index;
+                    if (cfg->intervals[vi].start < local_id
+                        && local_id < cfg->intervals[vi].end)
+                        nodes[i].crosses_call = true;
+                }
+            }
+            if (ir == bb->last_ir) break;
+            ir = ir->next;
+            local_id++;
+        }
+    }
+}
+
 static void remove_node_from_graph(IGNode* node, IGNode* nodes, int count) {
     for (int j = 0; j < count; j++) {
         if (node->adj[j] && !nodes[j].spilled && !nodes[j].simplified) {
@@ -451,6 +527,11 @@ static int chaitin_briggs_color(IGNode* nodes, int count, int k) {
             }
         }
 
+        if (node->crosses_call) {
+            used[0] = true;
+            used[1] = true;
+        }
+
         int best_reg  = -1;
         int best_bias = -1;
         for (int r = 0; r < k; r++) {
@@ -494,19 +575,19 @@ static void write_results_to_regmap(IGNode* nodes, int count) {
 
 static void print_results(IGNode* nodes, int count, int k, int spilled) {
     printf("\n");
-    printf("â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”\n");
-    printf("â”‚      Chaitin-Briggs å›¾ç€è‰² + Bias å¯„å­˜å™¨åˆ†é…                 â”‚\n");
-    printf("â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤\n");
-    printf("â”‚ å˜é‡: %-4d  å¯„å­˜å™¨: %-2d  æº¢å‡º: %-3d (%.1f%%)                     â”‚\n",
+    printf("©°©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©´\n");
+    printf("©¦      Chaitin-Briggs Í¼×ÅÉ« + Bias ¼Ä´æÆ÷·ÖÅä                 ©¦\n");
+    printf("©À©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©È\n");
+    printf("©¦ ±äÁ¿: %-4d  ¼Ä´æÆ÷: %-2d  Òç³ö: %-3d (%.1f%%)                     ©¦\n",
            count, k, spilled,
            count > 0 ? 100.0 * (double)spilled / (double)count : 0.0);
-    printf("â”œâ”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤\n");
-    printf("â”‚ åºå· â”‚ å˜é‡         â”‚ å¯„å­˜å™¨   â”‚ æº¢å‡ºæ§½  â”‚ å¾ªç¯æ·± â”‚ ä»£ä»·     â”‚\n");
-    printf("â”œâ”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤\n");
+    printf("©À©¤©¤©¤©¤©¤©¤©Ğ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ğ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ğ©¤©¤©¤©¤©¤©¤©¤©¤©Ğ©¤©¤©¤©¤©¤©¤©¤©¤©Ğ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©È\n");
+    printf("©¦ ĞòºÅ ©¦ ±äÁ¿         ©¦ ¼Ä´æÆ÷   ©¦ Òç³ö²Û  ©¦ Ñ­»·Éî ©¦ ´ú¼Û     ©¦\n");
+    printf("©À©¤©¤©¤©¤©¤©¤©à©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©à©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©à©¤©¤©¤©¤©¤©¤©¤©¤©à©¤©¤©¤©¤©¤©¤©¤©¤©à©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©È\n");
 
     for (int i = 0; i < count; i++) {
         IGNode* node = &nodes[i];
-        const char* reg_str = (node->color == R_NONE) ? "[æº¢å‡º]"
+        const char* reg_str = (node->color == R_NONE) ? "[Òç³ö]"
                               : REG_NAMES[node->color];
 
         char name[15];
@@ -514,19 +595,20 @@ static void print_results(IGNode* nodes, int count, int k, int spilled) {
         if (nl > 13) { memcpy(name, node->var_name, 13); name[13] = '\0'; }
         else { strcpy(name, node->var_name); if (nl < 13) memset(name + nl, ' ', 13 - nl); name[13] = '\0'; }
 
-        printf("â”‚ %4d â”‚ %-12s â”‚ %-8s â”‚ ebp-%-3d â”‚ %-6d â”‚ %-8.0f â”‚\n",
+        printf("©¦ %4d ©¦ %-12s ©¦ %-8s ©¦ ebp-%-3d ©¦ %-6d ©¦ %-8.0f ©¦\n",
                i + 1, name, reg_str,
                node->spill_slot > 0 ? node->spill_slot : 0,
                node->loop_depth, node->spill_cost);
 
         for (int r = 0; r < NUM_REGS; r++) {
-            if (node->bias[r] >= BIAS_HARD_DIV) {
-                printf("â”‚      â”‚  â””â”€ bias: %-4s=%-2d                             â”‚\n",
-                       REG_NAMES[r], node->bias[r]);
+            if (node->bias[AVAILABLE_REGS[r]] >= BIAS_HARD_DIV) {
+                printf("©¦      ©¦  ©¸©¤ bias: %-4s=%-2d                             ©¦\n",
+                       REG_NAMES[AVAILABLE_REGS[r]],
+                       node->bias[AVAILABLE_REGS[r]]);
             }
         }
     }
-    printf("â””â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜\n\n");
+    printf("©¸©¤©¤©¤©¤©¤©¤©Ø©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ø©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ø©¤©¤©¤©¤©¤©¤©¤©¤©Ø©¤©¤©¤©¤©¤©¤©¤©¤©Ø©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¼\n\n");
 }
 
 void regmap_allocate_from_cfg(void* cfg_ptr, int num_regs) {
@@ -534,6 +616,8 @@ void regmap_allocate_from_cfg(void* cfg_ptr, int num_regs) {
     if (!cfg) return;
 
     if (!g_regmap) regmap_init();
+    for (int i = 0; i < g_regmap->count; i++)
+        free(g_regmap->names[i]);
     g_regmap->count = 0;
     g_regmap->callee_saved_mask = 0;
 
@@ -552,11 +636,13 @@ void regmap_allocate_from_cfg(void* cfg_ptr, int num_regs) {
 
     compute_bias_scores(cfg, nodes, count);
 
+    mark_call_crossing(cfg, nodes, count);
+
     int spilled = chaitin_briggs_color(nodes, count, k);
 
     write_results_to_regmap(nodes, count);
 
-    print_results(nodes, count, k, spilled);
+    // print_results(nodes, count, k, spilled);
 
     for (int i = 0; i < count; i++) free(nodes[i].adj);
     free(nodes);
@@ -574,12 +660,14 @@ void regmap_init(void) {
 }
 
 void regmap_cleanup(void) {
-    if (!g_regmap) return;
-    for (int i = 0; i < g_regmap->count; i++) free(g_regmap->names[i]);
-    free(g_regmap->names);
-    free(g_regmap->entries);
-    free(g_regmap);
-    g_regmap = NULL;
+    if (g_regmap) {
+        for (int i = 0; i < g_regmap->count; i++) free(g_regmap->names[i]);
+        free(g_regmap->names);
+        free(g_regmap->entries);
+        free(g_regmap);
+        g_regmap = NULL;
+    }
+    regmap_clear_functions();
 }
 
 void regmap_add(RegMap* map, const char* name, Reg reg,
@@ -613,4 +701,66 @@ const RegMapEntry* regmap_get(const RegMap* map, const char* name) {
 
 unsigned regmap_callee_saved_mask(const RegMap* map) {
     return map ? map->callee_saved_mask : 0;
+}
+
+RegMap* regmap_snapshot(const RegMap* src) {
+    if (!src) return NULL;
+    RegMap* dst = calloc(1, sizeof(RegMap));
+    if (!dst) OUT_OF_MEMORY();
+    dst->capacity = src->count > 0 ? src->count : 16;
+    dst->names   = calloc((size_t)dst->capacity, sizeof(char*));
+    dst->entries = calloc((size_t)dst->capacity, sizeof(RegMapEntry));
+    if (!dst->names || !dst->entries) OUT_OF_MEMORY();
+    for (int i = 0; i < src->count; i++) {
+        dst->names[i] = strdup(src->names[i]);
+        dst->entries[i] = src->entries[i];
+    }
+    dst->count = src->count;
+    dst->callee_saved_mask = src->callee_saved_mask;
+    return dst;
+}
+
+static RegMapFunc* regmap_func_find(const char* func_name) {
+    for (RegMapFunc* s = regmap_funcs; s; s = s->next)
+        if (strcmp(s->func_name, func_name) == 0) return s;
+    return NULL;
+}
+
+void regmap_store_for_function(const char* func_name, const RegMap* src) {
+    RegMapFunc* s = regmap_func_find(func_name);
+    if (!s) {
+        s = calloc(1, sizeof(RegMapFunc));
+        if (!s) OUT_OF_MEMORY();
+        s->func_name = strdup(func_name);
+        s->next = regmap_funcs;
+        regmap_funcs = s;
+    } else if (s->map) {
+        for (int i = 0; i < s->map->count; i++) free(s->map->names[i]);
+        free(s->map->names);
+        free(s->map->entries);
+        free(s->map);
+        s->map = NULL;
+    }
+    s->map = regmap_snapshot(src);
+}
+
+RegMap* regmap_lookup_function(const char* func_name) {
+    RegMapFunc* s = regmap_func_find(func_name);
+    return s ? s->map : NULL;
+}
+
+void regmap_clear_functions(void) {
+    while (regmap_funcs) {
+        RegMapFunc* n = regmap_funcs->next;
+        free(regmap_funcs->func_name);
+        if (regmap_funcs->map) {
+            for (int i = 0; i < regmap_funcs->map->count; i++)
+                free(regmap_funcs->map->names[i]);
+            free(regmap_funcs->map->names);
+            free(regmap_funcs->map->entries);
+            free(regmap_funcs->map);
+        }
+        free(regmap_funcs);
+        regmap_funcs = n;
+    }
 }

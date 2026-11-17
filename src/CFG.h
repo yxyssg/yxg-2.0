@@ -6,35 +6,35 @@
 #include <stdbool.h>
 
 typedef struct LiveInterval {
-    char*    var_name;
-    int      start;
-    int      end;
-    Reg      assigned_reg;
-    bool     is_float;
-    int      spill_slot;
+    char* var_name;
+    int start;
+    int end;
+    Reg assigned_reg;
+    bool is_float;
+    int spill_slot;
 } LiveInterval;
 
 typedef struct BasicBlock {
-    int    id;
-    IR*    first_ir;
-    IR*    last_ir;
-    int    ir_count;
+    int id;
+    IR* first_ir;
+    IR* last_ir;
+    int ir_count;
 
     struct BasicBlock** succs;
-    int  succ_count;
-    int  succ_capacity;
+    int succ_count;
+    int succ_capacity;
     struct BasicBlock** preds;
-    int  pred_count;
-    int  pred_capacity;
+    int pred_count;
+    int pred_capacity;
 
     struct BasicBlock*  idom;
     struct BasicBlock** dom_children;
-    int  dom_child_count;
+    int dom_child_count;
     int  dom_child_capacity;
 
     struct BasicBlock** df;
-    int  df_count;
-    int  df_capacity;
+    int df_count;
+    int df_capacity;
 
     bool* live_gen;
     bool* live_kill;
@@ -44,31 +44,31 @@ typedef struct BasicBlock {
     IR* phi_nodes;
 
     char** def_names;
-    int    def_count;
-    int    def_capacity;
+    int def_count;
+    int def_capacity;
     char** use_names;
-    int    use_count;
-    int    use_capacity;
+    int use_count;
+    int use_capacity;
 
-    int  linear_start;
-    int  linear_end;
+    int linear_start;
+    int linear_end;
 } BasicBlock;
 
 typedef struct CFG {
     BasicBlock** blocks;
-    int  block_count;
-    int  block_capacity;
+    int block_count;
+    int block_capacity;
     BasicBlock* entry;
     BasicBlock* exit_block;
 
     char** var_names;
-    int    var_count;
-    int    var_capacity;
+    int var_count;
+    int var_capacity;
 
     int next_ssa_version;
 
     LiveInterval* intervals;
-    int  interval_count;
+    int interval_count;
 } CFG;
 
 CFG* cfg_build(IR* func_ir_start, IR* func_ir_end);
@@ -81,16 +81,17 @@ void cfg_compute_dominance_frontiers(CFG* cfg);
 void cfg_assign_linear_ids(CFG* cfg);
 
 void cfg_liveness_analysis(CFG* cfg);
+void insert_gc_clears(CFG* cfg);
 
 typedef struct FuncIR {
     char* func_name;
-    IR*   first_ir;
-    IR*   last_ir;
+    IR* first_ir;
+    IR* last_ir;
     struct FuncIR* next;
 } FuncIR;
 
 FuncIR* ir_split_by_function(IR* program_ir);
 void cfg_remove_unreachable(CFG* cfg);
-void    func_ir_list_free(FuncIR* list);
+void func_ir_list_free(FuncIR* list);
 
 #endif

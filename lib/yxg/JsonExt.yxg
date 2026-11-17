@@ -1,0 +1,843 @@
+// ============================================================
+// yxg.JsonExt — Base64URL / SHA256 / HMAC / JWT / MessagePack
+// ============================================================
+
+import yxg.File;
+import yxg.String;
+import yxg.Utils;
+import yxg.Collections.List;
+import yxg.Json;
+
+// ============================================================
+// Base64URL (RFC 4648 §5)
+// ============================================================
+pub class Base64URL {
+    pub static string alphabet() {
+        return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    }
+
+    pub static string encode(string bytes) {
+        string out = "";
+        int n = String.len(bytes);
+        int i = 0;
+        while i + 2 < n {
+            int b0 = String.charAt(bytes, i);
+            int b1 = String.charAt(bytes, i + 1);
+            int b2 = String.charAt(bytes, i + 2);
+            out = out + Base64URL.chr((b0 >> 2) & 63);
+            out = out + Base64URL.chr(((b0 & 3) << 4) | ((b1 >> 4) & 15));
+            out = out + Base64URL.chr(((b1 & 15) << 2) | ((b2 >> 6) & 3));
+            out = out + Base64URL.chr(b2 & 63);
+            i = i + 3;
+        }
+        int rem = n - i;
+        if rem == 1 {
+            int b0 = String.charAt(bytes, i);
+            out = out + Base64URL.chr((b0 >> 2) & 63);
+            out = out + Base64URL.chr((b0 & 3) << 4);
+        } else if rem == 2 {
+            int b0 = String.charAt(bytes, i);
+            int b1 = String.charAt(bytes, i + 1);
+            out = out + Base64URL.chr((b0 >> 2) & 63);
+            out = out + Base64URL.chr(((b0 & 3) << 4) | ((b1 >> 4) & 15));
+            out = out + Base64URL.chr((b1 & 15) << 2);
+        }
+        return out;
+    }
+
+    pub static string decode(string s) {
+        string out = "";
+        int n = String.len(s);
+        int buf = 0;
+        int bits = 0;
+        int i = 0;
+        while i < n {
+            int c = String.charAt(s, i);
+            if c == 61 { i = i + 1; continue; }
+            int d = Base64URL.rev(c);
+            if d < 0 {
+                throw new JsonError("base64url: bad character at " + Convert.formatInt(i));
+            }
+            buf = (buf << 6) | d;
+            bits = bits + 6;
+            if bits >= 8 {
+                bits = bits - 8;
+                out = out + _char_to_str((buf >> bits) & 255);
+            }
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pri static string chr(int d) {
+        string a = Base64URL.alphabet();
+        return _char_to_str(String.charAt(a, d));
+    }
+
+    pri static int rev(int c) {
+        if c >= 65 && c <= 90 { return c - 65; }
+        if c >= 97 && c <= 122 { return c - 97 + 26; }
+        if c >= 48 && c <= 57 { return c - 48 + 52; }
+        if c == 45 { return 62; }
+        if c == 95 { return 63; }
+        if c == 43 { return 62; }
+        if c == 47 { return 63; }
+        if c == 61 { return -2; }
+        return -1;
+    }
+}
+
+// ============================================================
+// SHA-256 (FIPS 180-4)
+// ============================================================
+pub class SHA256 {
+    pri static uint rotr(uint x, int n) {
+        return (x >> n) | (x << (32 - n));
+    }
+
+    pri static uint[] hash_words(string msg) {
+        uint[] H = new uint[8];
+        H[0] = 0x6a09e667;
+        H[1] = 0xbb67ae85;
+        H[2] = 0x3c6ef372;
+        H[3] = 0xa54ff53a;
+        H[4] = 0x510e527f;
+        H[5] = 0x9b05688c;
+        H[6] = 0x1f83d9ab;
+        H[7] = 0x5be0cd19;
+
+        uint[] K = SHA256.constants();
+
+        int mlen = String.len(msg);
+        int64 bitlen = (mlen as int64) * 8;
+
+        string padded = msg;
+        padded = padded + _char_to_str(128);
+        while (String.len(padded) % 64 != 56) {
+            padded = padded + _char_to_str(0);
+        }
+        int i = 7;
+        while i >= 0 {
+            int shift = i * 8;
+            int64 shifted = bitlen >> shift;
+            int bv = (shifted & 255) as int;
+            padded = padded + _char_to_str(bv);
+            i = i - 1;
+        }
+
+        int total = String.len(padded);
+        int chunk = 0;
+        while chunk < total {
+            uint[] W = new uint[64];
+            int j = 0;
+            while j < 16 {
+                int base = chunk + j * 4;
+                int b0 = String.charAt(padded, base);
+                int b1 = String.charAt(padded, base + 1);
+                int b2 = String.charAt(padded, base + 2);
+                int b3 = String.charAt(padded, base + 3);
+                W[j] = ((b0 as uint) << 24) | ((b1 as uint) << 16)
+                     | ((b2 as uint) << 8) | (b3 as uint);
+                j = j + 1;
+            }
+            j = 16;
+            while j < 64 {
+                uint s0 = SHA256.rotr(W[j-15], 7) ^ SHA256.rotr(W[j-15], 18) ^ (W[j-15] >> 3);
+                uint s1 = SHA256.rotr(W[j-2], 17) ^ SHA256.rotr(W[j-2], 19) ^ (W[j-2] >> 10);
+                W[j] = W[j-16] + s0 + W[j-7] + s1;
+                j = j + 1;
+            }
+
+            uint a = H[0];
+            uint b = H[1];
+            uint c = H[2];
+            uint d = H[3];
+            uint e = H[4];
+            uint f = H[5];
+            uint g = H[6];
+            uint h = H[7];
+
+            j = 0;
+            while j < 64 {
+                uint S1 = SHA256.rotr(e, 6) ^ SHA256.rotr(e, 11) ^ SHA256.rotr(e, 25);
+                uint ch = (e & f) ^ ((~e) & g);
+                uint t1 = h + S1 + ch + K[j] + W[j];
+                uint S0 = SHA256.rotr(a, 2) ^ SHA256.rotr(a, 13) ^ SHA256.rotr(a, 22);
+                uint maj = (a & b) ^ (a & c) ^ (b & c);
+                uint t2 = S0 + maj;
+
+                h = g;
+                g = f;
+                f = e;
+                e = d + t1;
+                d = c;
+                c = b;
+                b = a;
+                a = t1 + t2;
+
+                j = j + 1;
+            }
+
+            H[0] = H[0] + a;
+            H[1] = H[1] + b;
+            H[2] = H[2] + c;
+            H[3] = H[3] + d;
+            H[4] = H[4] + e;
+            H[5] = H[5] + f;
+            H[6] = H[6] + g;
+            H[7] = H[7] + h;
+
+            chunk = chunk + 64;
+        }
+
+        return H;
+    }
+
+    pub static string hash(string msg) {
+        uint[] H = SHA256.hash_words(msg);
+        string out = "";
+        int hi = 0;
+        while hi < 8 {
+            out = out + SHA256.byte_hex((H[hi] >> 24) & 255);
+            out = out + SHA256.byte_hex((H[hi] >> 16) & 255);
+            out = out + SHA256.byte_hex((H[hi] >> 8) & 255);
+            out = out + SHA256.byte_hex(H[hi] & 255);
+            hi = hi + 1;
+        }
+        return out;
+    }
+
+    pub static string hashBytes(string msg) {
+        uint[] H = SHA256.hash_words(msg);
+        string out = "";
+        int hi = 0;
+        while hi < 8 {
+            int h = H[hi] as int;
+            out = out + _char_to_str((h >> 24) & 255);
+            out = out + _char_to_str((h >> 16) & 255);
+            out = out + _char_to_str((h >> 8) & 255);
+            out = out + _char_to_str(h & 255);
+            hi = hi + 1;
+        }
+        return out;
+    }
+
+    pri static int hexval(int c) {
+        if c >= 48 && c <= 57 { return c - 48; }
+        if c >= 97 && c <= 102 { return c - 97 + 10; }
+        if c >= 65 && c <= 70 { return c - 65 + 10; }
+        return 0;
+    }
+
+    pri static string byte_hex(uint b) {
+        string hexdigits = "0123456789abcdef";
+        int hi = ((b >> 4) & 15) as int;
+        int lo = (b & 15) as int;
+        return _char_to_str(String.charAt(hexdigits, hi))
+             + _char_to_str(String.charAt(hexdigits, lo));
+    }
+
+    pri static uint[] constants() {
+        uint[] K = new uint[64];
+        K[0]  = 0x428a2f98; K[1]  = 0x71374491; K[2]  = 0xb5c0fbcf; K[3]  = 0xe9b5dba5;
+        K[4]  = 0x3956c25b; K[5]  = 0x59f111f1; K[6]  = 0x923f82a4; K[7]  = 0xab1c5ed5;
+        K[8]  = 0xd807aa98; K[9]  = 0x12835b01; K[10] = 0x243185be; K[11] = 0x550c7dc3;
+        K[12] = 0x72be5d74; K[13] = 0x80deb1fe; K[14] = 0x9bdc06a7; K[15] = 0xc19bf174;
+        K[16] = 0xe49b69c1; K[17] = 0xefbe4786; K[18] = 0x0fc19dc6; K[19] = 0x240ca1cc;
+        K[20] = 0x2de92c6f; K[21] = 0x4a7484aa; K[22] = 0x5cb0a9dc; K[23] = 0x76f988da;
+        K[24] = 0x983e5152; K[25] = 0xa831c66d; K[26] = 0xb00327c8; K[27] = 0xbf597fc7;
+        K[28] = 0xc6e00bf3; K[29] = 0xd5a79147; K[30] = 0x06ca6351; K[31] = 0x14292967;
+        K[32] = 0x27b70a85; K[33] = 0x2e1b2138; K[34] = 0x4d2c6dfc; K[35] = 0x53380d13;
+        K[36] = 0x650a7354; K[37] = 0x766a0abb; K[38] = 0x81c2c92e; K[39] = 0x92722c85;
+        K[40] = 0xa2bfe8a1; K[41] = 0xa81a664b; K[42] = 0xc24b8b70; K[43] = 0xc76c51a3;
+        K[44] = 0xd192e819; K[45] = 0xd6990624; K[46] = 0xf40e3585; K[47] = 0x106aa070;
+        K[48] = 0x19a4c116; K[49] = 0x1e376c08; K[50] = 0x2748774c; K[51] = 0x34b0bcb5;
+        K[52] = 0x391c0cb3; K[53] = 0x4ed8aa4a; K[54] = 0x5b9cca4f; K[55] = 0x682e6ff3;
+        K[56] = 0x748f82ee; K[57] = 0x78a5636f; K[58] = 0x84c87814; K[59] = 0x8cc70208;
+        K[60] = 0x90befffa; K[61] = 0xa4506ceb; K[62] = 0xbef9a3f7; K[63] = 0xc67178f2;
+        return K;
+    }
+}
+
+// ============================================================
+// HMAC-SHA256
+// ============================================================
+pub class HMAC {
+    pub static string sha256(string key, string msg) {
+        int block = 64;
+        string k = key + "";
+        if String.len(k) > block {
+            k = SHA256.hashBytes(k);
+        }
+        int kn = String.len(k);
+
+        string ipad = "";
+        string opad = "";
+        int i = 0;
+        while i < block {
+            int kb = 0;
+            if i < kn {
+                kb = String.charAt(k, i);
+            }
+            ipad = ipad + _char_to_str(kb ^ 0x36);
+            opad = opad + _char_to_str(kb ^ 0x5c);
+            i = i + 1;
+        }
+
+        string inner = SHA256.hashBytes(ipad + msg);
+        return SHA256.hashBytes(opad + inner);
+    }
+}
+
+// ============================================================
+// JWT / JWS
+// ============================================================
+pub class JWT {
+    pub static string encode(JsonValue header, JsonValue payload, string secret) {
+        string hj = Json.stringify(header);
+        string pj = Json.stringify(payload);
+        string h = Base64URL.encode(hj);
+        string p = Base64URL.encode(pj);
+        string signing_input = h + "." + p;
+        string sig = HMAC.sha256(secret, signing_input);
+        string sig_b64 = Base64URL.encode(sig);
+        return signing_input + "." + sig_b64;
+    }
+
+    pub static bool verify(string token, string secret) {
+        string[] parts = String.split(token, ".");
+        if parts.length != 3 { return false; }
+        string signing_input = parts[0] + "." + parts[1];
+        string expected_sig = HMAC.sha256(secret, signing_input);
+        string expected_b64 = Base64URL.encode(expected_sig);
+        return expected_b64 == parts[2];
+    }
+
+    pub static JsonValue decodePayload(string token) {
+        string[] parts = String.split(token, ".");
+        if parts.length < 2 {
+            throw new JsonError("jwt: invalid token");
+        }
+        string payload_json = Base64URL.decode(parts[1]);
+        return Json.parse(payload_json);
+    }
+
+    pub static JsonValue decodeHeader(string token) {
+        string[] parts = String.split(token, ".");
+        if parts.length < 1 {
+            throw new JsonError("jwt: invalid token");
+        }
+        string header_json = Base64URL.decode(parts[0]);
+        return Json.parse(header_json);
+    }
+
+    pub static bool isExpired(string token) {
+        JsonValue payload = JWT.decodePayload(token);
+        if !payload.has("exp") { return false; }
+        int64 exp = Json.getInt64(payload, "exp");
+        int64 now = JWT.nowSeconds();
+        return now >= exp;
+    }
+
+    pri static int64 nowSeconds() {
+        int t = _system_time();
+        return t as int64;
+    }
+}
+
+// ============================================================
+// MessagePack 编解码
+// ============================================================
+pub class MessagePack {
+    pub static int64 safeInt64(int x) {
+        return x as int64;
+    }
+
+    pub static string pack(JsonValue v) {
+        if v.type == 0 { return MessagePack.packNil(); }
+        if v.type == 1 { return MessagePack.packBool(v.bool_val); }
+        if v.type == 2 {
+            return MessagePack.packInt64(v.int_val as int64);
+        }
+        if v.type == 7 { return MessagePack.packInt64(v.int64_val); }
+        if v.type == 3 { return MessagePack.packFloat(v.float_val); }
+        if v.type == 4 { return MessagePack.packString(v.str_val); }
+        if v.type == 5 { return MessagePack.packArray(v); }
+        if v.type == 6 { return MessagePack.packObject(v); }
+        throw new JsonError("msgpack: unknown type");
+    }
+
+    pri static string packNil() {
+        return _char_to_str(0xc0);
+    }
+
+    pri static string packBool(bool b) {
+        if b { return _char_to_str(0xc3); }
+        return _char_to_str(0xc2);
+    }
+
+    pri static string packInt64(int64 n) {
+        if n >= 0 {
+            if n <= 127 {
+                return _char_to_str(n as int);
+            }
+            if n <= 255 {
+                return _char_to_str(0xcc) + MessagePack.byte(n as int);
+            }
+            if n <= 65535 {
+                int nlo = n as int;
+                int hi = (nlo >> 8) & 255;
+                int lo = nlo & 255;
+                return _char_to_str(0xcd) + MessagePack.byte(hi)
+                                          + MessagePack.byte(lo);
+            }
+            if n <= 4294967295 {
+                int v32 = n as int;
+                int b0 = (v32 >> 24) & 255;
+                int b1 = (v32 >> 16) & 255;
+                int b2 = (v32 >> 8) & 255;
+                int b3 = v32 & 255;
+                return _char_to_str(0xce) + MessagePack.byte(b0)
+                                          + MessagePack.byte(b1)
+                                          + MessagePack.byte(b2)
+                                          + MessagePack.byte(b3);
+            }
+            string out = _char_to_str(0xcf);
+            int i = 7;
+            while i >= 0 {
+                int shift = i * 8;
+                int64 shifted = n >> shift;
+                int bv = (shifted & 255) as int;
+                out = out + MessagePack.byte(bv);
+                i = i - 1;
+            }
+            return out;
+        }
+        if n >= -32 {
+            int v32 = n as int;
+            return _char_to_str(v32 & 255);
+        }
+        if n >= -128 {
+            int v32 = n as int;
+            return _char_to_str(0xd0) + MessagePack.byte(v32 & 255);
+        }
+        if n >= -32768 {
+            int v32 = n as int;
+            return _char_to_str(0xd1) + MessagePack.byte((v32 >> 8) & 255)
+                                      + MessagePack.byte(v32 & 255);
+        }
+        if n >= -2147483648 {
+            int v32 = n as int;
+            return _char_to_str(0xd2)
+                + MessagePack.byte((v32 >> 24) & 255)
+                + MessagePack.byte((v32 >> 16) & 255)
+                + MessagePack.byte((v32 >> 8) & 255)
+                + MessagePack.byte(v32 & 255);
+        }
+        string out = _char_to_str(0xd3);
+        int i = 7;
+        while i >= 0 {
+            int shift = i * 8;
+            int64 shifted = n >> shift;
+            int bv = (shifted & 255) as int;
+            out = out + MessagePack.byte(bv);
+            i = i - 1;
+        }
+        return out;
+    }
+
+    pri static string packFloat(float f) {
+        string out = _char_to_str(0xca);
+        int bits = MessagePack.float_to_bits(f);
+        out = out + MessagePack.byte((bits >> 24) & 255);
+        out = out + MessagePack.byte((bits >> 16) & 255);
+        out = out + MessagePack.byte((bits >> 8) & 255);
+        out = out + MessagePack.byte(bits & 255);
+        return out;
+    }
+
+    pri static string packString(string s) {
+        int n = String.len(s);
+        string header;
+        if n <= 31 {
+            header = _char_to_str(0xa0 | n);
+        } else if n <= 255 {
+            header = _char_to_str(0xd9) + MessagePack.byte(n);
+        } else if n <= 65535 {
+            header = _char_to_str(0xda) + MessagePack.byte((n >> 8) & 255)
+                                        + MessagePack.byte(n & 255);
+        } else {
+            header = _char_to_str(0xdb)
+                   + MessagePack.byte((n >> 24) & 255)
+                   + MessagePack.byte((n >> 16) & 255)
+                   + MessagePack.byte((n >> 8) & 255)
+                   + MessagePack.byte(n & 255);
+        }
+        return header + s;
+    }
+
+    pri static string packArray(JsonValue v) {
+        int n = v.arr_val.size();
+        string out;
+        if n <= 15 {
+            out = _char_to_str(0x90 | n);
+        } else if n <= 65535 {
+            out = _char_to_str(0xdc) + MessagePack.byte((n >> 8) & 255)
+                                     + MessagePack.byte(n & 255);
+        } else {
+            out = _char_to_str(0xdd)
+                + MessagePack.byte((n >> 24) & 255)
+                + MessagePack.byte((n >> 16) & 255)
+                + MessagePack.byte((n >> 8) & 255)
+                + MessagePack.byte(n & 255);
+        }
+        int i = 0;
+        while i < n {
+            out = out + MessagePack.pack(v.arr_val.get(i));
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pri static string packObject(JsonValue v) {
+        int n = v.obj_keys.size();
+        string out;
+        if n <= 15 {
+            out = _char_to_str(0x80 | n);
+        } else if n <= 65535 {
+            out = _char_to_str(0xde) + MessagePack.byte((n >> 8) & 255)
+                                     + MessagePack.byte(n & 255);
+        } else {
+            out = _char_to_str(0xdf)
+                + MessagePack.byte((n >> 24) & 255)
+                + MessagePack.byte((n >> 16) & 255)
+                + MessagePack.byte((n >> 8) & 255)
+                + MessagePack.byte(n & 255);
+        }
+        int i = 0;
+        while i < n {
+            out = out + MessagePack.packString(v.obj_keys.get(i));
+            out = out + MessagePack.pack(v.obj_vals.get(i));
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pri static string byte(int b) {
+        return _char_to_str(b & 255);
+    }
+
+    pri static int float_to_bits(float f) {
+        return _float_to_bits(f);
+    }
+
+    pri static float bits_to_float(int bits) {
+        return _bits_to_float(bits);
+    }
+
+    pub static JsonValue unpack(string bytes) {
+        return MessagePack.decodeAt(bytes, 0);
+    }
+
+    pub static JsonValue decode(string bytes) {
+        return MessagePack.decodeAt(bytes, 0);
+    }
+
+    pub static JsonValue decodeAt(string bytes, int start_pos) {
+        return MessagePack.unpack_impl(bytes, start_pos);
+    }
+
+    pri static JsonValue unpack_impl(string bytes, int pos) {
+        if pos >= String.len(bytes) {
+            throw new JsonError("msgpack: unexpected end");
+        }
+        int b = String.charAt(bytes, pos);
+        int t = b & 0xff;
+
+        if t <= 0x7f {
+            JsonValue v = new JsonValue();
+            v.type = 2;
+            v.int_val = t;
+            return v;
+        }
+        if t >= 0xe0 {
+            JsonValue v = new JsonValue();
+            v.type = 2;
+            v.int_val = t - 256;
+            return v;
+        }
+        if t >= 0x80 && t <= 0x8f {
+            int n = t & 0x0f;
+            return MessagePack.readObject(bytes, pos + 1, n);
+        }
+        if t >= 0x90 && t <= 0x9f {
+            int n = t & 0x0f;
+            return MessagePack.readArray(bytes, pos + 1, n);
+        }
+        if t >= 0xa0 && t <= 0xbf {
+            int n = t & 0x1f;
+            return MessagePack.readString(bytes, pos + 1, n);
+        }
+        if t == 0xc0 {
+            JsonValue v = new JsonValue();
+            v.type = 0;
+            return v;
+        }
+        if t == 0xc2 {
+            JsonValue v = new JsonValue();
+            v.type = 1;
+            v.bool_val = false;
+            return v;
+        }
+        if t == 0xc3 {
+            JsonValue v = new JsonValue();
+            v.type = 1;
+            v.bool_val = true;
+            return v;
+        }
+        if t == 0xca {
+            int bits = MessagePack.read_u32(bytes, pos + 1);
+            JsonValue v = new JsonValue();
+            v.type = 3;
+            v.float_val = MessagePack.bits_to_float(bits);
+            return v;
+        }
+        if t == 0xcc {
+            JsonValue v = new JsonValue();
+            v.type = 2;
+            v.int_val = String.charAt(bytes, pos + 1);
+            return v;
+        }
+        if t == 0xcd {
+            JsonValue v = new JsonValue();
+            v.type = 2;
+            v.int_val = (String.charAt(bytes, pos + 1) << 8)
+                      | String.charAt(bytes, pos + 2);
+            return v;
+        }
+        if t == 0xce {
+            JsonValue v = new JsonValue();
+            v.type = 7;
+            uint u = MessagePack.read_u32(bytes, pos + 1) as uint;
+            v.int64_val = u as int64;
+            return v;
+        }
+        if t == 0xcf {
+            JsonValue v = new JsonValue();
+            v.type = 7;
+            int64 hi = MessagePack.read_u32(bytes, pos + 1) as int64;
+            int lo_raw = MessagePack.read_u32(bytes, pos + 5);
+            uint lo_u = lo_raw as uint;
+            int64 lo = lo_u as int64;
+            v.int64_val = hi * 4294967296 + lo;
+            return v;
+        }
+        if t == 0xd0 {
+            JsonValue v = new JsonValue();
+            v.type = 2;
+            int raw = String.charAt(bytes, pos + 1);
+            if raw > 127 { raw = raw - 256; }
+            v.int_val = raw;
+            return v;
+        }
+        if t == 0xd1 {
+            JsonValue v = new JsonValue();
+            v.type = 2;
+            int b0 = String.charAt(bytes, pos + 1);
+            int b1 = String.charAt(bytes, pos + 2);
+            int raw = (b0 << 8) | b1;
+            if raw > 32767 { raw = raw - 65536; }
+            v.int_val = raw;
+            return v;
+        }
+        if t == 0xd2 {
+            JsonValue v = new JsonValue();
+            v.type = 2;
+            v.int_val = MessagePack.read_u32(bytes, pos + 1);
+            return v;
+        }
+        if t == 0xd3 {
+            JsonValue v = new JsonValue();
+            v.type = 7;
+            int64 hi = MessagePack.read_u32(bytes, pos + 1) as int64;
+            int lo_raw = MessagePack.read_u32(bytes, pos + 5);
+            uint lo_u = lo_raw as uint;
+            int64 lo = lo_u as int64;
+            v.int64_val = hi * 4294967296 + lo;
+            return v;
+        }
+        if t == 0xd9 {
+            int n = String.charAt(bytes, pos + 1);
+            return MessagePack.readString(bytes, pos + 2, n);
+        }
+        if t == 0xda {
+            int n = (String.charAt(bytes, pos + 1) << 8)
+                  | String.charAt(bytes, pos + 2);
+            return MessagePack.readString(bytes, pos + 3, n);
+        }
+        if t == 0xdc {
+            int n = (String.charAt(bytes, pos + 1) << 8)
+                  | String.charAt(bytes, pos + 2);
+            return MessagePack.readArray(bytes, pos + 3, n);
+        }
+        if t == 0xde {
+            int n = (String.charAt(bytes, pos + 1) << 8)
+                  | String.charAt(bytes, pos + 2);
+            return MessagePack.readObject(bytes, pos + 3, n);
+        }
+
+        throw new JsonError("msgpack: unsupported type 0x"
+                          + Convert.formatInt(t));
+    }
+
+    pri static int read_u32(string bytes, int pos) {
+        int b0 = String.charAt(bytes, pos);
+        int b1 = String.charAt(bytes, pos + 1);
+        int b2 = String.charAt(bytes, pos + 2);
+        int b3 = String.charAt(bytes, pos + 3);
+        return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+    }
+
+    pri static JsonValue readString(string bytes, int pos, int n) {
+        JsonValue v = new JsonValue();
+        v.type = 4;
+        string s = _str_to_string(String.sub(bytes, pos, n));
+        v.str_val = s;
+        return v;
+    }
+
+    pri static JsonValue readArray(string bytes, int pos, int n) {
+        JsonValue v = new JsonValue();
+        v.type = 5;
+        int i = 0;
+        int p = pos;
+        while i < n {
+            JsonValue child = MessagePack.unpack_impl(bytes, p);
+            int consumed = MessagePack.size_of(bytes, p);
+            p = p + consumed;
+            v.arr_val.add(child);
+            i = i + 1;
+        }
+        return v;
+    }
+
+    pri static JsonValue readObject(string bytes, int pos, int n) {
+        JsonValue v = new JsonValue();
+        v.type = 6;
+        int i = 0;
+        int p = pos;
+        while i < n {
+            JsonValue key = MessagePack.unpack_impl(bytes, p);
+            p = p + MessagePack.size_of(bytes, p);
+            JsonValue val = MessagePack.unpack_impl(bytes, p);
+            p = p + MessagePack.size_of(bytes, p);
+            string ks = key.asString();
+            v.put(ks, val);
+            i = i + 1;
+        }
+        return v;
+    }
+
+    pub static int size_of(string bytes, int pos) {
+        int t = String.charAt(bytes, pos) & 0xff;
+        if t <= 0x7f { return 1; }
+        if t >= 0xe0 { return 1; }
+        if t >= 0x80 && t <= 0x8f {
+            int n = t & 0x0f;
+            int p = pos + 1;
+            int i = 0;
+            while i < n {
+                p = p + MessagePack.size_of(bytes, p);
+                p = p + MessagePack.size_of(bytes, p);
+                i = i + 1;
+            }
+            return p - pos;
+        }
+        if t >= 0x90 && t <= 0x9f {
+            int n = t & 0x0f;
+            int p = pos + 1;
+            int i = 0;
+            while i < n {
+                p = p + MessagePack.size_of(bytes, p);
+                i = i + 1;
+            }
+            return p - pos;
+        }
+        if t >= 0xa0 && t <= 0xbf { return 1 + (t & 0x1f); }
+        if t == 0xc0 { return 1; }
+        if t == 0xc2 { return 1; }
+        if t == 0xc3 { return 1; }
+        if t == 0xca { return 5; }
+        if t == 0xcb { return 9; }
+        if t == 0xcc { return 2; }
+        if t == 0xcd { return 3; }
+        if t == 0xce { return 5; }
+        if t == 0xcf { return 9; }
+        if t == 0xd0 { return 2; }
+        if (t >= 0xd1 && t <= 0xd3) { return 1 + (1 << (t - 0xd0)); }
+        if (t >= 0xd4 && t <= 0xd8) { return 1 + (1 << (t - 0xd4 + 1)) + 1; }
+        if (t >= 0xd9 && t <= 0xdb) {
+            if t == 0xd9 {
+                int n = String.charAt(bytes, pos + 1);
+                return 2 + n;
+            }
+            if t == 0xda {
+                int n = (String.charAt(bytes, pos + 1) << 8)
+                      | String.charAt(bytes, pos + 2);
+                return 3 + n;
+            }
+            int n = (String.charAt(bytes, pos + 1) << 24)
+                  | (String.charAt(bytes, pos + 2) << 16)
+                  | (String.charAt(bytes, pos + 3) << 8)
+                  | String.charAt(bytes, pos + 4);
+            return 5 + n;
+        }
+        if (t >= 0xdc && t <= 0xdd) {
+            int n;
+            int hdr;
+            if t == 0xdc {
+                n = (String.charAt(bytes, pos + 1) << 8)
+                  | String.charAt(bytes, pos + 2);
+                hdr = 3;
+            } else {
+                n = (String.charAt(bytes, pos + 1) << 24)
+                  | (String.charAt(bytes, pos + 2) << 16)
+                  | (String.charAt(bytes, pos + 3) << 8)
+                  | String.charAt(bytes, pos + 4);
+                hdr = 5;
+            }
+            int p = pos + hdr;
+            int i = 0;
+            while i < n {
+                p = p + MessagePack.size_of(bytes, p);
+                i = i + 1;
+            }
+            return p - pos;
+        }
+        if (t >= 0xde && t <= 0xdf) {
+            int n;
+            int hdr;
+            if t == 0xde {
+                n = (String.charAt(bytes, pos + 1) << 8)
+                  | String.charAt(bytes, pos + 2);
+                hdr = 3;
+            } else {
+                n = (String.charAt(bytes, pos + 1) << 24)
+                  | (String.charAt(bytes, pos + 2) << 16)
+                  | (String.charAt(bytes, pos + 3) << 8)
+                  | String.charAt(bytes, pos + 4);
+                hdr = 5;
+            }
+            int p = pos + hdr;
+            int i = 0;
+            while i < n {
+                p = p + MessagePack.size_of(bytes, p);
+                p = p + MessagePack.size_of(bytes, p);
+                i = i + 1;
+            }
+            return p - pos;
+        }
+        throw new JsonError("msgpack: unsupported type in size_of: 0x"
+                          + Convert.formatInt(t));
+    }
+}

@@ -1,0 +1,98 @@
+import yxg.Collections.Container;
+
+pub class <K, V> Map : Container {
+    pro unsafe int* _vals;
+
+    pub Map() {
+        _init(64, sizeof(K));
+        int vb = sizeof(V);
+        int cnt = 64 * vb / 4 + 1;
+        _vals = _gc_alloc_ptr_array(cnt);
+    }
+
+    pro unsafe K* _keysPtr() {
+        return _buf;
+    }
+
+    pro void _grow(int n) {
+        int kb = _eb;
+        int vb = sizeof(V);
+        int kcnt = n * kb / 4 + 1;
+        int vcnt = n * vb / 4 + 1;
+        unsafe int* nk = _gc_alloc_ptr_array(kcnt);
+        unsafe int* nv = _gc_alloc_ptr_array(vcnt);
+        int kwords = (_len * kb + 3) / 4;
+        int vwords = (_len * vb + 3) / 4;
+        for int i = 0; i < kwords; i++ {
+            nk[i] = _buf[i];
+        }
+        for int i = 0; i < vwords; i++ {
+            nv[i] = _vals[i];
+        }
+        _buf = nk;
+        _vals = nv;
+        _cap = n;
+    }
+
+    pub void put(K key, V value) {
+        unsafe K* kp = _keysPtr();
+        unsafe V* vp = _vals;
+        for int i = 0; i < _len; i++ {
+            if kp[i] == key {
+                vp[i] = value;
+                return;
+            }
+        }
+        if _len >= _cap {
+            int nc = _cap * 2;
+            if nc < 8 {
+                nc = 8;
+            }
+            _grow(nc);
+            kp = _keysPtr();
+            vp = _vals;
+        }
+        kp[_len] = key;
+        vp[_len] = value;
+        _len = _len + 1;
+    }
+
+    pub bool has(K key) {
+        unsafe K* kp = _keysPtr();
+        for int i = 0; i < _len; i++ {
+            if kp[i] == key {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub V get(K key) {
+        unsafe K* kp = _keysPtr();
+        unsafe V* vp = _vals;
+        for int i = 0; i < _len; i++ {
+            if kp[i] == key {
+                return vp[i];
+            }
+        }
+        throw new ContainerError("map key not found");
+    }
+
+    pub void remove(K key) {
+        unsafe K* kp = _keysPtr();
+        unsafe V* vp = _vals;
+        for int i = 0; i < _len; i++ {
+            if kp[i] == key {
+                kp[i] = kp[_len - 1];
+                vp[i] = vp[_len - 1];
+                _len = _len - 1;
+                return;
+            }
+        }
+    }
+
+    pub void destroy() {
+        _len = 0;
+        _cap = 0;
+    }
+}

@@ -1,0 +1,65 @@
+// game.vec2 — 二维向量
+import yxg.Math;
+
+pub class Vec2 {
+    pub float x;
+    pub float y;
+
+    pub Vec2() { this.x = 0.0; this.y = 0.0; }
+    pub Vec2(float ax, float ay) { this.x = ax; this.y = ay; }
+}
+
+pub Vec2 vec2(float x, float y) {
+    return new Vec2(x, y);
+}
+
+pub Vec2 vec2_zero() {
+    return new Vec2(0.0, 0.0);
+}
+
+pub Vec2 vec2_add(Vec2 a, Vec2 b) {
+    return new Vec2(a.x + b.x, a.y + b.y);
+}
+
+pub Vec2 vec2_sub(Vec2 a, Vec2 b) {
+    return new Vec2(a.x - b.x, a.y - b.y);
+}
+
+pub Vec2 vec2_mul(Vec2 v, float s) {
+    return new Vec2(v.x * s, v.y * s);
+}
+
+pub float vec2_len(Vec2 v) {
+    return Math.sqrt(v.x * v.x + v.y * v.y);
+}
+
+pub float vec2_len2(Vec2 v) {
+    return v.x * v.x + v.y * v.y;
+}
+
+pub float vec2_dist(Vec2 a, Vec2 b) {
+    float dx = a.x - b.x;
+    float dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+pub float vec2_dist2(Vec2 a, Vec2 b) {
+    float dx = a.x - b.x;
+    float dy = a.y - b.y;
+    return dx * dx + dy * dy;
+}
+
+pub Vec2 vec2_norm(Vec2 v) {
+    float len = vec2_len(v);
+    if len < 0.0001 { return new Vec2(0.0, 0.0); }
+    return new Vec2(v.x / len, v.y / len);
+}
+
+pub float vec2_dot(Vec2 a, Vec2 b) {
+    return a.x * b.x + a.y * b.y;
+}
+
+pub void vec2_set(Vec2 v, float x, float y) {
+    v.x = x;
+    v.y = y;
+}

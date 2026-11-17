@@ -2,7 +2,7 @@
 
 ## 概述
 
-类是 YXG 面向对象编程的核心。类将数据（字段）和行为（方法）封装在一起，支持构造函数、访问控制、继承和多态。
+类是 YXG 面向对象编程的核心。类将数据（字段）和行为（方法）封装在一起，支持构造函数、访问控制、继承和方法重写（当前版本没有虚函数派发）。
 
 ## 定义一个简单的类
 
@@ -12,12 +12,18 @@
     }
 
     int main() {
-        Point p;
+        Point p = new Point();
         p.x = 10;
         p.y = 20;
-        print p.x, p.y;
+        print p.x, " ", p.y, "\n";
         return 0;
     }
+
+输出：
+
+    10 20
+
+对象变量声明后默认是 null，必须先 `new` 出实例才能访问成员。写成 `Point p; p.x = 10;` 会在运行时输出 `Error: null pointer dereference`。
 
 ## 类的基本组成
 
@@ -36,7 +42,7 @@
 
         // 方法
         pub void doSomething() {
-            print "doing something";
+            print "doing something\n";
         }
 
         pro int calculate() {
@@ -44,15 +50,15 @@
         }
 
         pri void internalWork() {
-            print "internal";
+            print "internal\n";
         }
     }
 
 ## 创建和使用对象
 
-YXG 中有两种创建对象的方式：
+无论类有没有构造函数，创建对象都必须使用 new：
 
-### 无构造函数时直接声明
+### 无构造函数时也必须 new
 
     class Simple {
         int value;
@@ -60,14 +66,20 @@ YXG 中有两种创建对象的方式：
     }
 
     int main() {
-        Simple s;
+        Simple s = new Simple();
         s.value = 42;
         s.name = "test";
-        print s.value, s.name;
+        print s.value, " ", s.name, "\n";
         return 0;
     }
 
-### 有构造函数时使用 new
+输出：
+
+    42 test
+
+类里没写构造函数时，`new Simple()` 依然可用（相当于调入一个什么都不做的构造函数），实例的字段按类型取默认值。
+
+### 有构造函数时用 new 传入实参
 
     class Point {
         int x;
@@ -81,9 +93,13 @@ YXG 中有两种创建对象的方式：
 
     int main() {
         Point p = new Point(10, 20);
-        print p.x, p.y;
+        print p.x, " ", p.y, "\n";
         return 0;
     }
+
+输出：
+
+    10 20
 
 ## 类中的 this
 
@@ -131,24 +147,24 @@ YXG 支持多继承，子类用冒号指定父类，多个父类用逗号分隔�
         string name;
 
         pub void speak() {
-            print name, " makes a sound";
+            print name, " makes a sound\n";
         }
     }
 
     class Flyable {
         pub void fly() {
-            print "Flying...";
+            print "Flying...\n";
         }
     }
 
     class Bird : Animal, Flyable {
         pub void chirp() {
-            print name, " chirps!";
+            print name, " chirps!\n";
         }
     }
 
     int main() {
-        Bird b;
+        Bird b = new Bird();
         b.name = "Tweety";
         b.speak();
         b.fly();
@@ -156,7 +172,13 @@ YXG 支持多继承，子类用冒号指定父类，多个父类用逗号分隔�
         return 0;
     }
 
-子类继承父类所有 pub 和 pro 成员。子类可以重写父类方法。
+输出：
+
+    Tweety makes a sound
+    Flying...
+    Tweety chirps!
+
+子类继承父类所有 pub 和 pro 成员。子类可以重写父类方法，但当前版本不支持虚函数派发：只有在派生类实例上直接调用时才会执行派生类的版本，通过父类方法内部调用同名方法时仍然是静态绑定，见继承一章。
 
 ## 类与结构体
 
@@ -170,12 +192,17 @@ YXG 没有单独的 struct 关键字。没有方法的类本质上就是结构�
     }
 
     int main() {
-        Point3D p;
+        Point3D p = new Point3D();
         p.x = 1.0;
         p.y = 2.0;
         p.z = 3.0;
+        print p.x, " ", p.y, " ", p.z, "\n";
         return 0;
     }
+
+输出：
+
+    1.0 2.0 3.0
 
 ## 完整示例：学生管理系统
 
@@ -213,7 +240,7 @@ YXG 没有单独的 struct 关键字。没有方法的类本质上就是结构�
         }
 
         pub void printInfo() {
-            print "ID:", id, "姓名:", name, "分数:", score, "等级:", getGrade();
+            print "ID: ", id, " 姓名: ", name, " 分数: ", score, " 等级: ", getGrade(), "\n";
         }
     }
 
@@ -227,7 +254,7 @@ YXG 没有单独的 struct 关键字。没有方法的类本质上就是结构�
         s3.printInfo();
 
         s3.setScore(68.0);
-        print "Charlie 补考后:";
+        print "Charlie 补考后:\n";
         s3.printInfo();
 
         return 0;
@@ -235,11 +262,13 @@ YXG 没有单独的 struct 关键字。没有方法的类本质上就是结构�
 
 输出：
 
-    ID: 1001 姓名: Alice 分数: 92.500000 等级: A
-    ID: 1002 姓名: Bob 分数: 78.000000 等级: C
-    ID: 1003 姓名: Charlie 分数: 55.500000 等级: F
+    ID: 1001 姓名: Alice 分数: 92.5 等级: A
+    ID: 1002 姓名: Bob 分数: 78.0 等级: C
+    ID: 1003 姓名: Charlie 分数: 55.5 等级: F
     Charlie 补考后:
-    ID: 1003 姓名: Charlie 分数: 68.000000 等级: D
+    ID: 1003 姓名: Charlie 分数: 68.0 等级: D
+
+float 按 `%g` 格式输出，所以 92.5 打出来就是 `92.5`，不会补成 92.500000。
 
 ## 章节导航
 
@@ -247,7 +276,7 @@ YXG 没有单独的 struct 关键字。没有方法的类本质上就是结构�
 |------|------|
 | 定义类 | 类的声明、字段、方法、构造函数、this |
 | 成员访问控制 | pub/pro/pri 详解、getter/setter |
-| 继承 | 单继承、多继承、方法重写、父类调用 |
+| 继承 | 单继承、多继承、方法重写 |
 
 ## 继续阅读
 

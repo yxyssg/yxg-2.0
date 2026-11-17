@@ -36,11 +36,30 @@
 
 ### 声明与赋值分离
 
-    int main() {
-        int[] arr;
-        arr = new int[5];
-        arr = {1, 2, 3, 4, 5};
+声明数组时必须同时给出大小或初值，`int[] arr;` 这样光声明会报 `error[E3003]: array 'arr' of unknown size must be initialized`。数组字面量也只能出现在声明语句里，不能单独用来赋值：
 
+    int main() {
+        int[] arr = new int[5];
+
+        // arr = {1, 2, 3, 4, 5};   // 错误！error[E2004] illegal operand '{'
+
+        arr[0] = 1;
+        arr[1] = 2;
+        arr[2] = 3;
+
+        print arr[0], " ", arr[1], " ", arr[2], "\n";
+        return 0;
+    }
+
+输出：
+
+    1 2 3
+
+要一次性给出初值，就在声明的时候写：
+
+    int main() {
+        int[] arr = {1, 2, 3, 4, 5};
+        print arr.length, "\n";       // 5
         return 0;
     }
 
@@ -58,17 +77,25 @@
         arr[0] = 100;
         arr[1] = arr[1] + 5;
 
-        print first, third, last;
-        print arr[0], arr[1];
+        print first, " ", third, " ", last, "\n";
+        print arr[0], " ", arr[1], "\n";
 
         return 0;
     }
 
-索引必须是整数类型。使用负数或超出范围的索引会导致运行时错误：
+输出：
 
-    int[] arr = {1, 2, 3};
-    // int x = arr[-1];      // 运行时错误：数组越界
-    // int y = arr[100];     // 运行时错误：数组越界
+    10 30 50
+    100 25
+
+索引必须是整数类型。负数索引到运行时才报错：
+
+    int main() {
+        int[] arr = {1, 2, 3};
+        // int x = arr[-1];      // 运行时错误：Error: Array index out of bounds
+        // int y = arr[100];     // 编译期直接报错 error[E3007] array index 100 out of bounds
+        return 0;
+    }
 
 ## 获取数组长度
 
@@ -78,20 +105,33 @@
         int[] arr = {10, 20, 30, 40, 50};
 
         int len = arr.length;
-        print "数组长度:", len;
+        print "数组长度: ", len, "\n";
 
         for int i = 0; i < arr.length; i++ {
-            print "arr[", i, "] =", arr[i];
+            print "arr[", i, "] = ", arr[i], "\n";
         }
 
         return 0;
     }
 
+输出：
+
+    数组长度: 5
+    arr[0] = 10
+    arr[1] = 20
+    arr[2] = 30
+    arr[3] = 40
+    arr[4] = 50
+
 .length 返回的是 int 类型，可以参与运算：
 
-    int[] a = {1, 2, 3};
-    int[] b = {4, 5};
-    int total = a.length + b.length;
+    int main() {
+        int[] a = {1, 2, 3};
+        int[] b = {4, 5};
+        int total = a.length + b.length;
+        print total, "\n";             // 5
+        return 0;
+    }
 
 ## 多维数组
 
@@ -114,16 +154,23 @@
 
 ### 动态分配多维数组
 
+多维数组用 `new int[行][列]` 一次分配：
+
     int main() {
         int[][] matrix = new int[3][4];
+        matrix[0][0] = 5;
 
-        int[][] jagged = new int[3][];
-        jagged[0] = new int[2];
-        jagged[1] = new int[5];
-        jagged[2] = new int[3];
-
+        print matrix.length, " ", matrix[0].length, "\n";    // 12 4
         return 0;
     }
+
+输出：
+
+    12 4
+
+注意 `new int[3][4]` 的 `.length` 是 12（元素总数），不是 3（行数）。
+
+不支持不规则数组（jagged array），`new int[3][]` 这种写法会报 `error[E3007]: array dimension must be non-negative`。
 
 ### 访问多维数组
 
@@ -137,36 +184,77 @@
         int elem = matrix[1][2];
         matrix[0][0] = 99;
 
-        int rows = matrix.length;
-        int cols = matrix[0].length;
+        int total = matrix.length;       // 9：元素总数
+        int cols = matrix[0].length;     // 3：列数
+        int rows = total / cols;         // 行数要自己算
 
-        print "元素:", elem;
-        print "行数:", rows, "列数:", cols;
+        print "元素: ", elem, "\n";
+        print "行数: ", rows, " 列数: ", cols, "\n";
 
-        for int i = 0; i < matrix.length; i++ {
-            for int j = 0; j < matrix[i].length; j++ {
-                print "matrix[", i, "][", j, "] =", matrix[i][j];
+        for int i = 0; i < rows; i++ {
+            for int j = 0; j < cols; j++ {
+                print "matrix[", i, "][", j, "] = ", matrix[i][j], "\n";
             }
         }
 
         return 0;
     }
 
+输出：
+
+    元素: 6
+    行数: 3 列数: 3
+    matrix[0][0] = 99
+    matrix[0][1] = 2
+    matrix[0][2] = 3
+    matrix[1][0] = 4
+    matrix[1][1] = 5
+    matrix[1][2] = 6
+    matrix[2][0] = 7
+    matrix[2][1] = 8
+    matrix[2][2] = 9
+
+关键点是：多维数组的 `.length` 返回的是元素总数，直接拿它当循环上界会越界，必须除以列数。
+
 ## 数组的存储
 
-YXG 的数组在堆上分配，由垃圾回收器管理。数组变量存储的是引用：
+YXG 的数组是值语义：`int[] b = a;` 会把整个数组复制一份，改 b 不影响 a：
 
     int main() {
         int[] a = {1, 2, 3};
         int[] b = a;
 
         b[0] = 99;
-        print a[0];                // 99（a 也被修改了）
+        print a[0], "\n";                // 1（a 没有被修改）
+        print b[0], "\n";                // 99
 
         return 0;
     }
 
-要复制数组，需要逐个元素拷贝：
+输出：
+
+    1
+    99
+
+正因为是值语义，`int[] copy = original;` 本身就是一份独立副本，不需要逐个元素手动拷贝：
+
+    int main() {
+        int[] original = {1, 2, 3, 4, 5};
+        int[] copy = original;
+
+        copy[0] = 99;
+        print "original[0]: ", original[0], "\n";
+        print "copy[0]: ", copy[0], "\n";
+
+        return 0;
+    }
+
+输出：
+
+    original[0]: 1
+    copy[0]: 99
+
+需要显式逐元素拷贝时也可以这样写：
 
     int main() {
         int[] original = {1, 2, 3, 4, 5};
@@ -177,8 +265,8 @@ YXG 的数组在堆上分配，由垃圾回收器管理。数组变量存储的�
         }
 
         copy[0] = 99;
-        print "original[0]:", original[0];
-        print "copy[0]:", copy[0];
+        print "original[0]: ", original[0], "\n";
+        print "copy[0]: ", copy[0], "\n";
 
         return 0;
     }
@@ -186,9 +274,9 @@ YXG 的数组在堆上分配，由垃圾回收器管理。数组变量存储的�
 ## 数组作为函数参数
 
     void printArray(int[] arr) {
-        print "数组长度:", arr.length;
+        print "数组长度: ", arr.length, "\n";
         for int i = 0; i < arr.length; i++ {
-            print "  [", i, "] =", arr[i];
+            print "  [", i, "] = ", arr[i], "\n";
         }
     }
 
@@ -206,12 +294,72 @@ YXG 的数组在堆上分配，由垃圾回收器管理。数组变量存储的�
         printArray(nums);
 
         int[] doubled = doubleElements(nums);
-        printArray(doubled);
+        print "翻倍后长度: ", doubled.length, "\n";
+        for int i = 0; i < doubled.length; i++ {
+            print "  [", i, "] = ", doubled[i], "\n";
+        }
 
         return 0;
     }
 
-数组参数传递的是引用，函数内修改数组元素会影响原数组。但重新分配（new）不会影响原引用。
+输出：
+
+    数组长度: 5
+      [0] = 1
+      [1] = 2
+      [2] = 3
+      [3] = 4
+      [4] = 5
+    翻倍后长度: 5
+      [0] = 2
+      [1] = 4
+      [2] = 6
+      [3] = 8
+      [4] = 10
+
+注意：函数返回的数组不要再直接传给另一个函数，它在被再次当作参数时长度会变成 0。遍历请直接在调用方用 for 循环。
+
+数组参数传递的是引用，函数内直接修改元素会影响原数组：
+
+    void modify(int[] arr) {
+        arr[0] = 777;
+    }
+
+    int main() {
+        int[] nums = {1, 2, 3};
+        modify(nums);
+        print nums[0], "\n";      // 777
+        return 0;
+    }
+
+但要注意返回值：函数里用 `{1, 2, 3}` 字面量创建的数组，退出函数后数据会失效。
+
+    int[] makeBad() {
+        int[] r = {1, 2, 3};
+        return r;
+    }
+
+    int main() {
+        int[] x = makeBad();
+        print x.length, "\n";      // 0！字面量数组不能返回
+        return 0;
+    }
+
+正确做法是用 `new` 分配再填值：
+
+    int[] makeGood() {
+        int[] r = new int[3];
+        r[0] = 1;
+        r[1] = 2;
+        r[2] = 3;
+        return r;
+    }
+
+    int main() {
+        int[] x = makeGood();
+        print x.length, " ", x[0], "\n";    // 3 1
+        return 0;
+    }
 
 ## 数组与 foreach
 
@@ -219,13 +367,30 @@ YXG 的数组在堆上分配，由垃圾回收器管理。数组变量存储的�
         int[] arr = {10, 20, 30, 40, 50};
 
         for int v : arr {
-            print v;
+            print v, "\n";
         }
 
+        return 0;
+    }
+
+输出：
+
+    10
+    20
+    30
+    40
+    50
+
+foreach 只支持一维数组。`for int[] row : matrix` 这种写法会报 `error[E2002]: expected variable name`，遍历多维数组要用下标：
+
+    int main() {
         int[][] matrix = {{1, 2}, {3, 4}, {5, 6}};
-        for int[] row : matrix {
-            for int elem : row {
-                print elem;
+        int cols = matrix[0].length;
+        int rows = matrix.length / cols;
+
+        for int i = 0; i < rows; i++ {
+            for int j = 0; j < cols; j++ {
+                print matrix[i][j], "\n";
             }
         }
 
@@ -234,17 +399,17 @@ YXG 的数组在堆上分配，由垃圾回收器管理。数组变量存储的�
 
 ## 数组转字符串
 
-print 可以直接打印数组：
+print 可以直接打印数组，格式是 `[...]`，元素之间用 `, ` 分隔：
 
     int main() {
         int[] nums = {1, 2, 3, 4, 5};
-        print nums;
+        print nums, "\n";
 
         string[] names = {"Alice", "Bob"};
-        print names;
+        print names, "\n";
 
         int[][] matrix = {{1, 2}, {3, 4}};
-        print matrix;
+        print matrix, "\n";
 
         return 0;
     }
@@ -252,8 +417,10 @@ print 可以直接打印数组：
 输出：
 
     [1, 2, 3, 4, 5]
-    [Alice, Bob]
-    [[1, 2], [3, 4]]
+    ["Alice", "Bob"]
+    [1, 2, 3, 4]
+
+注意两点：字符串数组的每个元素都会被加上双引号；多维数组打印成一维的样子，不会显示内层方括号。每次 print 都不会自动换行，所以上面每行末尾都加了 `"\n"`。
 
 ## 常见模式
 
@@ -302,24 +469,39 @@ print 可以直接打印数组：
 
 ### 数组越界
 
-    int[] arr = {1, 2, 3};
-    // arr[5] = 10;          // 运行时错误
+    int main() {
+        int[] arr = {1, 2, 3};
+        // arr[5] = 10;          // 编译期报错 error[E3007] array index 5 out of bounds (size 3)
+        return 0;
+    }
 
-YXG 编译器在生成代码时会插入越界检查。越界访问会触发运行时错误并终止程序。
+索引是常量时编译器直接报错。索引是变量时，越界要到运行期才被发现，程序输出 `Error: Array index out of bounds` 并终止（退出码 1）。
 
 ### 未分配就使用
 
-    int[] arr;
-    // arr[0] = 10;          // 运行时错误
+    int main() {
+        int[] arr;
+        // arr[0] = 10;          // 编译报错 error[E3003] array 'arr' of unknown size must be initialized
+        return 0;
+    }
+
+没写大小的数组必须先初始化才能用：`int[] arr = new int[5];` 或 `int[] arr = {1, 2, 3};`。
 
 ### 类型不匹配
 
-    // int[] arr = {1, 2, "hello"};    // 错误！元素类型不一致
+    int main() {
+        // int[] arr = {1, 2, "hello"};    // 错误！error[E3003] type mismatch in initializer
+        int[] arr = {1, 2, 3};
+        return 0;
+    }
 
 ### .length 不可赋值
 
-    int[] arr = {1, 2, 3};
-    // arr.length = 10;      // 错误！length 是只读的
+    int main() {
+        int[] arr = {1, 2, 3};
+        // arr.length = 10;      // 错误！length 是只读的
+        return 0;
+    }
 
 ## 继续阅读
 

@@ -1,0 +1,45 @@
+import yxg.Game.Vec2;
+
+pub class Camera {
+    pub float x;
+    pub float y;
+    pub int   viewW;
+    pub int   viewH;
+
+    pub Camera(int w, int h) {
+        this.x = 0.0;
+        this.y = 0.0;
+        this.viewW = w;
+        this.viewH = h;
+    }
+}
+
+pub Camera g_camera;
+
+pub void camera_init(int viewW, int viewH) {
+    g_camera = new Camera(viewW, viewH);
+}
+
+pub void camera_follow(float targetX, float targetY) {
+    // 让 target 居中
+    g_camera.x = targetX - (g_camera.viewW / 2) as float;
+    g_camera.y = targetY - (g_camera.viewH / 2) as float;
+}
+
+// 把世界坐标转换成屏幕坐标
+pub int cam_sx(float worldX) {
+    return (worldX - g_camera.x) as int;
+}
+
+pub int cam_sy(float worldY) {
+    return (worldY - g_camera.y) as int;
+}
+
+// 世界矩形 → 是否需要渲染（视口裁剪）
+pub bool cam_visible(float x, float y, float w, float h) {
+    if x + w < g_camera.x { return false; }
+    if x > g_camera.x + (g_camera.viewW as float) { return false; }
+    if y + h < g_camera.y { return false; }
+    if y > g_camera.y + (g_camera.viewH as float) { return false; }
+    return true;
+}

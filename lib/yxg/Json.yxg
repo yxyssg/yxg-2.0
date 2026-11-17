@@ -1,0 +1,2007 @@
+// =====================================
+// yxg.Json — JSON 解析/序列化/查询/校验
+// ============================================================
+
+import yxg.File;
+import yxg.String;
+import yxg.Utils;
+import yxg.Collections.List;
+
+pub class JsonError : ERROR {
+    pub JsonError(string msg) {
+        this.info = msg;
+    }
+}
+
+pub class JsonValue {
+    pub int type;
+    pub bool bool_val;
+    pub int int_val;
+    pub int64 int64_val;
+    pub float float_val;
+    pub string str_val;
+    pub List<JsonValue> arr_val;
+    pub List<string> obj_keys;
+    pub List<JsonValue> obj_vals;
+
+    pub JsonValue() {
+        type = 0;
+        bool_val = false;
+        int_val = 0;
+        int64_val = 0;
+        float_val = 0.0;
+        str_val = "";
+        arr_val = new List<JsonValue>();
+        obj_keys = new List<string>();
+        obj_vals = new List<JsonValue>();
+    }
+
+    pub bool isNull()   { return type == 0; }
+    pub bool isBool()   { return type == 1; }
+    pub bool isInt()    { return type == 2; }
+    pub bool isFloat()  { return type == 3; }
+    pub bool isString() { return type == 4; }
+    pub bool isArray()  { return type == 5; }
+    pub bool isObject() { return type == 6; }
+    pub bool isBigInt() { return type == 7; }
+    pub bool isNumber() { return type == 2 || type == 3 || type == 7; }
+
+    pub bool asBool() {
+        if type == 1 { return bool_val; }
+        if type == 2 { return int_val != 0; }
+        throw new JsonError("json: not a bool");
+    }
+
+    pub int asInt() {
+        if type == 2 { return int_val; }
+        if type == 3 { return float_val as int; }
+        if type == 7 { return int64_val as int; }
+        if type == 1 {
+            if bool_val { return 1; }
+            return 0;
+        }
+        throw new JsonError("json: not an int");
+    }
+
+    pub int64 asInt64() {
+        if type == 7 { return int64_val; }
+        if type == 2 { return int_val as int64; }
+        if type == 3 { return float_val as int64; }
+        throw new JsonError("json: not an int64");
+    }
+
+    pub float asFloat() {
+        if type == 3 { return float_val; }
+        if type == 2 { return int_val as float; }
+        if type == 7 { return int64_val as float; }
+        throw new JsonError("json: not a float");
+    }
+
+    pub string asString() {
+        if type == 4 { return str_val; }
+        throw new JsonError("json: not a string");
+    }
+
+    pub int size() {
+        if type == 5 { return arr_val.size(); }
+        if type == 6 { return obj_keys.size(); }
+        return 0;
+    }
+
+    pub JsonValue at(int i) {
+        if type != 5 { throw new JsonError("json: not an array"); }
+        if i < 0 || i >= arr_val.size() {
+            throw new JsonError("json: array index out of range");
+        }
+        return arr_val.get(i);
+    }
+
+    pub void add(JsonValue v) {
+        type = 5;
+        arr_val.add(v);
+    }
+
+    pub void removeAt(int i) {
+        if type != 5 { throw new JsonError("json: not an array"); }
+        if i < 0 || i >= arr_val.size() {
+            throw new JsonError("json: array index out of range");
+        }
+        arr_val.removeAt(i);
+    }
+
+    pub void insertAt(int i, JsonValue v) {
+        if type != 5 { throw new JsonError("json: not an array"); }
+        if i < 0 || i > arr_val.size() {
+            throw new JsonError("json: array insert index out of range");
+        }
+        arr_val.insert(i, v);
+    }
+
+    pub bool has(string key) {
+        if type != 6 { return false; }
+        int i = 0;
+        while i < obj_keys.size() {
+            if obj_keys.get(i) == key { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    pub JsonValue get(string key) {
+        if type != 6 { throw new JsonError("json: not an object"); }
+        int i = 0;
+        while i < obj_keys.size() {
+            if obj_keys.get(i) == key {
+                return obj_vals.get(i);
+            }
+            i = i + 1;
+        }
+        throw new JsonError("json: key not found: " + key);
+    }
+
+    pub JsonValue getOr(string key, JsonValue def) {
+        if type != 6 { return def; }
+        int i = 0;
+        while i < obj_keys.size() {
+            if obj_keys.get(i) == key {
+                return obj_vals.get(i);
+            }
+            i = i + 1;
+        }
+        return def;
+    }
+
+    pub void put(string key, JsonValue v) {
+        type = 6;
+        int i = 0;
+        while i < obj_keys.size() {
+            if obj_keys.get(i) == key {
+                obj_vals.set(i, v);
+                return;
+            }
+            i = i + 1;
+        }
+        obj_keys.add(key);
+        obj_vals.add(v);
+    }
+
+    pub void remove(string key) {
+        if type != 6 { return; }
+        int i = 0;
+        while i < obj_keys.size() {
+            if obj_keys.get(i) == key {
+                obj_keys.removeAt(i);
+                obj_vals.removeAt(i);
+                return;
+            }
+            i = i + 1;
+        }
+    }
+
+    pub string[] keys() {
+        int n = obj_keys.size();
+        string[] out = new string[n];
+        int i = 0;
+        while i < n {
+            out[i] = obj_keys.get(i);
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub void clear() {
+        if type == 5 {
+            while arr_val.size() > 0 {
+                arr_val.removeLast();
+            }
+        }
+        if type == 6 {
+            while obj_keys.size() > 0 {
+                obj_keys.removeLast();
+            }
+            while obj_vals.size() > 0 {
+                obj_vals.removeLast();
+            }
+        }
+    }
+
+    pub JsonValue clone() {
+        JsonValue copy = new JsonValue();
+        copy.type = type;
+        copy.bool_val = bool_val;
+        copy.int_val = int_val;
+        copy.int64_val = int64_val;
+        copy.float_val = float_val;
+        copy.str_val = str_val;
+
+        if type == 5 {
+            int i = 0;
+            while i < arr_val.size() {
+                copy.arr_val.add(arr_val.get(i).clone());
+                i = i + 1;
+            }
+        }
+        if type == 6 {
+            int i = 0;
+            while i < obj_keys.size() {
+                copy.obj_keys.add(obj_keys.get(i));
+                copy.obj_vals.add(obj_vals.get(i).clone());
+                i = i + 1;
+            }
+        }
+        return copy;
+    }
+
+    pub bool equals(JsonValue other) {
+        if type != other.type { return false; }
+        if type == 0 { return true; }
+        if type == 1 { return bool_val == other.bool_val; }
+        if type == 2 { return int_val == other.int_val; }
+        if type == 3 { return float_val == other.float_val; }
+        if type == 4 { return str_val == other.str_val; }
+        if type == 7 { return int64_val == other.int64_val; }
+        if type == 5 {
+            if arr_val.size() != other.arr_val.size() { return false; }
+            int i = 0;
+            while i < arr_val.size() {
+                if !arr_val.get(i).equals(other.arr_val.get(i)) {
+                    return false;
+                }
+                i = i + 1;
+            }
+            return true;
+        }
+        if type == 6 {
+            if obj_keys.size() != other.obj_keys.size() { return false; }
+            int i = 0;
+            while i < obj_keys.size() {
+                string k = obj_keys.get(i);
+                if !other.has(k) { return false; }
+                if !obj_vals.get(i).equals(other.get(k)) { return false; }
+                i = i + 1;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    pub JsonValue pointer(string path) {
+        if String.len(path) == 0 { return this; }
+        string[] parts = JsonPointer.toParts(path);
+
+        JsonValue cur = this;
+        int i = 0;
+        while i < parts.length {
+            string key = parts[i];
+            if cur.type == 6 {
+                cur = cur.get(key);
+            } else if cur.type == 5 {
+                int idx = Convert.parseInt(key);
+                cur = cur.at(idx);
+            } else {
+                throw new JsonError("json: pointer can't navigate through scalar");
+            }
+            i = i + 1;
+        }
+        return cur;
+    }
+
+    pub bool hasPointer(string path) {
+        try {
+            this.pointer(path);
+            return true;
+        } catch (JsonError e) {
+            return false;
+        }
+    }
+}
+
+// ============================================================
+// JSON Pointer (RFC 6901)
+// ============================================================
+pub class JsonPointer {
+    pub static string escape(string s) {
+        string out = "";
+        int i = 0;
+        int n = String.len(s);
+        while i < n {
+            int c = String.charAt(s, i);
+            if c == 126 { out = out + "~0"; }
+            else if c == 47 { out = out + "~1"; }
+            else { out = out + _char_to_str(c); }
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub static string unescape(string s) {
+        string out = "";
+        int i = 0;
+        int n = String.len(s);
+        while i < n {
+            int c = String.charAt(s, i);
+            if c == 126 && i + 1 < n {
+                int c2 = String.charAt(s, i + 1);
+                if c2 == 48 { out = out + "~"; i = i + 2; continue; }
+                if c2 == 49 { out = out + "/"; i = i + 2; continue; }
+            }
+            out = out + _char_to_str(c);
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub static string fromParts(string[] parts) {
+        if parts.length == 0 { return ""; }
+        string out = "";
+        int i = 0;
+        while i < parts.length {
+            out = out + "/";
+            out = out + JsonPointer.escape(parts[i]);
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub static string[] toParts(string path) {
+        if String.len(path) == 0 { return new string[0]; }
+        if String.charAt(path, 0) != 47 {
+            throw new JsonError("json: pointer must start with '/'");
+        }
+        string body = _str_to_string(String.sub(path, 1, String.len(path) - 1));
+        string[] raw = String.split(body, "/");
+        string[] out = new string[raw.length];
+        int i = 0;
+        while i < raw.length {
+            out[i] = JsonPointer.unescape(raw[i]);
+            i = i + 1;
+        }
+        return out;
+    }
+}
+
+// ============================================================
+// JSONPath 查询
+// ============================================================
+pub class JsonPath {
+    pub static JsonValue[] query(JsonValue root, string path) {
+        List<JsonValue> result = new List<JsonValue>();
+        JsonPath.collect(root, path, 0, result);
+        int n = result.size();
+        JsonValue[] out = new JsonValue[n];
+        int i = 0;
+        while i < n {
+            out[i] = result.get(i);
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pri static void collect(JsonValue cur, string path, int pos, List<JsonValue> out) {
+        int n = String.len(path);
+        while pos < n {
+            int c = String.charAt(path, pos);
+            if c == 36 { pos = pos + 1; continue; }
+            if c == 46 {
+                pos = pos + 1;
+                int begin = pos;
+                while pos < n {
+                    int cc = String.charAt(path, pos);
+                    if cc == 46 || cc == 91 { break; }
+                    pos = pos + 1;
+                }
+                string key = _str_to_string(String.sub(path, begin, pos - begin));
+                if key == "*" {
+                    if cur.isObject() {
+                        int i = 0;
+                        while i < cur.obj_keys.size() {
+                            JsonValue child = cur.obj_vals.get(i);
+                            if pos >= n { out.add(child); }
+                            else { JsonPath.collect(child, path, pos, out); }
+                            i = i + 1;
+                        }
+                    }
+                    return;
+                }
+                if !cur.isObject() {
+                    throw new JsonError("json path: expected object at '" + key + "'");
+                }
+                cur = cur.get(key);
+                continue;
+            }
+            if c == 91 {
+                pos = pos + 1;
+                int begin = pos;
+                while pos < n {
+                    int cc = String.charAt(path, pos);
+                    if cc == 93 { break; }
+                    pos = pos + 1;
+                }
+                string key = _str_to_string(String.sub(path, begin, pos - begin));
+                if pos < n { pos = pos + 1; }
+                if key == "*" {
+                    if cur.isArray() {
+                        int i = 0;
+                        while i < cur.arr_val.size() {
+                            JsonValue child = cur.arr_val.get(i);
+                            if pos >= n { out.add(child); }
+                            else { JsonPath.collect(child, path, pos, out); }
+                            i = i + 1;
+                        }
+                    } else if cur.isObject() {
+                        int i = 0;
+                        while i < cur.obj_keys.size() {
+                            JsonValue child = cur.obj_vals.get(i);
+                            if pos >= n { out.add(child); }
+                            else { JsonPath.collect(child, path, pos, out); }
+                            i = i + 1;
+                        }
+                    }
+                    return;
+                }
+                if cur.isArray() {
+                    int idx = Convert.parseInt(key);
+                    cur = cur.at(idx);
+                } else if cur.isObject() {
+                    cur = cur.get(key);
+                } else {
+                    throw new JsonError("json path: expected array or object");
+                }
+                continue;
+            }
+            break;
+        }
+        out.add(cur);
+    }
+
+    pub static JsonValue queryOne(JsonValue root, string path) {
+        JsonValue[] all = JsonPath.query(root, path);
+        if all.length == 0 {
+            throw new JsonError("json path: no match for " + path);
+        }
+        return all[0];
+    }
+
+    pub static string[] queryStrings(JsonValue root, string path) {
+        JsonValue[] all = JsonPath.query(root, path);
+        int n = all.length;
+        string[] out = new string[n];
+        int i = 0;
+        while i < n {
+            out[i] = all[i].asString();
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub static int[] queryInts(JsonValue root, string path) {
+        JsonValue[] all = JsonPath.query(root, path);
+        int n = all.length;
+        int[] out = new int[n];
+        int i = 0;
+        while i < n {
+            out[i] = all[i].asInt();
+            i = i + 1;
+        }
+        return out;
+    }
+}
+
+// ============================================================
+// JSON Schema 校验
+// ============================================================
+pub class JsonSchema {
+    pub static string[] validate(JsonValue value, JsonValue schema) {
+        List<string> errors = new List<string>();
+        JsonSchema.check(value, schema, "$", errors);
+        int n = errors.size();
+        string[] out = new string[n];
+        int i = 0;
+        while i < n {
+            out[i] = errors.get(i);
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub static void validateOrThrow(JsonValue value, JsonValue schema) {
+        string[] errors = JsonSchema.validate(value, schema);
+        if errors.length > 0 {
+            string msg = "json schema: ";
+            int i = 0;
+            while i < errors.length {
+                if i > 0 { msg = msg + "; "; }
+                msg = msg + errors[i];
+                i = i + 1;
+            }
+            throw new JsonError(msg);
+        }
+    }
+
+    pub static bool isValid(JsonValue value, JsonValue schema) {
+        string[] errors = JsonSchema.validate(value, schema);
+        return errors.length == 0;
+    }
+
+    pri static void check(JsonValue v, JsonValue schema, string path, List<string> errors) {
+        if !schema.isObject() { return; }
+
+        if schema.has("type") {
+            string t = schema.get("type").asString();
+            if !JsonSchema.typeMatches(v, t) {
+                errors.add(path + ": expected type '" + t + "'");
+                return;
+            }
+        }
+
+        if schema.has("required") && v.isObject() {
+            JsonValue req = schema.get("required");
+            if req.isArray() {
+                int i = 0;
+                while i < req.size() {
+                    string key = req.at(i).asString();
+                    if !v.has(key) {
+                        errors.add(path + ": missing required key '" + key + "'");
+                    }
+                    i = i + 1;
+                }
+            }
+        }
+
+        if schema.has("properties") && v.isObject() {
+            JsonValue props = schema.get("properties");
+            int i = 0;
+            while i < props.obj_keys.size() {
+                string key = props.obj_keys.get(i);
+                JsonValue child_schema = props.obj_vals.get(i);
+                if v.has(key) {
+                    JsonSchema.check(v.get(key), child_schema, path + "." + key, errors);
+                }
+                i = i + 1;
+            }
+        }
+
+        if schema.has("items") && v.isArray() {
+            JsonValue item_schema = schema.get("items");
+            int i = 0;
+            while i < v.arr_val.size() {
+                string p = path + "[" + Convert.formatInt(i) + "]";
+                JsonSchema.check(v.arr_val.get(i), item_schema, p, errors);
+                i = i + 1;
+            }
+        }
+
+        if schema.has("minLength") && v.isString() {
+            int min = schema.get("minLength").asInt();
+            if String.len(v.str_val) < min {
+                errors.add(path + ": string too short (min " + Convert.formatInt(min) + ")");
+            }
+        }
+
+        if schema.has("maxLength") && v.isString() {
+            int maxv = schema.get("maxLength").asInt();
+            if String.len(v.str_val) > maxv {
+                errors.add(path + ": string too long (max " + Convert.formatInt(maxv) + ")");
+            }
+        }
+
+        if schema.has("minimum") && v.isNumber() {
+            float minv = schema.get("minimum").asFloat();
+            if v.asFloat() < minv {
+                errors.add(path + ": value below minimum");
+            }
+        }
+
+        if schema.has("maximum") && v.isNumber() {
+            float maxv = schema.get("maximum").asFloat();
+            if v.asFloat() > maxv {
+                errors.add(path + ": value above maximum");
+            }
+        }
+
+        if schema.has("enum") && schema.get("enum").isArray() {
+            JsonValue options = schema.get("enum");
+            bool matched = false;
+            int i = 0;
+            while i < options.size() {
+                if v.equals(options.at(i)) { matched = true; break; }
+                i = i + 1;
+            }
+            if !matched {
+                errors.add(path + ": not one of enum values");
+            }
+        }
+    }
+
+    pri static bool typeMatches(JsonValue v, string t) {
+        if t == "null"    { return v.type == 0; }
+        if t == "boolean" { return v.type == 1; }
+        if t == "integer" { return v.type == 2 || v.type == 7; }
+        if t == "number"  { return v.type == 2 || v.type == 3 || v.type == 7; }
+        if t == "string"  { return v.type == 4; }
+        if t == "array"   { return v.type == 5; }
+        if t == "object"  { return v.type == 6; }
+        return false;
+    }
+}
+
+// ============================================================
+// JsonParser
+// ============================================================
+pub class JsonParser {
+    pub string src;
+    pub int pos;
+    pub int len;
+    pub int mode;
+
+    pub JsonParser(string text, int m) {
+        src = text;
+        pos = 0;
+        len = String.len(text);
+        mode = m;
+    }
+
+    pub int peek() {
+        if pos >= len { return -1; }
+        return String.charAt(src, pos);
+    }
+
+    pub void skip_ws() {
+        while pos < len {
+            int c = String.charAt(src, pos);
+            if c == 32 || c == 9 || c == 10 || c == 13 {
+                pos = pos + 1;
+                continue;
+            }
+            if mode >= 1 && c == 47 {
+                if pos + 1 < len {
+                    int c2 = String.charAt(src, pos + 1);
+                    if c2 == 47 {
+                        pos = pos + 2;
+                        while pos < len {
+                            int cc = String.charAt(src, pos);
+                            if cc == 10 { break; }
+                            pos = pos + 1;
+                        }
+                        continue;
+                    }
+                    if c2 == 42 {
+                        pos = pos + 2;
+                        while pos + 1 < len {
+                            int cc = String.charAt(src, pos);
+                            int cn = String.charAt(src, pos + 1);
+                            if cc == 42 && cn == 47 {
+                                pos = pos + 2;
+                                break;
+                            }
+                            pos = pos + 1;
+                        }
+                        continue;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    pub JsonError err(string msg) {
+        string s = "json @";
+        s = s + Convert.formatInt(pos);
+        s = s + ": ";
+        s = s + msg;
+        return new JsonError(s);
+    }
+
+    pub JsonValue parse() {
+        this.skip_ws();
+        JsonValue v = this.parse_value();
+        this.skip_ws();
+        if pos != len {
+            throw this.err("trailing characters");
+        }
+        return v;
+    }
+
+    pub JsonValue parse_value() {
+        this.skip_ws();
+        int c = this.peek();
+        if c == -1 { throw this.err("unexpected end of input"); }
+        if c == 123 { return this.parse_object(); }
+        if c == 91  { return this.parse_array(); }
+        if c == 34  { return this.parse_string_value(); }
+        if mode == 2 && c == 39 { return this.parse_string_value_single(); }
+        if c == 116 { return this.parse_keyword_bool("true", true); }
+        if c == 102 { return this.parse_keyword_bool("false", false); }
+        if c == 110 { return this.parse_keyword_null(); }
+        if mode == 2 && c == 78 { return this.parse_keyword_nan(); }
+        if mode == 2 && c == 73 { return this.parse_keyword_inf(1); }
+        if c == 45 || (c >= 48 && c <= 57) {
+            return this.parse_number();
+        }
+        if mode == 2 && c == 43 {
+            pos = pos + 1;
+            return this.parse_number();
+        }
+        if mode == 2 && c == 46 {
+            return this.parse_number();
+        }
+        throw this.err("unexpected character");
+    }
+
+    pub JsonValue parse_keyword_bool(string kw, bool val) {
+        int klen = String.len(kw);
+        int i = 0;
+        while i < klen {
+            if pos >= len { throw this.err("unexpected end"); }
+            if String.charAt(src, pos) != String.charAt(kw, i) {
+                throw this.err("bad keyword");
+            }
+            pos = pos + 1;
+            i = i + 1;
+        }
+        JsonValue v = new JsonValue();
+        v.type = 1;
+        v.bool_val = val;
+        return v;
+    }
+
+    pub JsonValue parse_keyword_null() {
+        string kw = "null";
+        int i = 0;
+        while i < 4 {
+            if pos >= len { throw this.err("unexpected end"); }
+            if String.charAt(src, pos) != String.charAt(kw, i) {
+                throw this.err("bad keyword");
+            }
+            pos = pos + 1;
+            i = i + 1;
+        }
+        JsonValue v = new JsonValue();
+        v.type = 0;
+        return v;
+    }
+
+    pub JsonValue parse_keyword_nan() {
+        if pos + 3 > len { throw this.err("bad keyword"); }
+        if String.charAt(src, pos) != 78 { throw this.err("bad keyword"); }
+        if String.charAt(src, pos + 1) != 97 { throw this.err("bad keyword"); }
+        if String.charAt(src, pos + 2) != 78 { throw this.err("bad keyword"); }
+        pos = pos + 3;
+        JsonValue v = new JsonValue();
+        v.type = 3;
+        v.float_val = 0.0 / 0.0;
+        return v;
+    }
+
+    pub JsonValue parse_keyword_inf(int sign) {
+        string kw = "Infinity";
+        int i = 0;
+        while i < 8 {
+            if pos >= len { throw this.err("unexpected end"); }
+            if String.charAt(src, pos) != String.charAt(kw, i) {
+                throw this.err("bad keyword");
+            }
+            pos = pos + 1;
+            i = i + 1;
+        }
+        JsonValue v = new JsonValue();
+        v.type = 3;
+        if sign < 0 { v.float_val = 0.0 - 1.0 / 0.0; }
+        else { v.float_val = 1.0 / 0.0; }
+        return v;
+    }
+
+    pub JsonValue parse_number() {
+        int start = pos;
+        int is_float = 0;
+
+        if this.peek() == 45 { pos = pos + 1; }
+
+        if mode == 2 && this.peek() == 48 {
+            int nx = pos + 1;
+            if nx < len {
+                int c = String.charAt(src, nx);
+                if c == 120 || c == 88 {
+                    pos = pos + 2;
+                    int hstart = pos;
+                    while pos < len {
+                        int cc = String.charAt(src, pos);
+                        int d = this.hex_val(cc);
+                        if d < 0 { break; }
+                        pos = pos + 1;
+                    }
+                    string hs = _str_to_string(String.sub(src, hstart, pos - hstart));
+                    int64 hv = this.parse_hex_int64(hs);
+                    JsonValue v = new JsonValue();
+                    if hv > 2147483647 || hv < -2147483648 {
+                        v.type = 7;
+                        v.int64_val = hv;
+                    } else {
+                        v.type = 2;
+                        v.int_val = hv as int;
+                    }
+                    return v;
+                }
+            }
+        }
+
+        while pos < len {
+            int c = String.charAt(src, pos);
+            if c >= 48 && c <= 57 { pos = pos + 1; }
+            else if c == 46 { is_float = 1; pos = pos + 1; }
+            else if c == 101 || c == 69 {
+                is_float = 1;
+                pos = pos + 1;
+                int sg = this.peek();
+                if sg == 43 || sg == 45 { pos = pos + 1; }
+            } else {
+                break;
+            }
+        }
+
+        string numstr = _str_to_string(String.sub(src, start, pos - start));
+        JsonValue v = new JsonValue();
+        if is_float != 0 {
+            v.type = 3;
+            v.float_val = Convert.parseFloat(numstr);
+            return v;
+        }
+        int64 big = Convert.parseInt64(numstr);
+        if big > 2147483647 || big < -2147483648 {
+            v.type = 7;
+            v.int64_val = big;
+        } else {
+            v.type = 2;
+            v.int_val = big as int;
+        }
+        return v;
+    }
+
+    pub int64 parse_hex_int64(string s) {
+        int64 result = 0;
+        int i = 0;
+        while i < String.len(s) {
+            int c = String.charAt(s, i);
+            int d = this.hex_val(c);
+            if d < 0 { break; }
+            result = result * 16 + (d as int64);
+            i = i + 1;
+        }
+        return result;
+    }
+
+    pub int hex_val(int c) {
+        if c >= 48 && c <= 57 { return c - 48; }
+        if c >= 97 && c <= 102 { return c - 97 + 10; }
+        if c >= 65 && c <= 70 { return c - 65 + 10; }
+        return -1;
+    }
+
+    pub JsonValue parse_string_value() {
+        string s = this.parse_string_raw();
+        JsonValue v = new JsonValue();
+        v.type = 4;
+        v.str_val = s;
+        return v;
+    }
+
+    pub JsonValue parse_string_value_single() {
+        string s = this.parse_string_raw_single();
+        JsonValue v = new JsonValue();
+        v.type = 4;
+        v.str_val = s;
+        return v;
+    }
+
+    pub string parse_string_raw() {
+        if this.peek() != 34 {
+            throw this.err("expected string");
+        }
+        pos = pos + 1;
+        string r = this.scan_string_body(34);
+        return r;
+    }
+
+    pub string parse_string_raw_single() {
+        if this.peek() != 39 {
+            throw this.err("expected string");
+        }
+        pos = pos + 1;
+        string r = this.scan_string_body(39);
+        return r;
+    }
+
+    pub string scan_string_body(int terminator) {
+        string out = "";
+        while pos < len {
+            int c = String.charAt(src, pos);
+            if c == terminator {
+                pos = pos + 1;
+                return out;
+            }
+            if c == 92 {
+                pos = pos + 1;
+                if pos >= len { throw this.err("unexpected end in string"); }
+                int e = String.charAt(src, pos);
+                pos = pos + 1;
+                if e == 10 {
+                    continue;
+                }
+                if e == 34 { out = out + _char_to_str(34); }
+                else if e == 39 { out = out + _char_to_str(39); }
+                else if e == 92 { out = out + _char_to_str(92); }
+                else if e == 47 { out = out + _char_to_str(47); }
+                else if e == 98 { out = out + _char_to_str(8); }
+                else if e == 102 { out = out + _char_to_str(12); }
+                else if e == 110 { out = out + _char_to_str(10); }
+                else if e == 114 { out = out + _char_to_str(13); }
+                else if e == 116 { out = out + _char_to_str(9); }
+                else if e == 118 { out = out + _char_to_str(11); }
+                else if e == 48 { out = out + _char_to_str(0); }
+                else if e == 117 {
+                    if pos + 4 > len { throw this.err("bad \\u escape"); }
+                    int code = 0;
+                    int i = 0;
+                    while i < 4 {
+                        int h = String.charAt(src, pos);
+                        int d = this.hex_val(h);
+                        if d < 0 { throw this.err("bad hex in \\u"); }
+                        code = code * 16 + d;
+                        pos = pos + 1;
+                        i = i + 1;
+                    }
+                    out = out + this.utf8_encode(code);
+                }
+                else { throw this.err("bad escape"); }
+            } else {
+                out = out + _char_to_str(c);
+                pos = pos + 1;
+            }
+        }
+        throw this.err("unterminated string");
+    }
+
+    pub string utf8_encode(int code) {
+        if code < 128 {
+            return _char_to_str(code);
+        }
+        if code < 2048 {
+            int b1 = 192 | (code >> 6);
+            int b2 = 128 | (code & 63);
+            return _char_to_str(b1) + _char_to_str(b2);
+        }
+        int b1 = 224 | (code >> 12);
+        int b2 = 128 | ((code >> 6) & 63);
+        int b3 = 128 | (code & 63);
+        return _char_to_str(b1) + _char_to_str(b2) + _char_to_str(b3);
+    }
+
+    pub JsonValue parse_array() {
+        pos = pos + 1;
+        JsonValue v = new JsonValue();
+        v.type = 5;
+        this.skip_ws();
+        if this.peek() == 93 {
+            pos = pos + 1;
+            return v;
+        }
+        while true {
+            JsonValue child = this.parse_value();
+            v.arr_val.add(child);
+            this.skip_ws();
+            int c = this.peek();
+            if c == 44 {
+                pos = pos + 1;
+                if mode >= 1 {
+                    this.skip_ws();
+                    if this.peek() == 93 {
+                        pos = pos + 1;
+                        return v;
+                    }
+                }
+                continue;
+            }
+            if c == 93 {
+                pos = pos + 1;
+                return v;
+            }
+            throw this.err("expected ',' or ']'");
+        }
+    }
+
+    pub JsonValue parse_object() {
+        pos = pos + 1;
+        JsonValue v = new JsonValue();
+        v.type = 6;
+        this.skip_ws();
+        if this.peek() == 125 {
+            pos = pos + 1;
+            return v;
+        }
+        while true {
+            this.skip_ws();
+            string key = this.parse_object_key();
+            this.skip_ws();
+            if this.peek() != 58 {
+                throw this.err("expected ':'");
+            }
+            pos = pos + 1;
+            JsonValue child = this.parse_value();
+            v.put(key, child);
+            this.skip_ws();
+            int c = this.peek();
+            if c == 44 {
+                pos = pos + 1;
+                if mode >= 1 {
+                    this.skip_ws();
+                    if this.peek() == 125 {
+                        pos = pos + 1;
+                        return v;
+                    }
+                }
+                continue;
+            }
+            if c == 125 {
+                pos = pos + 1;
+                return v;
+            }
+            throw this.err("expected ',' or '}'");
+        }
+    }
+
+    pub string parse_object_key() {
+        int c = this.peek();
+        if c == 34 { return this.parse_string_raw(); }
+        if mode == 2 && c == 39 { return this.parse_string_raw_single(); }
+        if mode == 2 {
+            int start = pos;
+            while pos < len {
+                int cc = String.charAt(src, pos);
+                if (cc >= 97 && cc <= 122)
+                    || (cc >= 65 && cc <= 90)
+                    || (cc >= 48 && cc <= 57)
+                    || cc == 95 || cc == 36 {
+                    pos = pos + 1;
+                } else {
+                    break;
+                }
+            }
+            if pos == start {
+                throw this.err("expected key");
+            }
+            return _str_to_string(String.sub(src, start, pos - start));
+        }
+        throw this.err("expected string key");
+    }
+}
+
+// ============================================================
+// JsonWriter
+// ============================================================
+pub class JsonWriter {
+    pub string out;
+    pri int pretty;
+    pri int depth;
+
+    pub JsonWriter(int p) {
+        out = "";
+        pretty = p;
+        depth = 0;
+    }
+
+    pri void indent() {
+        if pretty == 0 { return; }
+        int i = 0;
+        while i < depth {
+            out = out + "  ";
+            i = i + 1;
+        }
+    }
+
+    pri void nl() {
+        if pretty != 0 { out = out + "\n"; }
+    }
+
+    pub void write_value(JsonValue v) {
+        int t = v.type;
+        if t == 0 {
+            out = out + "null";
+        } else if t == 1 {
+            if v.bool_val { out = out + "true"; }
+            else { out = out + "false"; }
+        } else if t == 2 {
+            out = out + Convert.formatInt(v.int_val);
+        } else if t == 7 {
+            out = out + Convert.formatInt64(v.int64_val);
+        } else if t == 3 {
+            out = out + this.format_float(v.float_val);
+        } else if t == 4 {
+            this.write_string(v.str_val);
+        } else if t == 5 {
+            this.write_array(v);
+        } else if t == 6 {
+            this.write_object(v);
+        }
+    }
+
+    pri string format_float(float f) {
+        int ip = f as int;
+        float fp = f - (ip as float);
+        if fp < 0.0 { fp = -fp; }
+        if fp < 0.000001 {
+            return Convert.formatInt(ip) + ".0";
+        }
+        string s = Convert.formatFloat(f, 6);
+        int n = String.len(s);
+        while n > 0 {
+            int c = String.charAt(s, n - 1);
+            if c == 48 { n = n - 1; } else { break; }
+        }
+        if n == 0 { return Convert.formatInt(ip) + ".0"; }
+        int c = String.charAt(s, n - 1);
+        if c == 46 { n = n + 1; }
+        return _str_to_string(String.sub(s, 0, n));
+    }
+
+    pri void write_string(string s) {
+        int Q = 34;
+        int BS = 92;
+        out = out + _char_to_str(Q);
+        int i = 0;
+        int n = String.len(s);
+        while i < n {
+            int c = String.charAt(s, i);
+            if c == Q { out = out + _char_to_str(BS) + _char_to_str(Q); }
+            else if c == BS { out = out + _char_to_str(BS) + _char_to_str(BS); }
+            else if c == 10 { out = out + _char_to_str(BS) + _char_to_str(110); }
+            else if c == 13 { out = out + _char_to_str(BS) + _char_to_str(114); }
+            else if c == 9  { out = out + _char_to_str(BS) + _char_to_str(116); }
+            else if c == 8  { out = out + _char_to_str(BS) + _char_to_str(98); }
+            else if c == 12 { out = out + _char_to_str(BS) + _char_to_str(102); }
+            else if c < 32 {
+                int hi = (c >> 4) & 15;
+                int lo = c & 15;
+                out = out + _char_to_str(BS) + _char_to_str(117)
+                    + _char_to_str(48) + _char_to_str(48)
+                    + this.hex_char(hi) + this.hex_char(lo);
+            } else {
+                out = out + _char_to_str(c);
+            }
+            i = i + 1;
+        }
+        out = out + _char_to_str(Q);
+    }
+
+    pri string hex_char(int d) {
+        if d < 10 { return _char_to_str(48 + d); }
+        return _char_to_str(87 + d);
+    }
+
+    pri void write_array(JsonValue v) {
+        int n = v.arr_val.size();
+        if n == 0 { out = out + "[]"; return; }
+        out = out + "[";
+        nl();
+        depth = depth + 1;
+        int i = 0;
+        while i < n {
+            indent();
+            this.write_value(v.arr_val.get(i));
+            if i < n - 1 { out = out + ","; }
+            nl();
+            i = i + 1;
+        }
+        depth = depth - 1;
+        indent();
+        out = out + "]";
+    }
+
+    pri void write_object(JsonValue v) {
+        int n = v.obj_keys.size();
+        if n == 0 { out = out + "{}"; return; }
+        out = out + "{";
+        nl();
+        depth = depth + 1;
+        int i = 0;
+        while i < n {
+            indent();
+            this.write_string(v.obj_keys.get(i));
+            if pretty != 0 { out = out + ": "; } else { out = out + ":"; }
+            this.write_value(v.obj_vals.get(i));
+            if i < n - 1 { out = out + ","; }
+            nl();
+            i = i + 1;
+        }
+        depth = depth - 1;
+        indent();
+        out = out + "}";
+    }
+}
+
+// ============================================================
+// JsonBuilder
+// ============================================================
+pub class JsonBuilder {
+    pri List<JsonValue> stack;
+    pri List<string> pending_keys;
+    pri JsonValue result;
+    pri bool has_result;
+
+    pub JsonBuilder() {
+        stack = new List<JsonValue>();
+        pending_keys = new List<string>();
+        result = new JsonValue();
+        has_result = false;
+    }
+
+    pri void attach(JsonValue v) {
+        if stack.size() == 0 {
+            if has_result { throw new JsonError("builder: multiple root"); }
+            result = v;
+            has_result = true;
+            return;
+        }
+        JsonValue parent = stack.get(stack.size() - 1);
+        if parent.isObject() {
+            if pending_keys.size() == 0 {
+                throw new JsonError("builder: object value without key");
+            }
+            string k = pending_keys.get(pending_keys.size() - 1);
+            pending_keys.removeLast();
+            parent.put(k, v);
+        } else if parent.isArray() {
+            parent.add(v);
+        }
+    }
+
+    pub JsonBuilder beginObject() {
+        JsonValue v = Json.makeObject();
+        this.attach(v);
+        stack.add(v);
+        return this;
+    }
+
+    pub JsonBuilder endObject() {
+        if stack.size() == 0 { throw new JsonError("builder: endObject"); }
+        stack.removeLast();
+        return this;
+    }
+
+    pub JsonBuilder beginArray() {
+        JsonValue v = Json.makeArray();
+        this.attach(v);
+        stack.add(v);
+        return this;
+    }
+
+    pub JsonBuilder endArray() {
+        if stack.size() == 0 { throw new JsonError("builder: endArray"); }
+        stack.removeLast();
+        return this;
+    }
+
+    pub JsonBuilder k(string key) { pending_keys.add(key); return this; }
+    pub JsonBuilder s(string v) { this.attach(Json.makeString(v)); return this; }
+    pub JsonBuilder i(int v) { this.attach(Json.makeInt(v)); return this; }
+    pub JsonBuilder i64(int64 v) { this.attach(Json.makeInt64(v)); return this; }
+    pub JsonBuilder f(float v) { this.attach(Json.makeFloat(v)); return this; }
+    pub JsonBuilder bl(bool v) { this.attach(Json.makeBool(v)); return this; }
+    pub JsonBuilder nil() { this.attach(Json.null_value()); return this; }
+    pub JsonBuilder raw(JsonValue v) { this.attach(v); return this; }
+
+    pub JsonValue build() {
+        if !has_result { throw new JsonError("builder: no value"); }
+        if stack.size() != 0 { throw new JsonError("builder: unclosed"); }
+        if pending_keys.size() != 0 { throw new JsonError("builder: pending key"); }
+        return result;
+    }
+}
+
+// ============================================================
+// Json — 顶层 API
+// ============================================================
+pub class Json {
+    pub static JsonValue parse(string text) {
+        JsonParser p = new JsonParser(text, 0);
+        return p.parse();
+    }
+
+    pub static JsonValue parseLoose(string text) {
+        string gc = text + "";
+        JsonParser p = new JsonParser(gc, 1);
+        return p.parse();
+    }
+
+    pub static JsonValue parse5(string text) {
+        string gc = text + "";
+        JsonParser p = new JsonParser(gc, 2);
+        return p.parse();
+    }
+
+    pub static JsonValue parseFile(string path) {
+        if !File.exists(path) {
+            throw new JsonError("json: file not found: " + path);
+        }
+        string text = File.readAllText(path);
+        return Json.parse(text);
+    }
+
+    pub static JsonValue parseFile5(string path) {
+        if !File.exists(path) {
+            throw new JsonError("json: file not found: " + path);
+        }
+        string text = File.readAllText(path);
+        return Json.parse5(text);
+    }
+
+    pub static string stringify(JsonValue v) {
+        JsonWriter w = new JsonWriter(0);
+        w.write_value(v);
+        return w.out;
+    }
+
+    pub static string stringifyPretty(JsonValue v) {
+        JsonWriter w = new JsonWriter(1);
+        w.write_value(v);
+        return w.out;
+    }
+
+    pub static void saveFile(string path, JsonValue v) {
+        string text = Json.stringifyPretty(v);
+        File.writeAllText(path, text);
+    }
+
+    pub static JsonValue null_value() {
+        JsonValue v = new JsonValue();
+        v.type = 0;
+        return v;
+    }
+
+    pub static JsonValue makeBool(bool b) {
+        JsonValue v = new JsonValue();
+        v.type = 1;
+        v.bool_val = b;
+        return v;
+    }
+
+    pub static JsonValue makeInt(int n) {
+        JsonValue v = new JsonValue();
+        v.type = 2;
+        v.int_val = n;
+        return v;
+    }
+
+    pub static JsonValue makeInt64(int64 n) {
+        JsonValue v = new JsonValue();
+        if n > 2147483647 || n < -2147483648 {
+            v.type = 7;
+            v.int64_val = n;
+        } else {
+            v.type = 2;
+            v.int_val = n as int;
+        }
+        return v;
+    }
+
+    pub static JsonValue makeFloat(float f) {
+        JsonValue v = new JsonValue();
+        v.type = 3;
+        v.float_val = f;
+        return v;
+    }
+
+    pub static JsonValue makeString(string s) {
+        JsonValue v = new JsonValue();
+        v.type = 4;
+        v.str_val = s;
+        return v;
+    }
+
+    pub static JsonValue makeArray() {
+        JsonValue v = new JsonValue();
+        v.type = 5;
+        return v;
+    }
+
+    pub static JsonValue makeObject() {
+        JsonValue v = new JsonValue();
+        v.type = 6;
+        return v;
+    }
+
+    pub static int getInt(JsonValue v, string key) {
+        JsonValue c = v.get(key);
+        return c.asInt();
+    }
+
+    pub static int64 getInt64(JsonValue v, string key) {
+        JsonValue c = v.get(key);
+        return c.asInt64();
+    }
+
+    pub static float getFloat(JsonValue v, string key) {
+        JsonValue c = v.get(key);
+        return c.asFloat();
+    }
+
+    pub static bool getBool(JsonValue v, string key) {
+        JsonValue c = v.get(key);
+        return c.asBool();
+    }
+
+    pub static string getString(JsonValue v, string key) {
+        JsonValue c = v.get(key);
+        return c.asString();
+    }
+
+    pub static JsonValue getArray(JsonValue v, string key) {
+        JsonValue child = v.get(key);
+        if !child.isArray() {
+            throw new JsonError("json: '" + key + "' is not array");
+        }
+        return child;
+    }
+
+    pub static JsonValue getObject(JsonValue v, string key) {
+        JsonValue child = v.get(key);
+        if !child.isObject() {
+            throw new JsonError("json: '" + key + "' is not object");
+        }
+        return child;
+    }
+
+    pub static int getIntOr(JsonValue v, string key, int def) {
+        if v.type != 6 { return def; }
+        JsonValue child = v.getOr(key, Json.null_value());
+        if child.isNumber() { return child.asInt(); }
+        return def;
+    }
+
+    pub static string getStringOr(JsonValue v, string key, string def) {
+        if v.type != 6 { return def; }
+        JsonValue child = v.getOr(key, Json.null_value());
+        if child.isString() { return child.asString(); }
+        return def;
+    }
+
+    pub static bool getBoolOr(JsonValue v, string key, bool def) {
+        if v.type != 6 { return def; }
+        JsonValue child = v.getOr(key, Json.null_value());
+        if child.isBool() { return child.asBool(); }
+        return def;
+    }
+
+    pub static int[] getIntArray(JsonValue v, string key) {
+        JsonValue arr = Json.getArray(v, key);
+        int n = arr.size();
+        int[] out = new int[n];
+        int i = 0;
+        while i < n {
+            out[i] = arr.at(i).asInt();
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub static string[] getStringArray(JsonValue v, string key) {
+        JsonValue arr = Json.getArray(v, key);
+        int n = arr.size();
+        string[] out = new string[n];
+        int i = 0;
+        while i < n {
+            out[i] = arr.at(i).asString();
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub static JsonValue[] getObjectArray(JsonValue v, string key) {
+        JsonValue arr = Json.getArray(v, key);
+        int n = arr.size();
+        JsonValue[] out = new JsonValue[n];
+        int i = 0;
+        while i < n {
+            out[i] = arr.at(i);
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub static JsonValue getByPath(JsonValue doc, string path) {
+        return JsonPath.queryOne(doc, path);
+    }
+
+    pub static JsonValue[] queryByPath(JsonValue doc, string path) {
+        return JsonPath.query(doc, path);
+    }
+
+    pub static JsonValue merge(JsonValue base, JsonValue patch) {
+        if !base.isObject() || !patch.isObject() {
+            return patch.clone();
+        }
+        JsonValue result = base.clone();
+        int i = 0;
+        int n = patch.obj_keys.size();
+        while i < n {
+            string k = patch.obj_keys.get(i);
+            JsonValue pv = patch.obj_vals.get(i);
+            if result.has(k) {
+                JsonValue bv = result.get(k);
+                if bv.isObject() && pv.isObject() {
+                    result.put(k, Json.merge(bv, pv));
+                } else {
+                    result.put(k, pv.clone());
+                }
+            } else {
+                result.put(k, pv.clone());
+            }
+            i = i + 1;
+        }
+        return result;
+    }
+
+    pub static JsonValue mergePatch(JsonValue doc, JsonValue patch) {
+        if !patch.isObject() {
+            return patch.clone();
+        }
+
+        JsonValue result;
+        if doc.isObject() {
+            result = doc.clone();
+        } else {
+            result = Json.makeObject();
+        }
+
+        int i = 0;
+        int n = patch.obj_keys.size();
+        while i < n {
+            string key = patch.obj_keys.get(i);
+            JsonValue pv = patch.obj_vals.get(i);
+
+            if pv.isNull() {
+                result.remove(key);
+            } else {
+                JsonValue base = Json.makeObject();
+                if result.has(key) {
+                    base = result.get(key);
+                }
+                result.put(key, Json.mergePatch(base, pv));
+            }
+            i = i + 1;
+        }
+        return result;
+    }
+
+    pri static string[] splitPointer(string path) {
+        return JsonPointer.toParts(path);
+    }
+
+    pri static JsonValue navigate(JsonValue root, string[] parts, int count) {
+        JsonValue cur = root;
+        int i = 0;
+        while i < count {
+            string key = parts[i];
+            if cur.isObject() {
+                cur = cur.get(key);
+            } else if cur.isArray() {
+                int idx = Convert.parseInt(key);
+                cur = cur.at(idx);
+            } else {
+                throw new JsonError("json: cannot navigate through scalar at " + key);
+            }
+            i = i + 1;
+        }
+        return cur;
+    }
+
+    pri static int parseArrayIndex(string key, int size) {
+        if key == "-" { return size; }
+        int idx = Convert.parseInt(key);
+        if idx < 0 || idx > size {
+            throw new JsonError("json patch: array index out of range: " + key);
+        }
+        return idx;
+    }
+
+    pri static void patch_add(JsonValue root, string path, JsonValue value) {
+        string[] parts = Json.splitPointer(path);
+        if parts.length == 0 {
+            throw new JsonError("json patch: cannot add at root");
+        }
+        JsonValue parent = Json.navigate(root, parts, parts.length - 1);
+        string key = parts[parts.length - 1];
+
+        if parent.isObject() {
+            parent.put(key, value);
+        } else if parent.isArray() {
+            int idx = Json.parseArrayIndex(key, parent.arr_val.size());
+            parent.insertAt(idx, value);
+        } else {
+            throw new JsonError("json patch: parent is not a container");
+        }
+    }
+
+    pri static void patch_remove(JsonValue root, string path) {
+        string[] parts = Json.splitPointer(path);
+        if parts.length == 0 {
+            throw new JsonError("json patch: cannot remove root");
+        }
+        JsonValue parent = Json.navigate(root, parts, parts.length - 1);
+        string key = parts[parts.length - 1];
+
+        if parent.isObject() {
+            if !parent.has(key) {
+                throw new JsonError("json patch: key not found: " + key);
+            }
+            parent.remove(key);
+        } else if parent.isArray() {
+            int idx = Convert.parseInt(key);
+            if idx < 0 || idx >= parent.arr_val.size() {
+                throw new JsonError("json patch: array index: " + key);
+            }
+            parent.removeAt(idx);
+        } else {
+            throw new JsonError("json patch: parent is not a container");
+        }
+    }
+
+    pub static JsonValue patch_get(JsonValue root, string path) {
+        string[] parts = Json.splitPointer(path);
+        return Json.navigate(root, parts, parts.length);
+    }
+
+    pri static void applyOne(JsonValue root, JsonValue op) {
+        if !op.isObject() {
+            throw new JsonError("json patch: op must be object");
+        }
+        string opName = Json.getString(op, "op");
+        string path = Json.getString(op, "path");
+
+        if opName == "add" {
+            JsonValue val = op.get("value");
+            Json.patch_add(root, path, val.clone());
+        } else if opName == "remove" {
+            Json.patch_remove(root, path);
+        } else if opName == "replace" {
+            JsonValue value = op.get("value");
+            Json.patch_remove(root, path);
+            Json.patch_add(root, path, value.clone());
+        } else if opName == "move" {
+            string from = Json.getString(op, "from");
+            JsonValue src = Json.patch_get(root, from);
+            JsonValue value = src.clone();
+            Json.patch_remove(root, from);
+            Json.patch_add(root, path, value);
+        } else if opName == "copy" {
+            string from = Json.getString(op, "from");
+            JsonValue src = Json.patch_get(root, from);
+            JsonValue value = src.clone();
+            Json.patch_add(root, path, value);
+        } else if opName == "test" {
+            JsonValue expected = op.get("value");
+            JsonValue actual = Json.patch_get(root, path);
+            if !actual.equals(expected) {
+                throw new JsonError("json patch: test failed at " + path);
+            }
+        } else {
+            throw new JsonError("json patch: unknown op: " + opName);
+        }
+    }
+
+    pub static JsonValue applyPatch(JsonValue doc, JsonValue patch) {
+        if !patch.isArray() {
+            throw new JsonError("json patch: patch must be array");
+        }
+        JsonValue result = doc.clone();
+        int i = 0;
+        while i < patch.size() {
+            Json.applyOne(result, patch.at(i));
+            i = i + 1;
+        }
+        return result;
+    }
+
+    pub static JsonValue makePatch() {
+        JsonValue v = new JsonValue();
+        v.type = 5;
+        return v;
+    }
+
+    pub static JsonValue opAdd(string path, JsonValue value) {
+        JsonValue op = Json.makeObject();
+        op.put("op", Json.makeString("add"));
+        op.put("path", Json.makeString(path));
+        op.put("value", value);
+        return op;
+    }
+
+    pub static JsonValue opRemove(string path) {
+        JsonValue op = Json.makeObject();
+        op.put("op", Json.makeString("remove"));
+        op.put("path", Json.makeString(path));
+        return op;
+    }
+
+    pub static JsonValue opReplace(string path, JsonValue value) {
+        JsonValue op = Json.makeObject();
+        op.put("op", Json.makeString("replace"));
+        op.put("path", Json.makeString(path));
+        op.put("value", value);
+        return op;
+    }
+
+    pub static JsonValue opMove(string from, string path) {
+        JsonValue op = Json.makeObject();
+        op.put("op", Json.makeString("move"));
+        op.put("from", Json.makeString(from));
+        op.put("path", Json.makeString(path));
+        return op;
+    }
+
+    pub static JsonValue opCopy(string from, string path) {
+        JsonValue op = Json.makeObject();
+        op.put("op", Json.makeString("copy"));
+        op.put("from", Json.makeString(from));
+        op.put("path", Json.makeString(path));
+        return op;
+    }
+
+    pub static JsonValue opTest(string path, JsonValue value) {
+        JsonValue op = Json.makeObject();
+        op.put("op", Json.makeString("test"));
+        op.put("path", Json.makeString(path));
+        op.put("value", value);
+        return op;
+    }
+
+    pub static void savePatch(string path, JsonValue patch) {
+        Json.saveFile(path, patch);
+    }
+
+    pub static JsonValue loadPatch(string path) {
+        JsonValue v = Json.parseFile(path);
+        if !v.isArray() {
+            throw new JsonError("json patch: file must be array");
+        }
+        return v;
+    }
+
+    pub static JsonValue applyPatchFile(JsonValue doc, string patch_path) {
+        JsonValue patch = Json.loadPatch(patch_path);
+        return Json.applyPatch(doc, patch);
+    }
+
+    pub static void transformFile(string in_path, string out_path,
+                                   JsonValue (*fn)(JsonValue)) {
+        JsonValue doc = Json.parseFile(in_path);
+        Json.transformValue(doc, fn);
+        Json.saveFile(out_path, doc);
+    }
+
+    pub static void transformValue(JsonValue v, JsonValue (*fn)(JsonValue)) {
+        if v.isObject() {
+            int i = 0;
+            while i < v.obj_keys.size() {
+                string k = v.obj_keys.get(i);
+                JsonValue child = v.obj_vals.get(i);
+                JsonValue replaced = fn(child);
+                if replaced.isNull() {
+                    v.remove(k);
+                    continue;
+                }
+                if replaced.type != child.type
+                    || !replaced.equals(child) {
+                    v.obj_vals.set(i, replaced);
+                }
+                Json.transformValue(v.obj_vals.get(i), fn);
+                i = i + 1;
+            }
+        } else if v.isArray() {
+            int i = 0;
+            while i < v.arr_val.size() {
+                JsonValue child = v.arr_val.get(i);
+                JsonValue replaced = fn(child);
+                if replaced.isNull() {
+                    v.removeAt(i);
+                    continue;
+                }
+                if replaced.type != child.type
+                    || !replaced.equals(child) {
+                    v.arr_val.set(i, replaced);
+                }
+                Json.transformValue(v.arr_val.get(i), fn);
+                i = i + 1;
+            }
+        }
+    }
+
+    pub static void streamArray(string in_path, string out_path,
+                                 JsonValue (*on_element)(JsonValue)) {
+        if !File.exists(in_path) {
+            throw new JsonError("json: file not found: " + in_path);
+        }
+        string text = File.readAllText(in_path);
+        JsonReader r = new JsonReader(text);
+
+        JsonToken t = r.next();
+        if !t.isLBrack() {
+            throw new JsonError("json: streamArray expects top-level array");
+        }
+
+        File out = new File(out_path, "w");
+        out.writeLine("[");
+
+        int count = 0;
+        JsonParser sub = new JsonParser(text, 0);
+        while true {
+            JsonToken next = r.peek_token();
+            if next.isRBrack() {
+                r.next();
+                break;
+            }
+            if next.isComma() { r.next(); continue; }
+
+            sub.pos = r.pos;
+            JsonValue elem = sub.parse_value();
+            r.pos = sub.pos;
+
+            JsonValue result = on_element(elem);
+            if !result.isNull() {
+                if count > 0 { out.writeLine(","); }
+                out.write(Json.stringify(result));
+                count = count + 1;
+            }
+        }
+
+        out.writeLine("");
+        out.writeLine("]");
+        out.close();
+    }
+}
+
+// ============================================================
+// JsonToken / JsonReader — 流式读取
+// ============================================================
+pub class JsonToken {
+    pub int kind;
+    pub string str_val;
+    pub int int_val;
+    pub int64 int64_val;
+    pub float float_val;
+    pub bool bool_val;
+
+    pub JsonToken() {
+        kind = 0;
+        str_val = "";
+        int_val = 0;
+        int64_val = 0;
+        float_val = 0.0;
+        bool_val = false;
+    }
+
+    pub bool isEnd()    { return kind == 0; }
+    pub bool isLBrace() { return kind == 1; }
+    pub bool isRBrace() { return kind == 2; }
+    pub bool isLBrack() { return kind == 3; }
+    pub bool isRBrack() { return kind == 4; }
+    pub bool isColon()  { return kind == 5; }
+    pub bool isComma()  { return kind == 6; }
+    pub bool isString() { return kind == 7; }
+    pub bool isInt()    { return kind == 8; }
+    pub bool isInt64()  { return kind == 9; }
+    pub bool isFloat()  { return kind == 10; }
+    pub bool isBool()   { return kind == 11; }
+    pub bool isNull()   { return kind == 12; }
+}
+
+pub class JsonReader {
+    pub string src;
+    pub int pos;
+    pub int len;
+
+    pub JsonReader(string text) {
+        src = text;
+        pos = 0;
+        len = String.len(text);
+    }
+
+    pub int peek_char() {
+        if pos >= len { return -1; }
+        return String.charAt(src, pos);
+    }
+
+    pub void skip_ws() {
+        while pos < len {
+            int c = String.charAt(src, pos);
+            if c == 32 || c == 9 || c == 10 || c == 13 {
+                pos = pos + 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub JsonToken peek_token() {
+        int save = pos;
+        JsonToken t = this.next();
+        pos = save;
+        return t;
+    }
+
+    pub JsonToken next() {
+        this.skip_ws();
+        JsonToken t = new JsonToken();
+        int c = this.peek_char();
+        if c == -1 { t.kind = 0; return t; }
+        if c == 123 { t.kind = 1; pos = pos + 1; return t; }
+        if c == 125 { t.kind = 2; pos = pos + 1; return t; }
+        if c == 91  { t.kind = 3; pos = pos + 1; return t; }
+        if c == 93  { t.kind = 4; pos = pos + 1; return t; }
+        if c == 58  { t.kind = 5; pos = pos + 1; return t; }
+        if c == 44  { t.kind = 6; pos = pos + 1; return t; }
+
+        if c == 34 {
+            JsonParser sub = new JsonParser(src, 0);
+            sub.pos = pos;
+            t.str_val = sub.parse_string_raw();
+            pos = sub.pos;
+            t.kind = 7;
+            return t;
+        }
+
+        if c == 116 {
+            JsonParser sub = new JsonParser(src, 0);
+            sub.pos = pos;
+            sub.parse_keyword_bool("true", true);
+            pos = sub.pos;
+            t.kind = 11;
+            t.bool_val = true;
+            return t;
+        }
+        if c == 102 {
+            JsonParser sub = new JsonParser(src, 0);
+            sub.pos = pos;
+            sub.parse_keyword_bool("false", false);
+            pos = sub.pos;
+            t.kind = 11;
+            t.bool_val = false;
+            return t;
+        }
+        if c == 110 {
+            JsonParser sub = new JsonParser(src, 0);
+            sub.pos = pos;
+            sub.parse_keyword_null();
+            pos = sub.pos;
+            t.kind = 12;
+            return t;
+        }
+
+        if c == 45 || (c >= 48 && c <= 57) {
+            JsonParser sub = new JsonParser(src, 0);
+            sub.pos = pos;
+            JsonValue v = sub.parse_number();
+            pos = sub.pos;
+            if v.type == 3 {
+                t.kind = 10;
+                t.float_val = v.float_val;
+            } else if v.type == 7 {
+                t.kind = 9;
+                t.int64_val = v.int64_val;
+            } else {
+                t.kind = 8;
+                t.int_val = v.int_val;
+            }
+            return t;
+        }
+
+        throw new JsonError("json reader: unexpected character at " + Convert.formatInt(pos));
+    }
+
+    pub bool atEnd() {
+        int save = pos;
+        this.skip_ws();
+        int c = this.peek_char();
+        pos = save;
+        return c == -1;
+    }
+}

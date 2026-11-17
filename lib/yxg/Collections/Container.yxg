@@ -1,0 +1,48 @@
+pub class ContainerError : ERROR {
+    pub ContainerError(string msg) {
+        this.info = msg;
+    }
+}
+
+pub class Container {
+    pro unsafe int* _buf;
+    pro int _len;
+    pro int _cap;
+    pro int _eb;
+
+    pro void _init(int cap, int eb) {
+        _eb = eb;
+        _len = 0;
+        _cap = cap;
+        int n = cap * eb / 4 + 1;
+        _buf = _gc_alloc_ptr_array(n);
+    }
+
+    pro void _grow(int n) {
+        int cnt = n * _eb / 4 + 1;
+        unsafe int* nb = _gc_alloc_ptr_array(cnt);
+        int words = (_len * _eb + 3) / 4;
+        for int i = 0; i < words; i++ {
+            nb[i] = _buf[i];
+        }
+        _buf = nb;
+        _cap = n;
+    }
+
+    pub int size() {
+        return _len;
+    }
+
+    pub bool isEmpty() {
+        return _len == 0;
+    }
+
+    pub void clear() {
+        _len = 0;
+    }
+
+    pub void destroy() {
+        _len = 0;
+        _cap = 0;
+    }
+}

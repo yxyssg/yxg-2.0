@@ -1,0 +1,409 @@
+// ============================================================
+// components.yxg — YXG 标准组件库
+// Button(按钮) / TextBox(输入框) / Label(标签)
+// 基于 Win32 子窗口, 需配合 runtime_window.asm
+// ============================================================
+import yxg.Window;
+
+class Button {
+    int handle;
+
+    pub Button() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, string text, int x, int y, int w, int h);
+    pub native void set_text(string text);
+    pub native int  is_clicked();
+    pub native void destroy();
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native string get_text();
+    pub native int  is_down();
+    pub native int  is_hover();
+    pub native int  has_focus();
+    pub native void refresh();
+    pub native void set_paint(void (*cb)(int dc, int x, int y, int w, int h, int state));
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+class TextBox {
+    int handle;
+
+    pub TextBox() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, string text, int x, int y, int w, int h);
+    pub native void set_text(string text);
+    pub native void clear();
+    pub native string get_text();
+    pub native void destroy();
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native int  is_changed();
+    pub native int  is_focused();
+}
+
+class Label {
+    int handle;
+
+    pub Label() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, string text, int x, int y, int w, int h);
+    pub native void set_text(string text);
+    pub native string get_text();
+    pub native void   refresh();
+    pub native void   set_paint(void (*cb)(int dc, int x, int y, int w, int h, int state));
+    pub native void destroy();
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+// ---------- CheckBox 复选框 ----------
+class CheckBox {
+    int handle;
+
+    pub CheckBox() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, string text, int x, int y, int w, int h);
+    pub native void set_text(string text);
+    pub native int  is_checked();
+    pub native string get_text();
+    pub native int    is_down();
+    pub native int    is_hover();
+    pub native int    has_focus();
+    pub native void   refresh();
+    pub native void   set_paint(void (*cb)(int dc, int x, int y, int w, int h, int state));
+    pub native void destroy();
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+// ---------- RadioButton 单选按钮 ----------
+class RadioButton {
+    int handle;
+
+    pub RadioButton() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, string text, int x, int y, int w, int h);
+    pub native void set_text(string text);
+    pub native int  is_checked();
+    pub native string get_text();
+    pub native int    is_down();
+    pub native int    is_hover();
+    pub native int    has_focus();
+    pub native void   refresh();
+    pub native void   set_paint(void (*cb)(int dc, int x, int y, int w, int h, int state));
+    pub native void destroy();
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+// ---------- ComboBox 下拉框 ----------
+class ComboBox {
+    int handle;
+
+    pub ComboBox() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, int x, int y, int w, int h);
+    pub native void add_item(string item);
+    pub native void clear_items();
+    pub native int  get_selected();
+    pub native void set_selected(int index);
+    pub native string get_selected_text();
+    pub native string get_item_text(int index);
+    pub native int  is_changed();
+    pub native void destroy();
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {
+        int itemID = (state >> 16) & 0xFFFF;
+        int ods    = state & 0xFFFF;
+        int bg = 0xFFFFFF;
+        if ((ods & 1) != 0) {
+            bg = 0x3399FF;
+        }
+        Window.dc_fill_rect(dc, x, y, w, h, bg);
+        string text;
+        if (itemID == 0xFFFF) {
+            text = get_selected_text();
+        } else {
+            text = get_item_text(itemID);
+        }
+        Window.dc_draw_text(dc, x + 4, y + 3, text, 0x000000);
+    }
+}
+
+// ---------- ListBox 列表框 ----------
+class ListBox {
+    int handle;
+
+    pub ListBox() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, int x, int y, int w, int h);
+    pub native void add_item(string item);
+    pub native void clear_items();
+    pub native int  get_selected();
+    pub native void set_selected(int index);
+    pub native string get_selected_text();
+    pub native string get_item_text(int index);
+    pub native int  is_changed();
+    pub native void destroy();
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {
+        int itemID = (state >> 16) & 0xFFFF;
+        int ods    = state & 0xFFFF;
+        int bg = 0xFFFFFF;
+        if ((ods & 1) != 0) {
+            bg = 0x3399FF;
+        }
+        Window.dc_fill_rect(dc, x, y, w, h, bg);
+        string text;
+        if (itemID == 0xFFFF) {
+            text = "";
+        } else {
+            text = get_item_text(itemID);
+        }
+        Window.dc_draw_text(dc, x + 4, y + 3, text, 0x000000);
+    }
+}
+
+// ---------- GroupBox 分组容器 ----------
+class GroupBox {
+    int handle;
+
+    pub GroupBox() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, string text, int x, int y, int w, int h);
+    pub native void set_text(string text);
+    pub native void destroy();
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+// ---------- Panel 真嵌套容器 ----------
+// 子控件以 Panel 为父时, 事件自动路由回面板并转发到控件表
+class Panel {
+    int handle;
+
+    pub Panel() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, int x, int y, int w, int h);
+    pub native void set_background(int color);
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native void destroy();
+
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+// ---------- Menu 菜单栏 ----------
+// add_item / add_menu 返回命令 ID, 用 get_clicked() 比对
+class Menu {
+    int handle;
+
+    pub Menu() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent);
+    pub native int  add_menu(string text);
+    pub native int  add_item(string text);
+    pub native void add_separator();
+    pub native int  get_clicked();
+    pub native void popup(int x, int y);
+    pub native void destroy();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+// ---------- Toolbar 工具栏 ----------
+class Toolbar {
+    int handle;
+
+    pub Toolbar() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, int height);
+    pub native int  add_button(string text);
+    pub native int  get_clicked();
+    pub native void destroy();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+// ---------- ButtonBar: 用 Panel + Button 组成的工具栏 ----------
+class ButtonBar {
+    int handle;
+    int next_x;
+    int gap;
+    int btn_w;
+
+    pub ButtonBar() {
+        handle = 0;
+        next_x = 8;
+        gap = 8;
+        btn_w = 70;
+    }
+
+    pub native int  create(Window parent, int y);
+    pub native void add(Button b, string text);
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+// ---------- StatusBar 状态栏 ----------
+class StatusBar {
+    int handle;
+
+    pub StatusBar() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent);
+    pub native void set_text(string text);
+    pub native string get_text();
+    pub native void destroy();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+// ---------- ProgressBar 进度条 ----------
+class ProgressBar {
+    int handle;
+
+    pub ProgressBar() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, int x, int y, int w, int h);
+    pub native void set_range(int min, int max);
+    pub native void set_value(int v);
+    pub native int  get_value();
+    pub native void step(int delta);
+    pub native void set_bar_color(int color);
+    pub native void set_marquee(int on, int ms);
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native void destroy();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+// ---------- SpinBox 数字输入框 (EDIT + UpDown) ----------
+class SpinBox {
+    int handle;
+
+    pub SpinBox() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, int x, int y, int w, int h);
+    pub native void set_range(int min, int max);
+    pub native void set_step(int step);
+    pub native void set_value(int v);
+    pub native int  get_value();
+    pub native int  is_changed();
+    pub native void set_text(string text);
+    pub native string get_text();
+    pub native void destroy();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+// ---------- Slider 滑块 ----------
+class Slider {
+    int handle;
+
+    pub Slider() {
+        handle = 0;
+    }
+
+    pub native int  create(Window parent, int x, int y, int w, int h);
+    pub native void set_range(int min, int max);
+    pub native void set_value(int v);
+    pub native int  get_value();
+    pub native void set_page(int n);
+    pub native int  is_changed();
+    pub native void move(int x, int y);
+    pub native void set_size(int w, int h);
+    pub native void show();
+    pub native void hide();
+    pub native void destroy();
+    pub native void owner_draw();
+    pub virtual void onPaint(int dc, int x, int y, int w, int h, int state) {}
+}
+
+pub class Com_Tool {
+    // 颜色变暗 amount（0..255）
+    pub int darken(int color, int amount) {
+        int r = (color >> 16) & 0xFF;
+        int g = (color >> 8) & 0xFF;
+        int b = color & 0xFF;
+        r = r - amount;
+        g = g - amount;
+        b = b - amount;
+        if r < 0 { r = 0; }
+        if g < 0 { g = 0; }
+        if b < 0 { b = 0; }
+        return (r << 16) | (g << 8) | b;
+    }
+    
+    // 线性插值两个 0xRRGGBB 颜色，t 取 0..100
+    pub static int lerp_color(int from, int to, int t) {
+        int fr = (from >> 16) & 0xFF;
+        int fg = (from >> 8) & 0xFF;
+        int fb = from & 0xFF;
+        int tr = (to >> 16) & 0xFF;
+        int tg = (to >> 8) & 0xFF;
+        int tb = to & 0xFF;
+        int r = fr + (tr - fr) * t / 100;
+        int g = fg + (tg - fg) * t / 100;
+        int b = fb + (tb - fb) * t / 100;
+        return (r << 16) | (g << 8) | b;
+    }
+}

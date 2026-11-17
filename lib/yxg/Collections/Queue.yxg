@@ -1,0 +1,75 @@
+import yxg.Collections.Container;
+
+pub class <T> Queue : Container {
+    pro int _head;
+
+    pub Queue() {
+        _head = 0;
+        _init(64, sizeof(T));
+    }
+
+    pro void _grow(int n) {
+        unsafe int* nb = allocation(4 + n * _eb, 4);
+        unsafe T* old = _buf;
+        unsafe T* nd = nb;
+        for int i = 0; i < _len; i++ {
+            int src = (_head + i) % _cap;
+            nd[i] = old[src];
+        }
+        release(_buf);
+        _buf = nb;
+        _head = 0;
+        _cap = n;
+    }
+
+    pro unsafe T* _arr() {
+        return _buf;
+    }
+
+    pub void enqueue(T item) {
+        if _len >= _cap {
+            int nc = _cap * 2;
+            if nc < 8 {
+                nc = 8;
+            }
+            _grow(nc);
+        }
+        unsafe T* d = _arr();
+        int idx = (_head + _len) % _cap;
+        d[idx] = item;
+        _len = _len + 1;
+    }
+
+    pub T dequeue() {
+        if _len <= 0 {
+            throw new ContainerError("queue is empty");
+        }
+        unsafe T* d = _arr();
+        T v = d[_head];
+        _head = (_head + 1) % _cap;
+        _len = _len - 1;
+        return v;
+    }
+
+    pub T peekFront() {
+        if _len <= 0 {
+            throw new ContainerError("queue is empty");
+        }
+        unsafe T* d = _arr();
+        return d[_head];
+    }
+
+    pub T get(int i) {
+        if i < 0 || i >= _len {
+            throw new ContainerError("queue index out of range");
+        }
+        unsafe T* d = _arr();
+        int src = (_head + i) % _cap;
+        return d[src];
+    }
+
+    pub void clear() {
+        _head = 0;
+        _len = 0;
+    }
+}

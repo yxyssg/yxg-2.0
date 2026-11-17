@@ -16,7 +16,7 @@
 } while(0)
 
 typedef struct LabelMap {
-    char*       name;
+    char* name;
     BasicBlock* bb;
     struct LabelMap* next;
 } LabelMap;
@@ -29,8 +29,8 @@ static LabelMap* label_map_build(CFG* cfg) {
             && bb->first_ir->args1) {
             LabelMap* lm = malloc(sizeof(LabelMap));
             if (!lm) OUT_OF_MEMORY();
-            lm->name = bb->first_ir->args1;
-            lm->bb   = bb;
+            lm->name = strdup(bb->first_ir->args1);
+            lm->bb = bb;
             lm->next = head;
             head = lm;
         }
@@ -45,7 +45,11 @@ static BasicBlock* label_map_find(LabelMap* map, const char* name) {
 }
 
 static void label_map_free(LabelMap* map) {
-    while (map) { LabelMap* n = map->next; free(map); map = n; }
+    while (map) {
+        LabelMap* n = map->next;
+        free(map);
+        map = n;
+    }
 }
 
 static bool ir_is_terminator(const IR* ir) {
@@ -85,7 +89,8 @@ static void collect_block_vars(BasicBlock* bb) {
         }
 
         if (ir->args1 && ir->args1[0] && !str_is_number(ir->args1)
-            && !looks_like_label(ir->args1)) {
+            && !looks_like_label(ir->args1)
+            && !(ir->type == IR_ADDRESS_OF && ir->is_function_addr)) {
             if (ir->type != IR_JMP && ir->type != IR_LABEL) {
                 ARRAY_ENSURE(bb->use_names, bb->use_count,
                              bb->use_capacity, char*);
@@ -241,6 +246,11 @@ void cfg_compute_dominators(CFG* cfg) {
     int n = cfg->block_count;
     if (n == 0) return;
 
+    for (int i = 0; i < n; i++) {
+        cfg->blocks[i]->dom_child_count = 0;
+        cfg->blocks[i]->idom = NULL;
+    }
+
     bool** dom = malloc((size_t)n * sizeof(bool*));
     for (int i = 0; i < n; i++) {
         dom[i] = malloc((size_t)n * sizeof(bool));
@@ -378,6 +388,9 @@ void cfg_remove_unreachable(CFG* cfg) {
 
 void cfg_compute_dominance_frontiers(CFG* cfg) {
     int n = cfg->block_count;
+    for (int i = 0; i < n; i++)
+        cfg->blocks[i]->df_count = 0;
+
     for (int i = 0; i < n; i++) {
         BasicBlock* bb = cfg->blocks[i];
         if (bb->pred_count < 2) continue;
@@ -494,6 +507,124 @@ void cfg_liveness_analysis(CFG* cfg) {
     free(new_in);
 }
 
+static bool ir_uses_var(const IR* ir, const char* v) {
+    if (!ir || !v || !v[0]) return false;
+    if (ir->type == IR_LABEL || ir->type == IR_PARAM_DEF) return false;
+    if (ir->args1 && strcmp(ir->args1, v) == 0) return true;
+    if (ir->args2 && strcmp(ir->args2, v) == 0) return true;
+    if (ir->type == IR_PHI && ir->phi_arg_names) {
+        for (int i = 0; i < ir->phi_arg_count; i++) {
+            if (ir->phi_arg_names[i] && strcmp(ir->phi_arg_names[i], v) == 0)
+                return true;
+        }
+    }
+    return false;
+}
+
+void insert_gc_clears(CFG* cfg) {
+    if (!cfg || cfg->block_count == 0) return;
+
+    for (int i = 0; i < cfg->block_count; i++) {
+        BasicBlock* bb = cfg->blocks[i];
+        free(bb->live_gen);  bb->live_gen  = NULL;
+        free(bb->live_kill); bb->live_kill = NULL;
+        free(bb->live_in);   bb->live_in   = NULL;
+        free(bb->live_out);  bb->live_out  = NULL;
+    }
+
+    cfg_compute_dominators(cfg);
+    cfg_liveness_analysis(cfg);
+
+    int n = cfg->block_count;
+
+    for (int bi = 0; bi < n; bi++) {
+        BasicBlock* bb = cfg->blocks[bi];
+        if (!bb->first_ir) continue;
+
+        IR* term = bb->last_ir;
+        if (term && term->type == IR_RET) continue;
+
+        typedef struct { char* name; } Def;
+        Def* defs = NULL;
+        int def_count = 0, def_cap = 0;
+
+        IR* ir = bb->first_ir;
+        while (ir) {
+            if (ir->result && ir->result[0]
+                && ir->type != IR_LABEL && ir->type != IR_PARAM_DEF
+                && ir->type != IR_PHI
+                && strcmp(ir->result, "0") != 0
+                && strncmp(ir->result, "_var", 4) != 0
+                && ir->result[0] != '.') {
+                if (def_count >= def_cap) {
+                    def_cap = def_cap ? def_cap * 2 : 16;
+                    defs = realloc(defs, sizeof(Def) * def_cap);
+                }
+                defs[def_count++].name = ir->result;
+                }
+            if (ir == bb->last_ir) break;
+            ir = ir->next;
+        }
+
+        if (def_count == 0) continue;
+
+        IR* insert_prev = NULL;
+        IR* scan = bb->first_ir;
+        while (scan && scan != term) {
+            insert_prev = scan;
+            scan = scan->next;
+        }
+
+        for (int di = 0; di < def_count; di++) {
+            const char* v = defs[di].name;
+            bool used_elsewhere = false;
+
+            for (int bj = 0; bj < n && !used_elsewhere; bj++) {
+                if (bj == bi) continue;
+                BasicBlock* ob = cfg->blocks[bj];
+                IR* oi = ob->first_ir;
+                while (oi) {
+                    if (ir_uses_var(oi, v)) {
+                        used_elsewhere = true;
+                        break;
+                    }
+                    if (oi == ob->last_ir) break;
+                    oi = oi->next;
+                }
+            }
+            if (used_elsewhere) continue;
+
+            IR* clear_ir = create_IR(IR_VAR_ASS);
+            clear_ir->result = strdup(v);
+            clear_ir->args1 = strdup("0");
+            clear_ir->args1_type = DATA_INT;
+            clear_ir->data_type = DATA_INT;
+            assign_def_id(clear_ir);
+
+            if (term) {
+                clear_ir->next = term;
+                if (insert_prev) {
+                    insert_prev->next = clear_ir;
+                } else {
+                    bb->first_ir = clear_ir;
+                }
+                insert_prev = clear_ir;
+            } else {
+                if (bb->last_ir) {
+                    bb->last_ir->next = clear_ir;
+                    clear_ir->next = NULL;
+                    bb->last_ir = clear_ir;
+                } else {
+                    bb->first_ir = bb->last_ir = clear_ir;
+                }
+            }
+            bb->ir_count++;
+        }
+
+        free(defs);
+    }
+}
+
 void cfg_print(const CFG* cfg) {
     if (!cfg) { printf("CFG: (null)\n"); return; }
     printf("CFG: %d blocks, %d variables\n", cfg->block_count, cfg->var_count);
@@ -535,87 +666,88 @@ void cfg_destroy(CFG* cfg) {
         free(bb);
     }
     free(cfg->blocks);
+    if (cfg->intervals) {
+        free(cfg->intervals);
+        cfg->intervals = NULL;
+    }
     for (int i = 0; i < cfg->var_count; i++)
         free(cfg->var_names[i]);
     free(cfg->var_names);
-    if (cfg->intervals) {
-        for (int i = 0; i < cfg->interval_count; i++)
-            free(cfg->intervals[i].var_name);
-        free(cfg->intervals);
-    }
     free(cfg);
 }
 
 FuncIR* ir_split_by_function(IR* program_ir) {
-    FuncIR* head = NULL, *tail = NULL;
+    if (!program_ir) return NULL;
 
-    IR* orphan_head = NULL;
-    IR* orphan_tail = NULL;
-    IR* scan = program_ir;
-    while (scan) {
-        if (scan->type == IR_LABEL && scan->has_return)
-            break;
-        IR* next = scan->next;
-        scan->next = NULL;
-        if (!orphan_head) {
-            orphan_head = orphan_tail = scan;
-        } else {
-            orphan_tail->next = scan;
-            orphan_tail = scan;
+    typedef struct { IR* ir; bool in_body; } IrMark;
+    int total = 0, cap = 256;
+    IrMark* marks = malloc(sizeof(IrMark) * (size_t)cap);
+    if (!marks) OUT_OF_MEMORY();
+
+    for (IR* p = program_ir; p; p = p->next) {
+        if (total >= cap) {
+            cap *= 2;
+            marks = realloc(marks, sizeof(IrMark) * (size_t)cap);
+            if (!marks) OUT_OF_MEMORY();
         }
-        scan = next;
+        marks[total].ir = p;
+        marks[total].in_body = false;
+        total++;
     }
-    if (orphan_head) {
-        FuncIR* gi = calloc(1, sizeof(FuncIR));
-        if (!gi) OUT_OF_MEMORY();
-        gi->func_name = strdup("__preamble__");
-        gi->first_ir  = orphan_head;
-        gi->last_ir   = orphan_tail;
-        head = tail = gi;
-    }
-    program_ir = scan;
 
-    IR* stray_head = NULL;
-    IR* stray_tail = NULL;
-    while (program_ir
-           && !(program_ir->type == IR_LABEL && program_ir->has_return))
-    {
-        IR* next = program_ir->next;
-        program_ir->next = NULL;
-        if (!stray_head) {
-            stray_head = stray_tail = program_ir;
-        } else {
-            stray_tail->next = program_ir;
-            stray_tail = program_ir;
+    int i = 0;
+    while (i < total) {
+        if (!(marks[i].ir->type == IR_LABEL && marks[i].ir->has_return)) {
+            i++;
+            continue;
         }
-        program_ir = next;
-    }
-    if (stray_head) {
-        FuncIR* sfi = calloc(1, sizeof(FuncIR));
-        if (!sfi) OUT_OF_MEMORY();
-        sfi->func_name = strdup("__preamble__");
-        sfi->first_ir  = stray_head;
-        sfi->last_ir   = stray_tail;
-        if (!head) head = tail = sfi;
-        else { tail->next = sfi; tail = sfi; }
-    }
-    if (program_ir) {
-        IR* orphan_start = program_ir;
-        IR* orphan_end   = program_ir;
-
-        IR* scan = program_ir;
-        while (scan) {
-            if (scan->type == IR_LABEL && scan->has_return)
+        int j = i;
+        for (int k = i + 1; k < total; k++) {
+            if (marks[k].ir->type == IR_LABEL && marks[k].ir->has_return) {
                 break;
-            orphan_end = scan;
-            scan = scan->next;
+            }
+            if (marks[k].ir->type == IR_VAR && marks[k].ir->is_static_global) {
+                break;
+            }
+            if (marks[k].ir->type == IR_VAR_UNINIT && marks[k].ir->is_static_global) {
+                break;
+            }
+            if (marks[k].ir->type == IR_ARRAY_DECL && marks[k].ir->is_static_global) {
+                break;
+            }
+            j = k;
+        }
+        for (int k = i; k <= j; k++)
+            marks[k].in_body = true;
+        i = j + 1;
+    }
+
+    FuncIR* head = NULL, *tail = NULL;
+    i = 0;
+    while (i < total) {
+        int j = i;
+        while (j + 1 < total) {
+            bool boundary =
+                (marks[j + 1].ir->type == IR_LABEL
+                 && marks[j + 1].ir->has_return)
+                || marks[j + 1].in_body != marks[i].in_body;
+            if (boundary) break;
+            j++;
         }
 
         FuncIR* fi = calloc(1, sizeof(FuncIR));
         if (!fi) OUT_OF_MEMORY();
-        fi->func_name = strdup("__interlude__");
-        fi->first_ir  = orphan_start;
-        fi->last_ir   = orphan_end;
+        fi->first_ir = marks[i].ir;
+        fi->last_ir  = marks[j].ir;
+        fi->last_ir->next = NULL;
+
+        if (marks[i].in_body) {
+            const char* nm = marks[i].ir->args1;
+            fi->func_name = strdup(nm ? nm : "???");
+        } else {
+            fi->func_name = strdup((i == 0) ? "__preamble__"
+                                            : "__interlude__");
+        }
 
         if (!head) {
             head = tail = fi;
@@ -623,7 +755,10 @@ FuncIR* ir_split_by_function(IR* program_ir) {
             tail->next = fi;
             tail = fi;
         }
+
+        i = j + 1;
     }
+    free(marks);
     return head;
 }
 

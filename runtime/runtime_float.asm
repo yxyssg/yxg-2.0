@@ -93,3 +93,15 @@ _fmod_fpu:
     jnz .loop
     fstp st1                ; 弹出 y，保留余数在 st0
     ret
+
+; int _float_to_bits(float f)
+global _float_to_bits
+_float_to_bits:
+    mov eax, [esp + 4]
+    ret
+
+; float _bits_to_float(int bits)
+global _bits_to_float
+_bits_to_float:
+    fld dword [esp + 4]
+    ret

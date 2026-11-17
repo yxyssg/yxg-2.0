@@ -1,0 +1,41 @@
+pub class Char {
+    pub static bool isDigit(int ch) {
+        return ch >= '0' && ch <= '9';
+    }
+
+    pub static bool isAlpha(int ch) {
+        return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+    }
+
+    pub static bool isAlphaNum(int ch) {
+        return isDigit(ch) || isAlpha(ch);
+    }
+
+    pub static bool isUpper(int ch) {
+        return ch >= 'A' && ch <= 'Z';
+    }
+
+    pub static bool isLower(int ch) {
+        return ch >= 'a' && ch <= 'z';
+    }
+
+    pub static bool isSpace(int ch) {
+        return ch == 32 || ch == 9 || ch == 10 || ch == 13;
+    }
+
+    pub static bool isHexDigit(int ch) {
+        return isDigit(ch) ||
+               (ch >= 'a' && ch <= 'f') ||
+               (ch >= 'A' && ch <= 'F');
+    }
+
+    pub static int toUpper(int ch) {
+        if isLower(ch) { return ch - 32; }
+        return ch;
+    }
+
+    pub static int toLower(int ch) {
+        if isUpper(ch) { return ch + 32; }
+        return ch;
+    }
+}

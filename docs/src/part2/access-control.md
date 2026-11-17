@@ -1,4 +1,4 @@
-# 类与面向对象：成员访问控制
+﻿# 类与面向对象：成员访问控制
 
 ## 三种访问级别
 
@@ -16,15 +16,15 @@ YXG 提供三种访问控制修饰符，用于控制类成员的可见性：
         pri int privateField;
 
         pub void publicMethod() {
-            print "任何人都可以调用";
+            print "任何人都可以调用\n";
         }
 
         pro void protectedMethod() {
-            print "只有自己和子类可以调用";
+            print "只有自己和子类可以调用\n";
         }
 
         pri void privateMethod() {
-            print "只有自己可以调用";
+            print "只有自己可以调用\n";
         }
     }
 
@@ -37,17 +37,23 @@ pub 成员在任何地方都可以访问：
         pub int age;
 
         pub void greet() {
-            print "Hello, I'm", name;
+            print "Hello, I'm ", name, "\n";
         }
     }
 
     int main() {
-        Person p;
+        Person p = new Person();
         p.name = "Alice";        // 可以直接访问
         p.age = 25;              // 可以直接访问
         p.greet();               // 可以直接调用
         return 0;
     }
+
+输出：
+
+    Hello, I'm Alice
+
+注意对象要先 new。写成 `Person p;` 再访问 `p.name` 会在运行时输出 `Error: null pointer dereference`。
 
 ## pro：受保护成员
 
@@ -61,7 +67,7 @@ pro 成员只能在本类和子类中访问，外部代码不可见：
         }
 
         pro void breathe() {
-            print species, " is breathing";
+            print species, " is breathing\n";
         }
     }
 
@@ -72,7 +78,7 @@ pro 成员只能在本类和子类中访问，外部代码不可见：
 
         pub void pant() {
             breathe();                    // 子类可以调用 pro 方法
-            print "Dog is panting";
+            print "Dog is panting\n";
         }
     }
 
@@ -80,11 +86,16 @@ pro 成员只能在本类和子类中访问，外部代码不可见：
         Dog d = new Dog();
         d.pant();
 
-        // d.species = "xxx";            // 错误！外部不能访问 pro 成员
+        // d.species = "xxx";            // 错误！外部不能访问 pro 成员（报 E3014）
         // d.breathe();                  // 错误！外部不能调用 pro 方法
 
         return 0;
     }
+
+输出：
+
+    Canine is breathing
+    Dog is panting
 
 ## pri：私有成员
 
@@ -123,13 +134,20 @@ pri 成员仅在本类内部可访问。编译器会自动为 pri 字段生成 g
 
         // 通过自动生成的 getter/setter 访问
         float bal = acc.getBalance();
-        print "当前余额:", bal;
+        print "当前余额: ", bal, "\n";
 
         acc.setBalance(2000.0);           // 通过 setter 修改
-        print "修改后余额:", acc.getBalance();
+        print "修改后余额: ", acc.getBalance(), "\n";
 
         return 0;
     }
+
+输出：
+
+    当前余额: 1000.0
+    修改后余额: 2000.0
+
+float 用 %g 输出，1000.0 打印出来就是 `1000.0`。
 
 ### getter 和 setter 的命名规则
 
@@ -158,7 +176,7 @@ pri 成员仅在本类内部可访问。编译器会自动为 pri 字段生成 g
             if validateSQL(sql) {
                 executeQuery(sql);
             } else {
-                print "Invalid SQL";
+                print "Invalid SQL\n";
             }
         }
 
@@ -169,38 +187,66 @@ pri 成员仅在本类内部可访问。编译器会自动为 pri 字段生成 g
 
         pri void executeQuery(string sql) {
             // 只有本类可以执行
-            print "Executing:", sql;
-        }
-    }
-
-## 访问控制在继承中的行为
-
-    class Base {
-        pub int a = 1;
-        pro int b = 2;
-        pri int c = 3;
-    }
-
-    class Derived : Base {
-        pub void test() {
-            print a;                 // 可以：pub 继承后仍然是 pub
-            print b;                 // 可以：pro 对子类可见
-            // print c;              // 错误！pri 对子类不可见
-            print getC();            // 正确：通过自动生成的 getter
+            print "Executing: ", sql, "\n";
         }
     }
 
     int main() {
-        Derived d;
+        Database d = new Database("conn");
+        d.query("SELECT 1");
+        d.query("");
+        return 0;
+    }
+
+输出：
+
+    Executing: SELECT 1
+    Invalid SQL
+
+## 访问控制在继承中的行为
+
+    class Base {
+        pub int a;
+        pro int b;
+        pri int c;
+
+        pub Base() {
+            a = 1;
+            b = 2;
+            c = 3;
+        }
+    }
+
+    class Derived : Base {
+        pub void test() {
+            print a, "\n";           // 可以：pub 继承后仍然是 pub
+            print b, "\n";           // 可以：pro 对子类可见
+            // print c;              // 错误！pri 对子类不可见（报 E3014）
+            print getC(), "\n";      // 正确：通过自动生成的 getter
+        }
+    }
+
+    int main() {
+        Derived d = new Derived();
         d.test();
 
-        print d.a;                   // 可以：pub
-        // print d.b;                // 错误：pro 对外部不可见
+        print d.a, "\n";             // 可以：pub
+        // print d.b;                // 错误：pro 对外部不可见（报 E3014）
         // print d.c;                // 错误：pri 对外部不可见
-        print d.getC();              // 正确：通过 getter
+        print d.getC(), "\n";        // 正确：通过 getter
 
         return 0;
     }
+
+输出：
+
+    1
+    2
+    3
+    1
+    3
+
+字段可以写 `pub int a = 1;` 这样的初始值，它会正常生效——`new` 出来的对象里 `a` 就是 1。字段初始值在对象分配时写入，之后构造函数再赋值会覆盖它。
 
 ## 完整示例：封装良好的计数器
 
@@ -219,7 +265,7 @@ pri 成员仅在本类内部可访问。编译器会自动为 pri 字段生成 g
             if value < maxValue {
                 value = value + 1;
             } else {
-                print label, ": 已达到最大值";
+                print label, ": 已达到最大值\n";
             }
         }
 
@@ -227,7 +273,7 @@ pri 成员仅在本类内部可访问。编译器会自动为 pri 字段生成 g
             if value > 0 {
                 value = value - 1;
             } else {
-                print label, ": 已经是最小值";
+                print label, ": 已经是最小值\n";
             }
         }
 
@@ -250,23 +296,25 @@ pri 成员仅在本类内部可访问。编译器会自动为 pri 字段生成 g
         c.increment();
         c.increment();
         c.increment();
-        print c.label, ":", c.getValue();
+        print c.label, ":", c.getValue(), "\n";
 
         c.increment();
         c.increment();
         c.increment();               // 超过最大值
 
         c.reset();
-        print "重置后:", c.getValue();
+        print "重置后:", c.getValue(), "\n";
 
         return 0;
     }
 
 输出：
 
-    点击次数: 3
+    点击次数:3
     点击次数: 已达到最大值
-    重置后: 0
+    重置后:0
+
+第一行没有空格，因为 print 不会自动插入空格，格式完全由字符串字面量决定。
 
 ## 常见错误
 
@@ -277,8 +325,8 @@ pri 成员仅在本类内部可访问。编译器会自动为 pri 字段生成 g
     }
 
     int main() {
-        Base b;
-        // b.value = 10;            // 错误！pro 对外部不可见
+        Base b = new Base();
+        // b.value = 10;            // 错误！pro 对外部不可见，报 E3014 cannot access protected field 'value'
         return 0;
     }
 
@@ -289,9 +337,10 @@ pri 成员仅在本类内部可访问。编译器会自动为 pri 字段生成 g
     }
 
     int main() {
-        Foo f;
-        // f.secret = 42;           // 错误！
+        Foo f = new Foo();
+        // f.secret = 42;           // 错误！报 E3014 cannot access private field 'secret'
         f.setSecret(42);            // 正确：通过 setter
+        print f.getSecret(), "\n";
         return 0;
     }
 
@@ -299,14 +348,29 @@ pri 成员仅在本类内部可访问。编译器会自动为 pri 字段生成 g
 
     class Base {
         pri int data;
+
+        pub Base() {
+            data = 0;
+        }
     }
 
     class Derived : Base {
         pub void test() {
-            // data = 100;           // 错误！pri 对子类不可见
+            // data = 100;           // 错误！pri 对子类不可见（报 E3014）
             setData(100);            // 正确：通过 setter
+            print getData(), "\n";
         }
     }
+
+    int main() {
+        Derived d = new Derived();
+        d.test();
+        return 0;
+    }
+
+输出：
+
+    100
 
 ## 继续阅读
 

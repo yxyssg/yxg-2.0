@@ -1,0 +1,453 @@
+// ============================================================
+// Socket.yxg — YXG 标准网络库（Winsock2 封装）
+// ============================================================
+
+// ---------------- 协议常量 ----------------
+pub int Socket_AF_UNSPEC   = 0;
+pub int Socket_AF_INET     = 2;
+pub int Socket_AF_INET6    = 23;
+
+pub int Socket_SOCK_STREAM = 1;
+pub int Socket_SOCK_DGRAM  = 2;
+pub int Socket_SOCK_RAW    = 3;
+
+pub int Socket_IPPROTO_IP  = 0;
+pub int Socket_IPPROTO_TCP = 6;
+pub int Socket_IPPROTO_UDP = 17;
+
+// ---------------- 常见 Winsock 错误码 ----------------
+pub int Socket_E_ACCESS      = 10013;
+pub int Socket_E_INVAL       = 10022;
+pub int Socket_E_WOULDBLOCK  = 10035;
+pub int Socket_E_INPROGRESS  = 10036;
+pub int Socket_E_ADDRINUSE   = 10048;
+pub int Socket_E_ADDRNOTAVAIL= 10049;
+pub int Socket_E_CONNRESET   = 10054;
+pub int Socket_E_TIMEDOUT    = 10060;
+pub int Socket_E_CONNREFUSED = 10061;
+pub int Socket_E_HOSTDOWN    = 10064;
+pub int Socket_E_UNREACH     = 10065;
+pub int Socket_E_HOSTNOTFOUND= 11001;
+
+// ---------------- 套接字异常类 ----------------
+pub class SocketError : ERROR {
+    pub int code;
+
+    pub SocketError(int c) {
+        this.code = c;
+        this.info = _socket_error_string(c);
+    }
+
+    pub void setInfo(string message) {
+        this.info = message;
+    }
+}
+
+// ---------------- 套接字基类 ----------------
+pub class Socket {
+    pro int fd;
+
+    pro Socket() {
+        this.fd = -1;
+    }
+
+    pub int isValid() {
+        return this.fd >= 0;
+    }
+
+    pub int handle() {
+        return this.fd;
+    }
+
+    pub int lastError() {
+        return _socket_last_error();
+    }
+
+    pub string errorText(int code) {
+        return _socket_error_string(code);
+    }
+
+    pub int check(int result) {
+        if (result < 0) {
+            throw new SocketError(_socket_last_error());
+        }
+        return result;
+    }
+
+    pro int attach(int rawFd) {
+        this.fd = rawFd;
+        return this.fd;
+    }
+
+    pub int open(int af, int type, int proto) {
+        if (this.fd >= 0) {
+            this.close();
+        }
+        this.fd = _socket_create(af, type, proto);
+        return this.fd;
+    }
+
+    // ---------- TCP ----------
+    pub int connect(string host, int port) {
+        return _socket_connect(this.fd, host, port);
+    }
+
+    pub int bind(int port) {
+        return _socket_bind(this.fd, port);
+    }
+
+    pub int bindAddr(string host, int port) {
+        return _socket_bind_addr(this.fd, host, port);
+    }
+
+    pub int listen(int backlog) {
+        return _socket_listen(this.fd, backlog);
+    }
+
+    pub Socket accept() {
+        int c = _socket_accept(this.fd);
+        if (c < 0) {
+            return null;
+        }
+        Socket peer = new Socket();
+        peer.attach(c);
+        return peer;
+    }
+
+    // ---------- 文本收发 ----------
+    pub string recv(int len) {
+        return _socket_recv(this.fd, len);
+    }
+
+    pub int send(string data) {
+        return _socket_send(this.fd, data, _str_length(data));
+    }
+
+    // ---------- 高级收发 ----------
+    pub int sendAll(string data) {
+        return _socket_send_all(this.fd, data, _str_length(data));
+    }
+
+    pub string recvLine(int maxLen) {
+        return _socket_recv_line(this.fd, maxLen);
+    }
+
+    pub string recvExact(int len) {
+        return _socket_recv_exact(this.fd, len);
+    }
+
+    // ---------- UDP ----------
+    pub int sendTo(string host, int port, string data) {
+        return _socket_sendto(this.fd, data, _str_length(data), host, port);
+    }
+
+    pub string recvFrom(int len) {
+        return _socket_recvfrom(this.fd, len);
+    }
+
+    pub int senderAddr() {
+        return _socket_sender_addr();
+    }
+
+    pub int senderPort() {
+        return _socket_sender_port();
+    }
+
+    pub string senderIp() {
+        return _socket_sender_ip();
+    }
+
+    // ---------- 超时 / 非阻塞 ----------
+    pub int setTimeout(int ms) {
+        return _socket_set_timeout(this.fd, ms);
+    }
+
+    pub int setNonblock(int on) {
+        return _socket_set_nonblock(this.fd, on);
+    }
+
+    pub string recvTimeout(int len, int ms) {
+        this.setTimeout(ms);
+        return _socket_recv(this.fd, len);
+    }
+
+    // ---------- 套接字选项 ----------
+    pub int setReuseAddr(int on) {
+        return _socket_set_reuseaddr(this.fd, on);
+    }
+
+    pub int setNoDelay(int on) {
+        return _socket_set_nodelay(this.fd, on);
+    }
+
+    pub int socketError() {
+        return _socket_get_error(this.fd);
+    }
+
+    // ---------- 端点信息 ----------
+    pub string peerIp() {
+        return _socket_peer_ip(this.fd);
+    }
+
+    pub int peerPort() {
+        return _socket_peer_port(this.fd);
+    }
+
+    pub int localPort() {
+        return _socket_local_port(this.fd);
+    }
+
+    // ---------- 轮询 ----------
+    pub int selectRead(int ms) {
+        return _socket_select_read(this.fd, ms);
+    }
+
+    pub int selectWrite(int ms) {
+        return _socket_select_write(this.fd, ms);
+    }
+
+    pub int readReady(int ms) {
+        return _socket_select_read(this.fd, ms) > 0;
+    }
+
+    // ---------- 二进制收发 ----------
+    pub int sendStr(str data) {
+        return _socket_send_str(this.fd, data);
+    }
+
+    pub str recvStr(int len) {
+        return _socket_recv_str(this.fd, len);
+    }
+
+    pub int close() {
+        if (this.fd < 0) {
+            return 0;
+        }
+        int r = _socket_close(this.fd);
+        this.fd = -1;
+        return r;
+    }
+}
+
+// ---------------- TCP 客户端 ----------------
+pub class SocketClient : Socket {
+    pub SocketClient() {
+        this.fd = _socket_create(Socket_AF_INET, Socket_SOCK_STREAM, Socket_IPPROTO_TCP);
+    }
+
+    // 带超时的连接：非阻塞 connect + selectWrite + SO_ERROR 校验
+    pub int connectWait(string host, int port, int ms) {
+        if (this.fd < 0) {
+            return -1;
+        }
+        this.setNonblock(1);
+        int r = _socket_connect(this.fd, host, port);
+        if (r >= 0) {
+            this.setNonblock(0);
+            return 0;
+        }
+        if (this.lastError() != Socket_E_WOULDBLOCK) {
+            this.setNonblock(0);
+            return -1;
+        }
+        int wr = this.selectWrite(ms);
+        this.setNonblock(0);
+        if (wr <= 0) {
+            return -1;
+        }
+        if (this.socketError() != 0) {
+            return -1;
+        }
+        return 0;
+    }
+
+    // GET /path，返回完整响应体。失败返回空串。
+    pub string httpGet(string host, int port, string path) {
+        if (this.fd < 0) {
+            return "";
+        }
+        if (_socket_connect(this.fd, host, port) < 0) {
+            return "";
+        }
+        string req = "GET " + path + " HTTP/1.0\nHost: " + host + "\n\n";
+        _socket_send(this.fd, req, _str_length(req));
+
+        string result = "";
+        while (true) {
+            string chunk = _socket_recv(this.fd, 4096);
+            if (_str_length(chunk) == 0) {
+                break;
+            }
+            result = result + chunk;
+        }
+        return result;
+    }
+
+    // 解析 http://host/path（默认端口 80）
+    pub string httpGetUrl(string url) {
+        int len = _str_length(url);
+        int i = 0;
+
+        int scheme = -1;
+        while (i + 2 < len) {
+            if (_str_char_at(url, i) == ':' &&
+                _str_char_at(url, i + 1) == '/' &&
+                _str_char_at(url, i + 2) == '/') {
+                scheme = i + 3;
+                break;
+            }
+            i = i + 1;
+        }
+        if (scheme < 0) {
+            return "";
+        }
+
+        int slash = len;
+        i = scheme;
+        while (i < len) {
+            if (_str_char_at(url, i) == '/') {
+                slash = i;
+                break;
+            }
+            i = i + 1;
+        }
+
+        string host = _str_substring(url, scheme, slash);
+        string path;
+        if (slash < len) {
+            path = _str_substring(url, slash, len);
+        } else {
+            path = "/";
+        }
+        return this.httpGet(host, 80, path);
+    }
+}
+
+// ---------------- TCP 服务端 ----------------
+pub class SocketServer : Socket {
+    pub SocketServer(int port) {
+        this.fd = _socket_create(Socket_AF_INET, Socket_SOCK_STREAM, Socket_IPPROTO_TCP);
+        if (this.fd < 0) {
+            return;
+        }
+        _socket_set_reuseaddr(this.fd, 1);   // 端口快速复用，重启不再报 10048
+        if (_socket_bind(this.fd, port) < 0) {
+            _socket_close(this.fd);
+            this.fd = -1;
+            return;
+        }
+        if (_socket_listen(this.fd, 128) < 0) {
+            _socket_close(this.fd);
+            this.fd = -1;
+        }
+    }
+
+    pub SocketServer(int port, string host) {
+        this.fd = _socket_create(Socket_AF_INET, Socket_SOCK_STREAM, Socket_IPPROTO_TCP);
+        if (this.fd < 0) {
+            return;
+        }
+        _socket_set_reuseaddr(this.fd, 1);
+        if (_socket_bind_addr(this.fd, host, port) < 0) {
+            _socket_close(this.fd);
+            this.fd = -1;
+            return;
+        }
+        if (_socket_listen(this.fd, 128) < 0) {
+            _socket_close(this.fd);
+            this.fd = -1;
+        }
+    }
+}
+// ---------------- UDP 套接字 ----------------
+pub class SocketUDP : Socket {
+    pro SocketUDP() {
+        this.fd = _socket_create(Socket_AF_INET, Socket_SOCK_DGRAM, Socket_IPPROTO_UDP);
+        if (this.fd >= 0) {
+            _socket_set_reuseaddr(this.fd, 1);
+        }
+    }
+
+    pub int bindPort(int port) {
+        return _socket_bind(this.fd, port);
+    }
+}
+
+// ---------------- 字节序 / IP 地址工具 ----------------
+pub int htonl(int v) {
+    return _socket_htonl(v);
+}
+
+pub int htons(int v) {
+    return _socket_htons(v);
+}
+
+pub int ntohl(int v) {
+    return _socket_ntohl(v);
+}
+
+pub int ntohs(int v) {
+    return _socket_ntohs(v);
+}
+
+pub int inetAddr(string ip) {
+    return _socket_inet_addr(ip);
+}
+
+pub string inetNtoa(int addr) {
+    return _socket_inet_ntoa(addr);
+}
+
+pub class Iocp {
+    pub static int init() {
+        return _iocp_init();
+    }
+
+    pub static int start_worker(int (*cb)(int, int, int)) {
+        return _iocp_start_worker(cb);
+    }
+
+    pub static int accept_async(int listen_fd, int (*cb)(int, int, int)) {
+        return _socket_accept_async(listen_fd, cb);
+    }
+
+    pub static int recv_async(int fd, int max_len, int (*cb)(int, int, int)) {
+        return _socket_recv_async(fd, max_len, cb);
+    }
+
+    pub static int send_async(int fd, int buf, int len, int (*cb)(int, int, int)) {
+        return _socket_send_async(fd, buf, len, cb);
+    }
+
+    pub static int ov_get_fd(int ov) {
+        return _ov_get_fd(ov);
+    }
+
+    pub static int ov_get_buffer(int ov) {
+        return _ov_get_buffer(ov);
+    }
+
+    pub static int ov_get_capacity(int ov) {
+        return _ov_get_capacity(ov);
+    }
+
+    pub static int ov_get_user(int ov) {
+        return _ov_get_user(ov);
+    }
+
+    pub static void ov_set_user(int ov, int user) {
+        _ov_set_user(ov, user);
+    }
+
+    pub static void ov_set_callback(int ov, int (*cb)(int, int, int)) {
+        _ov_set_callback(ov, cb);
+    }
+
+    pub static int get_handle() {
+        return _iocp_get_handle();
+    }
+
+    pub static int associate(int fd, int key) {
+        return _iocp_associate(fd, key);
+    }
+}

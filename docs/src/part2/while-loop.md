@@ -8,11 +8,11 @@ while 循环在条件为真时重复执行代码块。条件直接跟在 while �
         int count = 0;
 
         while count < 5 {
-            print "count =", count;
+            print "count = ", count, "\n";
             count++;
         }
 
-        print "循环结束";
+        print "循环结束\n";
         return 0;
     }
 
@@ -25,16 +25,20 @@ while 循环在条件为真时重复执行代码块。条件直接跟在 while �
     count = 4
     循环结束
 
+print 不会自动换行，所以每次输出末尾都要自己写 `"\n"`，否则会挤成 `count = 0count = 1...` 一整行。
+
+条件也可以加括号，`while (count < 5) { ... }` 与上面等价。
+
 如果条件一开始就是 false，循环体一次也不执行：
 
     int main() {
         int x = 10;
 
         while x < 5 {
-            print "这行永远不会执行";
+            print "这行永远不会执行\n";
         }
 
-        print "直接到这里";
+        print "直接到这里\n";
         return 0;
     }
 
@@ -47,14 +51,14 @@ break 语句立即终止循环：
 
         while true {
             i++;
-            print i;
+            print i, "\n";
 
             if i >= 5 {
                 break;
             }
         }
 
-        print "循环结束, i =", i;
+        print "循环结束, i = ", i, "\n";
         return 0;
     }
 
@@ -81,7 +85,7 @@ continue 跳过本次循环的剩余部分，直接进入下一次条件检查�
                 continue;
             }
 
-            print i;
+            print i, "\n";
         }
 
         return 0;
@@ -103,11 +107,11 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
         int count = 0;
 
         do {
-            print "count =", count;
+            print "count = ", count, "\n";
             count++;
         } while count < 5;
 
-        print "循环结束";
+        print "循环结束\n";
         return 0;
     }
 
@@ -117,7 +121,7 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
         int x = 10;
 
         do {
-            print "至少执行一次, x =", x;
+            print "至少执行一次, x = ", x, "\n";
         } while x < 5;
 
         return 0;
@@ -132,12 +136,12 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
     int main() {
         int a = 0;
         while a > 0 {
-            print "while: 不会执行";
+            print "while: 不会执行\n";
         }
 
         int b = 0;
         do {
-            print "do-while: 会执行一次";
+            print "do-while: 会执行一次\n";
         } while b > 0;
 
         return 0;
@@ -160,14 +164,14 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
 
         while i < 3 {
             int j = 0;
-            print "i =", i;
+            print "i = ", i, "\n";
 
             while j < 3 {
                 if i == 1 && j == 1 {
-                    print "  提前退出内层循环";
+                    print "  提前退出内层循环\n";
                     break;
                 }
-                print "  j =", j;
+                print "  j = ", j, "\n";
                 j++;
             }
 
@@ -204,9 +208,13 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
             i++;
         }
 
-        print "1 到 100 的和:", sum;
+        print "1 到 100 的和: ", sum, "\n";
         return 0;
     }
+
+输出：
+
+    1 到 100 的和: 5050
 
 ### 查找
 
@@ -225,9 +233,9 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
         }
 
         if found {
-            print "找到", target, "在索引", i;
+            print "找到 ", target, " 在索引 ", i, "\n";
         } else {
-            print "未找到", target;
+            print "未找到 ", target, "\n";
         }
 
         return 0;
@@ -245,9 +253,13 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
             a = temp;
         }
 
-        print "最大公约数:", a;
+        print "最大公约数: ", a, "\n";
         return 0;
     }
+
+输出：
+
+    最大公约数: 6
 
 ## 无限循环
 
@@ -256,7 +268,7 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
 
         while true {
             count++;
-            print count;
+            print count, "\n";
             if count >= 3 { break; }
         }
 
@@ -269,7 +281,7 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
 
     int i = 0;
     while i < 5 {
-        print i;
+        print i, "\n";
         // 忘记 i++，导致无限循环
     }
 
@@ -277,7 +289,7 @@ do-while 先执行循环体，再检查条件。循环体至少执行一次：
 
     int i = 0;
     while i < 5; {          // 分号导致循环体为空
-        print i;
+        print i, "\n";
         i++;
     }
 

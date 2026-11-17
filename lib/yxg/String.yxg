@@ -1,374 +1,180 @@
 // ============================================================
-// yxg.String 标准库
-// 提供字符串基础操作：长度、字符访问、子串、前后缀判断、查找、
-// 大小写转换、空白处理、重复填充、替换与计数等。
-//
-// yxg.String Standard Library
-// Provides fundamental string operations: length, character access,
-// substrings, prefix/suffix checks, search, case conversion, whitespace
-// handling, repetition/padding, replacement and counting.
+// yxg.String 标准库 — str 版本
+// 所有方法均为 static，通过 String.xxx() 调用
+// str 可同时接受 string、字面量、子串（编译器负责隐式转换）
 // ============================================================
 
 pub class String {
-    // ==================== 字符常量（ASCII 码）/ Character constants (ASCII codes) ====================
-    int _SP = 32;       // 空格 / space
-    int _TAB = 9;       // 制表符 / horizontal tab
-    int _LF = 10;       // 换行 / line feed
-    int _CR = 13;       // 回车 / carriage return
-    int _A_UP = 65;     // 'A'
-    int _Z_UP = 90;     // 'Z'
-    int _A_LO = 97;     // 'a'
-    int _Z_LO = 122;    // 'z'
 
-    // ==================== 基础信息 / Basic information ====================
-    /// 返回字符串 s 的长度（字符数）。
-    /// @param s 输入字符串 / input string
-    /// @return 字符个数 / length of the string
-    pub int len(string s) {
-        return _str_length(s);
+    // ==================== 基础信息 ====================
+    pub static int len(str s) {
+        return s.length;
     }
 
-    /// 判断字符串是否为空。
-    /// @param s 输入字符串 / input string
-    /// @return true 如果长度为 0 / true if the string is empty
-    pub bool isEmpty(string s) {
-        return _str_length(s) == 0;
+    pub static bool isEmpty(str s) {
+        return s.length == 0;
     }
 
-    // ==================== 字符访问 / Character access ====================
-    /// 返回字符串 s 在 index 位置的字符（ASCII 码）。
-    /// @param s     输入字符串 / input string
-    /// @param index 位置索引（从 0 开始） / 0‑based index
-    /// @return 字符的 ASCII 码 / ASCII code of the character
-    pub int charAt(string s, int index) {
-        return _str_char_at(s, index);
+    // ==================== 字符访问 ====================
+    pub static int charAt(str s, int index) {
+        return s[index];
     }
 
-    /// 返回字符串的第一个字符。
-    /// @param s 输入字符串 / input string
-    /// @return 首字符的 ASCII 码 / ASCII code of the first character
-    pub int first(string s) {
-        return _str_char_at(s, 0);
+    pub static int first(str s) {
+        if s.length == 0 { return -1; }
+        return s[0];
     }
 
-    /// 返回字符串的最后一个字符；若字符串为空则返回 -1。
-    /// @param s 输入字符串 / input string
-    /// @return 末字符的 ASCII 码，或 -1 表示空字符串 / ASCII code of the last character, or -1 if empty
-    pub int last(string s) {
-        int n = _str_length(s);
-        if n == 0 {
-            return -1;
-        }
-        return _str_char_at(s, n - 1);
+    pub static int last(str s) {
+        int n = s.length;
+        if n == 0 { return -1; }
+        return s[n - 1];
     }
 
-    // ==================== 子串 / Substrings ====================
-    /// 提取从 start 位置开始、长度为 n 的子串。
-    /// @param s     输入字符串 / input string
-    /// @param start 起始索引 / start index
-    /// @param n     期望长度 / desired length
-    /// @return 对应的子串 / the substring
-    pub string sub(string s, int start, int n) {
-        return _str_substring(s, start, n);
+    // ==================== 子串（返回 str 切片） ====================
+    pub static str sub(str s, int start, int n) {
+        if start < 0 { start = 0; }
+        int total = s.length;
+        if start >= total { return ""; }
+        if n < 0 || start + n > total { n = total - start; }
+        return s[start .. start + n];
     }
 
-    /// 返回字符串最左侧的 n 个字符；若 n <= 0 返回空串。
-    /// @param s 输入字符串 / input string
-    /// @param n 字符个数 / number of characters
-    /// @return 左起 n 个字符 / leftmost n characters
-    pub string left(string s, int n) {
-        if n <= 0 {
-            return "";
-        }
-        int total = _str_length(s);
-        if n > total {
-            n = total;
-        }
-        return _str_substring(s, 0, n);
+    pub static str left(str s, int n) {
+        if n <= 0 { return ""; }
+        int total = s.length;
+        if n > total { n = total; }
+        return s[0 .. n];
     }
 
-    /// 返回字符串最右侧的 n 个字符；若 n <= 0 返回空串。
-    /// @param s 输入字符串 / input string
-    /// @param n 字符个数 / number of characters
-    /// @return 右起 n 个字符 / rightmost n characters
-    pub string right(string s, int n) {
-        if n <= 0 {
-            return "";
-        }
-        int total = _str_length(s);
-        if n > total {
-            n = total;
-        }
-        return _str_substring(s, total - n, n);
+    pub static str right(str s, int n) {
+        if n <= 0 { return ""; }
+        int total = s.length;
+        if n > total { n = total; }
+        return s[total - n .. total];
     }
 
-    // ==================== 前后缀判断 / Prefix and suffix checks ====================
-    /// 判断 s 是否以 prefix 开头。
-    /// @param s      输入字符串 / input string
-    /// @param prefix 待检测的前缀 / prefix to test
-    /// @return true 如果 s 以 prefix 开头 / true if s starts with prefix
-    pub bool startsWith(string s, string prefix) {
-        int sLen = _str_length(s);
-        int pLen = _str_length(prefix);
-        if pLen > sLen {
-            return false;
-        }
+    // ==================== 前后缀判断 ====================
+    pub static bool startsWith(str s, str prefix) {
+        int pLen = prefix.length;
+        if pLen > s.length { return false; }
         for int i = 0; i < pLen; ++i {
-            if _str_char_at(s, i) != _str_char_at(prefix, i) {
-                return false;
-            }
+            if s[i] != prefix[i] { return false; }
         }
         return true;
     }
 
-    /// 判断 s 是否以 suffix 结尾。
-    /// @param s      输入字符串 / input string
-    /// @param suffix 待检测的后缀 / suffix to test
-    /// @return true 如果 s 以 suffix 结尾 / true if s ends with suffix
-    pub bool endsWith(string s, string suffix) {
-        int sLen = _str_length(s);
-        int eLen = _str_length(suffix);
-        if eLen > sLen {
-            return false;
-        }
+    pub static bool endsWith(str s, str suffix) {
+        int eLen = suffix.length;
+        int sLen = s.length;
+        if eLen > sLen { return false; }
         int off = sLen - eLen;
         for int i = 0; i < eLen; ++i {
-            if _str_char_at(s, off + i) != _str_char_at(suffix, i) {
-                return false;
-            }
+            if s[off + i] != suffix[i] { return false; }
         }
         return true;
     }
 
-    // ==================== 字符查找 / Character search ====================
-    /// 查找字符 ch 在 s 中首次出现的位置，未找到返回 -1。
-    /// @param s  输入字符串 / input string
-    /// @param ch 目标字符的 ASCII 码 / ASCII code to find
-    /// @return 首次出现的索引，或 -1 / first index or -1
-    pub int indexOf(string s, int ch) {
-        int n = _str_length(s);
-        int result = -1;
+    // ==================== 查找 ====================
+    pub static int indexOf(str s, int ch) {
+        int n = s.length;
         for int i = 0; i < n; ++i {
-            if _str_char_at(s, i) == ch {
-                result = i;
-                break;
-            }
+            if s[i] == ch { return i; }
         }
-        return result;
+        return -1;
     }
 
-    /// 查找字符 ch 在 s 中最后一次出现的位置，未找到返回 -1。
-    /// @param s  输入字符串 / input string
-    /// @param ch 目标字符的 ASCII 码 / ASCII code to find
-    /// @return 最后一次出现的索引，或 -1 / last index or -1
-    pub int lastIndexOf(string s, int ch) {
-        int n = _str_length(s);
-        int result = -1;
+    pub static int lastIndexOf(str s, int ch) {
+        int n = s.length;
         int i = n - 1;
         while i >= 0 {
-            if _str_char_at(s, i) == ch {
-                result = i;
-                break;
-            }
+            if s[i] == ch { return i; }
             --i;
         }
-        return result;
+        return -1;
     }
 
-    /// 判断 s 中是否包含字符 ch。
-    /// @param s  输入字符串 / input string
-    /// @param ch 目标字符的 ASCII 码 / ASCII code to check
-    /// @return true 如果包含该字符 / true if the character exists
-    pub bool contains(string s, int ch) {
-        int n = _str_length(s);
-        bool found = false;
-        for int i = 0; i < n; ++i {
-            if _str_char_at(s, i) == ch {
-                found = true;
-                break;
-            }
-        }
-        return found;
+    pub static bool contains(str s, int ch) {
+        return indexOf(s, ch) != -1;
     }
 
-    // ==================== 子串查找 / Substring search ====================
-    /// 查找子串 sub 在 s 中首次出现的位置，未找到返回 -1。
-    /// @param s   输入字符串 / input string
-    /// @param sub 待查找的子串 / substring to search
-    /// @return 首次出现的起始索引，或 -1 / first start index or -1
-    pub int indexOfStr(string s, string sub) {
-        int sLen = _str_length(s);
-        int subLen = _str_length(sub);
-        int result = -1;
-        if subLen > sLen {
-            return result;
-        }
-        if subLen == 0 {
-            return 0;
-        }
+    pub static int indexOfStr(str s, str sub) {
+        int sLen = s.length;
+        int subLen = sub.length;
+        if subLen > sLen { return -1; }
+        if subLen == 0 { return 0; }
         int maxStart = sLen - subLen;
         for int i = 0; i <= maxStart; ++i {
             bool match = true;
             for int j = 0; j < subLen; ++j {
-                if _str_char_at(s, i + j) != _str_char_at(sub, j) {
-                    match = false;
-                    break;
-                }
+                if s[i + j] != sub[j] { match = false; break; }
             }
-            if match {
-                result = i;
-                break;
-            }
+            if match { return i; }
         }
-        return result;
+        return -1;
     }
 
-    /// 判断 s 中是否包含子串 sub。
-    /// @param s   输入字符串 / input string
-    /// @param sub 待查找的子串 / substring to search
-    /// @return true 如果包含该子串 / true if the substring exists
-    pub bool containsStr(string s, string sub) {
-        int sLen = _str_length(s);
-        int subLen = _str_length(sub);
-        bool found = false;
-        if subLen > sLen {
-            return false;
-        }
-        if subLen == 0 {
-            return true;
-        }
-        int maxStart = sLen - subLen;
-        for int i = 0; i <= maxStart; ++i {
-            bool match = true;
-            for int j = 0; j < subLen; ++j {
-                if _str_char_at(s, i + j) != _str_char_at(sub, j) {
-                    match = false;
-                    break;
-                }
-            }
-            if match {
-                found = true;
-                break;
-            }
-        }
-        return found;
+    pub static bool containsStr(str s, str sub) {
+        return indexOfStr(s, sub) != -1;
     }
 
-    // ==================== 大小写转换 / Case conversion ====================
-    /// 将字符 ch 转换为大写（仅对 'a'～'z' 有效）。
-    /// @param ch 输入字符的 ASCII 码 / input ASCII code
-    /// @return 大写形式 / uppercase equivalent
-    pub int toUpper(int ch) {
-        if ch >= _A_LO && ch <= _Z_LO {
-            return ch - 32;
-        }
-        return ch;
-    }
-
-    /// 将字符 ch 转换为小写（仅对 'A'～'Z' 有效）。
-    /// @param ch 输入字符的 ASCII 码 / input ASCII code
-    /// @return 小写形式 / lowercase equivalent
-    pub int toLower(int ch) {
-        if ch >= _A_UP && ch <= _Z_UP {
-            return ch + 32;
-        }
-        return ch;
-    }
-
-    /// 返回字符串 s 的全大写版本。
-    /// @param s 输入字符串 / input string
-    /// @return 全部大写的字符串 / uppercased string
-    pub string toUpperStr(string s) {
-        int n = _str_length(s);
+    // ==================== 大小写转换（返回 string，因为需要分配） ====================
+    pub static string toUpperStr(str s) {
+        int n = s.length;
         string result = "";
         for int i = 0; i < n; ++i {
-            int ch = _str_char_at(s, i);
-            if ch >= _A_LO && ch <= _Z_LO {
-                ch = ch - 32;
-            }
+            int ch = s[i];
+            if ch >= 97 && ch <= 122 { ch = ch - 32; }
             result = _str_plus_char(result, ch);
         }
         return result;
     }
 
-    /// 返回字符串 s 的全小写版本。
-    /// @param s 输入字符串 / input string
-    /// @return 全部小写的字符串 / lowercased string
-    pub string toLowerStr(string s) {
-        int n = _str_length(s);
+    pub static string toLowerStr(str s) {
+        int n = s.length;
         string result = "";
         for int i = 0; i < n; ++i {
-            int ch = _str_char_at(s, i);
-            if ch >= _A_UP && ch <= _Z_UP {
-                ch = ch + 32;
-            }
+            int ch = s[i];
+            if ch >= 65 && ch <= 90 { ch = ch + 32; }
             result = _str_plus_char(result, ch);
         }
         return result;
     }
 
-    // ==================== 空白处理 / Whitespace handling ====================
-    /// 判断字符 ch 是否为空白字符（空格、制表、换行、回车）。
-    /// @param ch 字符的 ASCII 码 / ASCII code
-    /// @return true 如果为空白 / true if whitespace
-    pub bool isSpace(int ch) {
-        return ch == _SP || ch == _TAB || ch == _LF || ch == _CR;
+    // ==================== 空白处理（返回 str 切片） ====================
+    pub static bool isSpace(int ch) {
+        return ch == 32 || ch == 9 || ch == 10 || ch == 13;
     }
 
-    /// 去除字符串左侧的空白字符。
-    /// @param s 输入字符串 / input string
-    /// @return 左侧修剪后的字符串 / left‑trimmed string
-    pub string trimL(string s) {
-        int n = _str_length(s);
+    pub static str trimL(str s) {
+        int n = s.length;
         int start = 0;
         while start < n {
-            int ch = _str_char_at(s, start);
-            if !isSpace(ch) {
-                break;
-            }
+            if !isSpace(s[start]) { break; }
             ++start;
         }
-        if start >= n {
-            return "";
-        }
-        return _str_substring(s, start, n - start);
+        if start >= n { return ""; }
+        return s[start .. n];
     }
 
-    /// 去除字符串右侧的空白字符。
-    /// @param s 输入字符串 / input string
-    /// @return 右侧修剪后的字符串 / right‑trimmed string
-    pub string trimR(string s) {
-        int n = _str_length(s);
-        int end = n - 1;
-        while end >= 0 {
-            int ch = _str_char_at(s, end);
-            if !isSpace(ch) {
-                break;
-            }
-            --end;
+    pub static str trimR(str s) {
+        int n = s.length;
+        int last = n - 1;
+        while last >= 0 {
+            if !isSpace(s[last]) { break; }
+            --last;
         }
-        if end < 0 {
-            return "";
-        }
-        return _str_substring(s, 0, end + 1);
+        if last < 0 { return ""; }
+        return s[0 .. last + 1];
     }
 
-    /// 去除字符串两端的空白字符。
-    /// @param s 输入字符串 / input string
-    /// @return 两端修剪后的字符串 / trimmed string
-    pub string trim(string s) {
+    pub static str trim(str s) {
         return trimR(trimL(s));
     }
 
-    // ==================== 重复与填充 / Repetition and padding ====================
-    /// 将字符串 s 重复 count 次拼接；count <= 0 时返回空串。
-    /// @param s     输入字符串 / input string
-    /// @param count 重复次数 / repetition count
-    /// @return 重复后的字符串 / repeated string
-    pub string repeat(string s, int count) {
-        if count <= 0 {
-            return "";
-        }
+    // ==================== 重复与填充（返回 string） ====================
+    pub static string repeat(str s, int count) {
+        if count <= 0 { return ""; }
         string result = "";
         for int i = 0; i < count; ++i {
             result = result + s;
@@ -376,33 +182,19 @@ pub class String {
         return result;
     }
 
-    /// 在字符串左侧填充字符 ch 直至总长度达到 total。
-    /// @param s     输入字符串 / input string
-    /// @param total 目标总长度 / desired total length
-    /// @param ch    填充字符的 ASCII 码 / padding character
-    /// @return 左填充后的字符串 / left‑padded string
-    pub string padL(string s, int total, int ch) {
-        int n = _str_length(s);
-        if n >= total {
-            return s;
-        }
+    pub static string padL(str s, int total, int ch) {
+        int n = s.length;
+        if n >= total { return s; }
         string pad = "";
         for int i = 0; i < total - n; ++i {
             pad = _str_plus_char(pad, ch);
         }
-        return _str_concat(pad, s);
+        return pad + s;
     }
 
-    /// 在字符串右侧填充字符 ch 直至总长度达到 total。
-    /// @param s     输入字符串 / input string
-    /// @param total 目标总长度 / desired total length
-    /// @param ch    填充字符的 ASCII 码 / padding character
-    /// @return 右填充后的字符串 / right‑padded string
-    pub string padR(string s, int total, int ch) {
-        int n = _str_length(s);
-        if n >= total {
-            return s;
-        }
+    pub static string padR(str s, int total, int ch) {
+        int n = s.length;
+        if n >= total { return s; }
         string pad = "";
         for int i = 0; i < total - n; ++i {
             pad = _str_plus_char(pad, ch);
@@ -410,81 +202,104 @@ pub class String {
         return s + pad;
     }
 
-    // ==================== 替换 / Replacement ====================
-    /// 将字符串 s 中出现的所有 old 子串替换为 newStr（非递归）。
-    /// @param s      输入字符串 / input string
-    /// @param old    被替换的子串 / substring to replace
-    /// @param newStr 替换后的字符串 / replacement string
-    /// @return 替换后的结果字符串 / resulting string
-    pub string replace(string s, string old, string newStr) {
-        int sLen = _str_length(s);
-        int oldLen = _str_length(old);
-        if oldLen == 0 || oldLen > sLen {
-            return s;
-        }
+    // ==================== 替换（返回 string） ====================
+    pub static string replace(str s, str old, str newStr) {
+        int sLen = s.length;
+        int oldLen = old.length;
+        if oldLen == 0 || oldLen > sLen { return s; }
         string result = "";
         int i = 0;
         while i < sLen {
             bool match = i + oldLen <= sLen;
             if match {
                 for int j = 0; j < oldLen; ++j {
-                    if _str_char_at(s, i + j) != _str_char_at(old, j) {
-                        match = false;
-                        break;
-                    }
+                    if s[i + j] != old[j] { match = false; break; }
                 }
             }
             if match {
                 result = result + newStr;
                 i = i + oldLen;
             } else {
-                int ch = _str_char_at(s, i);
-                result = _str_plus_char(result, ch);
+                result = _str_plus_char(result, s[i]);
                 ++i;
             }
         }
         return result;
     }
 
-    // ==================== 计数 / Counting ====================
-    /// 统计字符 ch 在字符串 s 中出现的次数。
-    /// @param s  输入字符串 / input string
-    /// @param ch 目标字符的 ASCII 码 / character to count
-    /// @return 出现次数 / number of occurrences
-    pub int count(string s, int ch) {
+    // ==================== 计数 ====================
+    pub static int count(str s, int ch) {
         int n = 0;
-        int len = _str_length(s);
+        int len = s.length;
         for int i = 0; i < len; ++i {
-            if _str_char_at(s, i) == ch {
-                ++n;
-            }
+            if s[i] == ch { ++n; }
         }
         return n;
     }
 
-    /// 统计子串 sub 在字符串 s 中（重叠）出现的次数。
-    /// @param s   输入字符串 / input string
-    /// @param sub 目标子串 / substring to count
-    /// @return 出现次数 / number of occurrences
-    pub int countStr(string s, string sub) {
+    pub static int countStr(str s, str sub) {
         int n = 0;
-        int sLen = _str_length(s);
-        int subLen = _str_length(sub);
-        if subLen == 0 || subLen > sLen {
-            return 0;
-        }
+        int sLen = s.length;
+        int subLen = sub.length;
+        if subLen == 0 || subLen > sLen { return 0; }
         for int i = 0; i <= sLen - subLen; ++i {
             bool match = true;
             for int j = 0; j < subLen; ++j {
-                if _str_char_at(s, i + j) != _str_char_at(sub, j) {
-                    match = false;
-                    break;
-                }
+                if s[i + j] != sub[j] { match = false; break; }
             }
-            if match {
-                ++n;
-            }
+            if match { ++n; }
         }
         return n;
+    }
+
+    // ==================== 拆分（返回 string[]） ====================
+    // 每个分段都物化为独立 GC string，不返回 str 视图（避免底层串被回收后悬空）
+    pub static string[] split(str s, str sep) {
+        int sLen = s.length;
+        int sepLen = sep.length;
+        // 空分隔符：逐字符拆分
+        if sepLen == 0 {
+            string[] chars = new string[sLen];
+            for int i = 0; i < sLen; ++i {
+                chars[i] = _char_to_str(s[i]);
+            }
+            return chars;
+        }
+        // 第一遍：统计分隔符个数
+        int count = 0;
+        int scan = 0;
+        while scan <= sLen - sepLen {
+            bool hit = true;
+            for int k = 0; k < sepLen; ++k {
+                if s[scan + k] != sep[k] { hit = false; break; }
+            }
+            if hit {
+                ++count;
+                scan = scan + sepLen;
+            } else {
+                ++scan;
+            }
+        }
+        // 第二遍：切分并物化
+        string[] result = new string[count + 1];
+        int start = 0;
+        int idx = 0;
+        int cur = 0;
+        while cur <= sLen - sepLen {
+            bool hit = true;
+            for int m = 0; m < sepLen; ++m {
+                if s[cur + m] != sep[m] { hit = false; break; }
+            }
+            if hit {
+                result[idx] = _str_to_string(String.sub(s, start, cur - start));
+                ++idx;
+                start = cur + sepLen;
+                cur = start;
+            } else {
+                ++cur;
+            }
+        }
+        result[idx] = _str_to_string(String.sub(s, start, sLen - start));
+        return result;
     }
 }

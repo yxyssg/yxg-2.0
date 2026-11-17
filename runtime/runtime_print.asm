@@ -1,36 +1,52 @@
 global _print
 global _set_float_mode
 global _set_float_precision
+global _print_err
 
 extern _GetStdHandle@4
 extern _WriteConsoleA@20
+extern _WriteFile@20
+extern _InitializeCriticalSection@4
+extern _EnterCriticalSection@4
+extern _LeaveCriticalSection@4
 
-STD_OUTPUT_HANDLE     equ -11
+STD_OUTPUT_HANDLE equ -11
 INVALID_HANDLE_VALUE  equ -1
-NULL                  equ 0
+NULL equ 0
 
-FLOAT_MODE_MINIMAL    equ 0
-FLOAT_MODE_FIXED      equ 1
+FLOAT_MODE_MINIMAL equ 0
+FLOAT_MODE_FIXED equ 1
 
 DEFAULT_FLOAT_PRECISION equ 6
-MAX_FLOAT_PRECISION    equ 6
+MAX_FLOAT_PRECISION equ 6
 
 section .data
-    stdout_handle      dd 0
-    float_mode         db FLOAT_MODE_MINIMAL
-    float_precision    dd DEFAULT_FLOAT_PRECISION
+    stdout_handle dd 0
+    float_mode db FLOAT_MODE_MINIMAL
+    float_precision dd DEFAULT_FLOAT_PRECISION
 
-    true_str           db 'true', 0
-    false_str          db 'false', 0
-    zero_str           db '0.0', 0
-    minus_sign         db '-', 0
+    true_str db 'true', 0
+    false_str db 'false', 0
+    zero_str db '0.0', 0
+    minus_sign db '-', 0
 
-    epsilon_iter       dd 0x3D100000
+    epsilon_iter dd 0x3D100000
+
+section .rodata
+  _err_true  db `true`,0
+  _err_false db `false`,0
 
 section .bss
-    buffer             resb 256
-    chars_written      resd 1
-    float_buf          resb 64
+    buffer resb 256
+    chars_written resd 1
+    float_buf resb 64
+    _err_buf resb 40
+    _err_written resd 1
+
+    print_cs resb 24
+    print_err_cs resb 24
+    print_cs_state resd 1
+    print_err_cs_state resd 1
 
 section .text
 
@@ -73,7 +89,7 @@ __write_string:
     push ebx
     push esi
     push eax
-    call _WriteConsoleA@20
+    call _WriteFile@20
 .done:
     pop edi
     pop esi
@@ -92,6 +108,41 @@ __itoa:
     jns .positive
     neg eax
 .positive:
+    mov edi, buffer + 255
+    mov byte [edi], 0
+    mov ebx, 10
+    xor ecx, ecx
+    test eax, eax
+    jnz .convert
+    dec edi
+    mov byte [edi], '0'
+    inc ecx
+    jmp .done
+.convert:
+    xor edx, edx
+    div ebx
+    add dl, '0'
+    dec edi
+    mov [edi], dl
+    inc ecx
+    test eax, eax
+    jnz .convert
+.done:
+    mov eax, edi
+    mov edx, ecx
+    pop edi
+    pop esi
+    pop ebx
+    pop ebp
+    ret
+
+__utoa:
+    push ebp
+    mov ebp, esp
+    push ebx
+    push esi
+    push edi
+    mov eax, [ebp+8]
     mov edi, buffer + 255
     mov byte [edi], 0
     mov ebx, 10
@@ -325,152 +376,34 @@ __ftoa:
     pop ebp
     ret
 
-__escape_string:
-    push ebp
-    mov ebp, esp
-    push ebx
-    push esi
-    push edi
+__print_cs_slow_init:
+    mov eax, 0
+    mov ecx, 1
+    lock cmpxchg dword [print_cs_state], ecx
+    jne .wait
+    lea eax, [print_cs]
+    push eax
+    call _InitializeCriticalSection@4
+    mov dword [print_cs_state], 2
+    ret
+.wait:
+    cmp dword [print_cs_state], 2
+    jne .wait
+    ret
 
-    mov esi, [ebp+8]
-    mov edi, buffer
-    xor ebx, ebx
-    xor ecx, ecx
-
-.loop:
-    mov al, [esi + ebx]
-    test al, al
-    jz .done
-    cmp al, '\'
-    je .escape
-    mov [edi + ecx], al
-    inc ecx
-    inc ebx
-    cmp ecx, 254
-    jl .loop
-    push ecx
-    push buffer
-    call __write_string
-    add esp, 8
-    xor ecx, ecx
-    mov edi, buffer
-    jmp .loop
-
-.escape:
-    inc ebx
-    mov al, [esi + ebx]
-    test al, al
-    jz .done
-    cmp al, 'n'
-    je .newline
-    cmp al, 't'
-    je .tab
-    cmp al, 'r'
-    je .return
-    cmp al, 'b'
-    je .backspace
-    cmp al, 'f'
-    je .formfeed
-    cmp al, 'v'
-    je .vtab
-    cmp al, '\'
-    je .backslash
-    cmp al, '"'
-    je .doublequote
-    cmp al, "'"
-    je .singlequote
-    mov byte [edi + ecx], '\'
-    inc ecx
-    cmp ecx, 254
-    jl .skip1
-    push ecx
-    push buffer
-    call __write_string
-    add esp, 8
-    xor ecx, ecx
-    mov edi, buffer
-.skip1:
-    mov [edi + ecx], al
-    inc ecx
-    inc ebx
-    cmp ecx, 254
-    jl .loop
-    push ecx
-    push buffer
-    call __write_string
-    add esp, 8
-    xor ecx, ecx
-    mov edi, buffer
-    jmp .loop
-
-.newline:
-    mov byte [edi + ecx], 10
-    inc ecx
-    inc ebx
-    jmp .check_buffer
-.tab:
-    mov byte [edi + ecx], 9
-    inc ecx
-    inc ebx
-    jmp .check_buffer
-.return:
-    mov byte [edi + ecx], 13
-    inc ecx
-    inc ebx
-    jmp .check_buffer
-.backspace:
-    mov byte [edi + ecx], 8
-    inc ecx
-    inc ebx
-    jmp .check_buffer
-.formfeed:
-    mov byte [edi + ecx], 12
-    inc ecx
-    inc ebx
-    jmp .check_buffer
-.vtab:
-    mov byte [edi + ecx], 11
-    inc ecx
-    inc ebx
-    jmp .check_buffer
-.backslash:
-    mov byte [edi + ecx], '\'
-    inc ecx
-    inc ebx
-    jmp .check_buffer
-.doublequote:
-    mov byte [edi + ecx], '"'
-    inc ecx
-    inc ebx
-    jmp .check_buffer
-.singlequote:
-    mov byte [edi + ecx], "'"
-    inc ecx
-    inc ebx
-
-.check_buffer:
-    cmp ecx, 254
-    jl .loop
-    push ecx
-    push buffer
-    call __write_string
-    add esp, 8
-    xor ecx, ecx
-    mov edi, buffer
-    jmp .loop
-
-.done:
-    test ecx, ecx
-    jz .exit
-    push ecx
-    push buffer
-    call __write_string
-    add esp, 8
-.exit:
-    pop edi
-    pop esi
-    pop ebx
-    pop ebp
+__print_err_cs_slow_init:
+    mov eax, 0
+    mov ecx, 1
+    lock cmpxchg dword [print_err_cs_state], ecx
+    jne .wait
+    lea eax, [print_err_cs]
+    push eax
+    call _InitializeCriticalSection@4
+    mov dword [print_err_cs_state], 2
+    ret
+.wait:
+    cmp dword [print_err_cs_state], 2
+    jne .wait
     ret
 
 _print:
@@ -479,6 +412,15 @@ _print:
     push ebx
     push esi
     push edi
+
+    cmp dword [print_cs_state], 2
+    je .cs_ready
+    call __print_cs_slow_init
+.cs_ready:
+    lea eax, [print_cs]
+    push eax
+    call _EnterCriticalSection@4
+
     mov eax, [ebp+12]
 
     cmp eax, 0
@@ -552,9 +494,18 @@ _print:
     jmp .done
 
 .string_case:
-    push dword [ebp+8]
-    call __escape_string
-    add esp, 4
+    mov esi, [ebp+8]
+    xor ecx, ecx
+.str_len_loop:
+    cmp byte [esi + ecx], 0
+    je .str_len_done
+    inc ecx
+    jmp .str_len_loop
+.str_len_done:
+    push ecx
+    push esi
+    call __write_string
+    add esp, 8
     jmp .done
 
 .bool_case:
@@ -582,7 +533,7 @@ _print:
 
 .uint_case:
     push dword [ebp+8]
-    call __itoa
+    call __utoa
     add esp, 4
     push edx
     push eax
@@ -591,11 +542,9 @@ _print:
     jmp .done
 
 .ufloat_case:
-    mov eax, [ebp+8]
-    and eax, 0x7FFFFFFF
     push dword [float_mode]
     push dword [float_precision]
-    push eax
+    push dword [ebp+8]
     call __ftoa
     add esp, 12
     push edx
@@ -607,6 +556,9 @@ _print:
     pop edi
     pop esi
     pop ebx
+    lea eax, [print_cs]
+    push eax
+    call _LeaveCriticalSection@4
     pop ebp
     ret
 
@@ -665,5 +617,111 @@ _set_float_precision:
     pop edi
     pop esi
     pop ebx
+    pop ebp
+    ret
+
+; void _print_err(int value, int type)
+_print_err:
+    push ebp
+    mov ebp, esp
+    push ebx
+    push esi
+    push edi
+
+    cmp dword [print_err_cs_state], 2
+    je .cs_ready
+    call __print_err_cs_slow_init
+.cs_ready:
+    lea eax, [print_err_cs]
+    push eax
+    call _EnterCriticalSection@4
+
+    mov eax, [ebp+8]      ; value
+    mov ecx, [ebp+12]     ; type
+    cmp ecx, 3
+    je .do_str
+    cmp ecx, 2
+    je .do_char
+    cmp ecx, 4
+    je .do_bool
+    cmp ecx, 1
+    je .do_float
+.do_int:
+    mov edi, _err_buf + 38
+    mov byte [edi], 0
+    mov ebx, 10
+    mov ecx, eax
+    test eax, eax
+    jns .int_loop
+    neg eax
+.int_loop:
+    xor edx, edx
+    div ebx
+    add dl, '0'
+    dec edi
+    mov [edi], dl
+    test eax, eax
+    jnz .int_loop
+    test ecx, ecx
+    jns .int_done
+    dec edi
+    mov byte [edi], '-'
+.int_done:
+    mov esi, edi
+    mov ecx, _err_buf + 39
+    sub ecx, edi
+    jmp .write
+.do_char:
+    mov byte [_err_buf], al
+    mov byte [_err_buf+1], 0
+    mov esi, _err_buf
+    mov ecx, 1
+    jmp .write
+.do_str:
+    mov esi, eax
+    mov edi, esi
+.str_len:
+    cmp byte [edi], 0
+    je .str_done
+    inc edi
+    jmp .str_len
+.str_done:
+    mov ecx, edi
+    sub ecx, esi
+    jmp .write
+.do_bool:
+    test eax, eax
+    jz .is_false
+    mov esi, _err_true
+    mov ecx, 4
+    jmp .write
+.is_false:
+    mov esi, _err_false
+    mov ecx, 5
+    jmp .write
+.do_float:
+    push dword [float_mode]
+    push dword [float_precision]
+    push dword [ebp+8]
+    call __ftoa
+    add esp, 12
+    mov esi, eax
+    mov ecx, edx
+    jmp .write
+.write:
+    push -12
+    call _GetStdHandle@4
+    push 0
+    push _err_written
+    push ecx
+    push esi
+    push eax
+    call _WriteConsoleA@20
+    pop edi
+    pop esi
+    pop ebx
+    lea eax, [print_err_cs]
+    push eax
+    call _LeaveCriticalSection@4
     pop ebp
     ret

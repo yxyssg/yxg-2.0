@@ -1,0 +1,262 @@
+// ============================================================
+// window.yxg — YXG Windows 图形库 (面向对象封装)
+//
+// 用法:
+//     import yxg.Window;
+//     Window w = new Window();
+//     w.create("Title", 640, 480);
+//     ...
+//
+// 类内 native 方法会自动获得隐藏的 this 参数,
+// runtime_window.asm 导出 mangle 后的符号名.
+// 颜色格式 0xRRGGBB. 枚举结尾不要加分号!
+// ============================================================
+
+// ---------- 颜色常量 (0xRRGGBB) ----------
+enum WindowColor {
+    COLOR_BLACK   = 0x000000,
+    COLOR_WHITE   = 0xFFFFFF,
+    COLOR_RED     = 0xFF0000,
+    COLOR_GREEN   = 0x00FF00,
+    COLOR_BLUE    = 0x0000FF,
+    COLOR_YELLOW  = 0xFFFF00,
+    COLOR_CYAN    = 0x00FFFF,
+    COLOR_MAGENTA = 0xFF00FF,
+    COLOR_GRAY    = 0x808080,
+    COLOR_DARK_GRAY   = 0x404040,
+    COLOR_LIGHT_GRAY  = 0xC0C0C0,
+    COLOR_ORANGE  = 0xFF8000,
+    COLOR_PURPLE  = 0x800080,
+    COLOR_BROWN   = 0x804000,
+    COLOR_TRANSPARENT = 0xFF00FF
+}
+
+// ---------- 按键常量 ----------
+enum WindowKey {
+    KEY_BACKSPACE = 8,
+    KEY_TAB       = 9,
+    KEY_ENTER     = 13,
+    KEY_SHIFT     = 16,
+    KEY_CTRL      = 17,
+    KEY_ALT       = 18,
+    KEY_ESC       = 27,
+    KEY_SPACE     = 32,
+    KEY_LEFT      = 37,
+    KEY_UP        = 38,
+    KEY_RIGHT     = 39,
+    KEY_DOWN      = 40,
+    KEY_DELETE    = 46,
+    KEY_0 = 48, KEY_1 = 49, KEY_2 = 50, KEY_3 = 51, KEY_4 = 52,
+    KEY_5 = 53, KEY_6 = 54, KEY_7 = 55, KEY_8 = 56, KEY_9 = 57,
+    KEY_A = 65, KEY_B = 66, KEY_C = 67, KEY_D = 68, KEY_E = 69,
+    KEY_F = 70, KEY_G = 71, KEY_H = 72, KEY_I = 73, KEY_J = 74,
+    KEY_K = 75, KEY_L = 76, KEY_M = 77, KEY_N = 78, KEY_O = 79,
+    KEY_P = 80, KEY_Q = 81, KEY_R = 82, KEY_S = 83, KEY_T = 84,
+    KEY_U = 85, KEY_V = 86, KEY_W = 87, KEY_X = 88, KEY_Y = 89,
+    KEY_Z = 90,
+    KEY_F1  = 112, KEY_F2  = 113, KEY_F3  = 114, KEY_F4  = 115,
+    KEY_F5  = 116, KEY_F6  = 117, KEY_F7  = 118, KEY_F8  = 119,
+    KEY_F9  = 120, KEY_F10 = 121, KEY_F11 = 122, KEY_F12 = 123
+}
+
+// ---------- 鼠标按键 ----------
+enum WindowMouse {
+    MOUSE_LEFT   = 0,
+    MOUSE_RIGHT  = 1,
+    MOUSE_MIDDLE = 2
+}
+
+// ---------- 光标样式 ----------
+enum WindowCursor {
+    CURSOR_ARROW    = 0,
+    CURSOR_HAND     = 1,
+    CURSOR_CROSS    = 2,
+    CURSOR_IBEAM    = 3,
+    CURSOR_WAIT     = 4,
+    CURSOR_SIZE_ALL = 5,
+    CURSOR_SIZE_NS  = 6,
+    CURSOR_SIZE_WE  = 7,
+    CURSOR_NO       = 8
+}
+
+// ---------- 弹窗返回值 (与 Win32 IDxxx 对齐) ----------
+enum PopupResult {
+    POPUP_NONE   = 0,
+    POPUP_OK     = 1,
+    POPUP_CANCEL = 2,
+    POPUP_ABORT  = 3,
+    POPUP_RETRY  = 4,
+    POPUP_IGNORE = 5,
+    POPUP_YES    = 6,
+    POPUP_NO     = 7
+}
+
+// ---------- 自绘回调收到的控件状态 ----------
+enum DrawState {
+    STATE_PRESSED  = 1,
+    STATE_DISABLED = 4,
+    STATE_FOCUS    = 16,
+    STATE_HOT      = 64
+}
+
+// ============================================================
+// Canvas — 离屏画布 (精灵图)
+// ============================================================
+class Canvas {
+    int handle;
+
+    pub Canvas() {
+        handle = 0;
+    }
+
+    pub native int  create(int width, int height);
+    pub native void destroy();
+    pub native int  get_width();
+    pub native int  get_height();
+
+    pub native void clear(int color);
+    pub native void set_pixel(int x, int y, int color);
+    pub native void fill_rect(int x, int y, int w, int h, int color);
+    pub native void draw_rect(int x, int y, int w, int h, int color);
+    pub native void draw_line(int x1, int y1, int x2, int y2, int color);
+    pub native void fill_circle(int cx, int cy, int r, int color);
+    pub native void draw_circle(int cx, int cy, int r, int color);
+    pub native void draw_text(int x, int y, string text, int color);
+    pub native int  get_pixel(int x, int y);
+    pub native int  load(string path);
+}
+
+// ============================================================
+// Window 类
+// ============================================================
+class Window {
+    int handle;
+
+    pub Window() {
+        handle = 0;
+    }
+
+    pub virtual void onPaint(int dc) {
+    }
+
+    // ---------- 窗口管理 ----------
+    pub native int  create(string title, int width, int height);
+    pub native void close();
+    pub native void show();
+    pub native void hide();
+    pub native void set_title(string title);
+    pub native void move(int x, int y);
+    pub native void resize(int width, int height);
+    pub native int  get_width();
+    pub native int  get_height();
+
+    // ---------- 消息循环与刷新 ----------
+    pub native int  update();
+    pub native int  wait();
+    pub native void flush();
+
+    // ---------- 绘制 ----------
+    pub native void clear(int color);
+    pub native void set_pixel(int x, int y, int color);
+    pub native void draw_line(int x1, int y1, int x2, int y2, int color);
+    pub native void draw_line_thick(int x1, int y1, int x2, int y2, int color, int width);
+    pub native void draw_rect(int x, int y, int w, int h, int color);
+    pub native void fill_rect(int x, int y, int w, int h, int color);
+    pub native void draw_round_rect(int x, int y, int w, int h, int r, int color);
+    pub native void fill_round_rect(int x, int y, int w, int h, int r, int color);
+    pub native void draw_circle(int cx, int cy, int r, int color);
+    pub native void fill_circle(int cx, int cy, int r, int color);
+    pub native void draw_triangle(int x1, int y1, int x2, int y2, int x3, int y3, int color);
+    pub native void fill_triangle(int x1, int y1, int x2, int y2, int x3, int y3, int color);
+    pub native void draw_text(int x, int y, string text, int color);
+    pub native void draw_text_center(int y, string text, int color);
+    pub native void draw_char(int x, int y, int ch, int color);
+
+    // ---------- 画布 ----------
+    pub native void draw_canvas(Canvas canvas, int x, int y);
+    pub native void draw_canvas_part(Canvas canvas, int sx, int sy, int sw, int sh, int dx, int dy);
+    pub native void draw_canvas_scaled(Canvas canvas, int x, int y, int w, int h);
+    pub native void draw_canvas_transparent(Canvas canvas, int x, int y);
+    pub native void draw_canvas_part_transparent(Canvas canvas, int sx, int sy, int sw, int sh, int dx, int dy);
+
+    // ---------- 输入 ----------
+    pub native int is_key_down(int key);
+    pub native int is_key_pressed(int key);
+    pub native int is_mouse_down(int button);
+    pub native int is_mouse_clicked(int button);
+    pub native int get_mouse_x();
+    pub native int get_mouse_y();
+    pub native int get_mouse_wheel();
+
+    // ---------- 工具 ----------
+    pub native void set_font_size(int size);
+    pub native int  get_ticks();
+    pub native void sleep(int ms);
+    pub native void message_box(string text, string title);
+
+    // ---------- 文字输入 / 光标 / 布局 ----------
+    pub native void set_cursor(int style);
+    pub native int  get_char();
+    pub native void center();
+
+    // ---------- 定时器 ----------
+    pub native void start_timer(int ms);
+    pub native void stop_timer();
+    pub native int  get_timer_hits();
+
+    // ---------- 窗口状态 ----------
+    pub native int  is_valid();
+    pub native int  is_minimized();
+    pub native int  is_maximized();
+    pub native int  is_visible();
+    // ---------- 焦点与层级 ----------
+    pub native void set_focus();
+    pub native int  has_focus();
+    pub native void set_topmost(int enable);
+    pub native void set_maximizable(int enable);
+    pub native void set_resizable(int enable);
+    pub native void minimize();
+    pub native void maximize();
+    pub native void restore();
+    // ---------- 关闭拦截 ----------
+    pub native void set_close_blocked(int blocked);
+    pub native int  is_close_requested();
+    pub native void clear_close_request();
+    // ---------- 静态: 多窗口管理 (用 Window.xxx() 类名调用) ----------
+    pub static native int get_count();
+    pub static native int get_at(int index);
+    // ---------- 文件对话框 (模态阻塞) ----------
+    // 成功返回所选文件路径, 取消/失败返回空串 ""
+    pub native string open_file(string title);
+    pub native string save_file(string title);
+    // ---------- 自动流式布局 ----------
+    // 在 begin..end 区间内, 组件 create 传 x=-1, y=-1 时自动取位置并换行
+    pub native void layout_begin(int x, int y, int gap, int max_width);
+    pub native void layout_end();
+    pub native void layout_space(int extra);
+        // ---------- 弹窗 ----------
+    pub static native int    popup_info(string text, string title);
+    pub static native int    popup_warning(string text, string title);
+    pub static native int    popup_error(string text, string title);
+    pub static native int    popup_question(string text, string title);
+    pub static native int    popup_yes_no(string text, string title);
+    pub static native int    popup_yes_no_cancel(string text, string title);
+    pub static native int    popup_ok_cancel(string text, string title);
+    pub static native int    popup_retry_cancel(string text, string title);
+    pub static native string popup_input(string prompt, string title);
+
+    // ---------- 自绘用 DC 绘图 (相当于 Java 的 Graphics) ----------
+    // 只能在 set_paint 回调里使用; dc 由运行时传入
+    pub static native void dc_fill_rect(int dc, int x, int y, int w, int h, int color);
+    pub static native void dc_draw_rect(int dc, int x, int y, int w, int h, int color);
+    pub static native void dc_set_pixel(int dc, int x, int y, int color);
+    pub static native void dc_draw_line(int dc, int x1, int y1, int x2, int y2, int color);
+    pub static native void dc_fill_circle(int dc, int cx, int cy, int r, int color);
+    pub static native void dc_draw_circle(int dc, int cx, int cy, int r, int color);
+    pub static native void dc_draw_text(int dc, int x, int y, string text, int color);
+    pub static native int  dc_get_text_width(int dc, string text);
+    pub static native void dc_fill_gradient(int dc, int x, int y, int w, int h, int top, int bottom);
+    pub static native void dc_fill_gradient_round(int dc, int x, int y, int w, int h, int radius, int top, int bottom);
+    pub native void draw_canvas_alpha(Canvas canvas, int x, int y);
+    pub native void draw_canvas_part_alpha(Canvas canvas, int sx, int sy, int sw, int sh, int dx, int dy);
+}

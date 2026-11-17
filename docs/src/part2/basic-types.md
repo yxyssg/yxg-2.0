@@ -33,9 +33,15 @@ YXG 是一门静态类型语言，每个变量在编译时就必须确定类型�
         int quot = a / b;
         int mod = a % b;
 
-        print sum, diff, prod, quot, mod;
+        print sum, " ", diff, " ", prod, " ", quot, " ", mod, "\n";
+        print hex, " ", oct, " ", bin, "\n";
         return 0;
     }
+
+输出：
+
+    -58 142 -4200 0 42
+    255 77 10
 
 整数除法向零截断。例如 7 / 3 = 2，-7 / 3 = -2。取模结果的符号与被除数相同。YXG 不检查整数溢出，行为与底层 CPU 一致。
 
@@ -53,11 +59,18 @@ YXG 是一门静态类型语言，每个变量在编译时就必须确定类型�
         // uint x = -1;          // 编译错误！
 
         if a < b {
-            print "a is less than b";
+            print "a is less than b", "\n";
         }
+
+        print sum, "\n";
 
         return 0;
     }
+
+输出：
+
+    a is less than b
+    300
 
 uint 和 int 混合运算时，结果提升为 uint。比较时使用无符号比较指令。
 
@@ -68,8 +81,8 @@ uint 和 int 混合运算时，结果提升为 uint。比较时使用无符号�
     int main() {
         float pi = 3.14159;
         float e = 2.71828;
-        float small = 1.5e-3;
-        float big = 6.02e23;
+        float small = 0.0015;
+        float big = 602000000000000000000000.0;
 
         float sum = pi + e;
         float area = pi * 5.0 * 5.0;
@@ -77,26 +90,36 @@ uint 和 int 混合运算时，结果提升为 uint。比较时使用无符号�
         float half = 1 / 2.0;
         float mixed = 3 + 0.14;
 
-        print pi, area, half, mixed;
+        print pi, " ", area, " ", half, " ", mixed, "\n";
         return 0;
     }
 
-浮点数字面量必须包含小数点或使用科学计数法。整数与浮点混合运算时，整数自动提升为浮点。单精度约 7 位有效数字，存在舍入误差。
+输出：
 
-更复杂的数学运算可使用 Math 标准库：
+    3.14159 78.539749 0.5 3.14
+
+浮点数字面量必须包含小数点。YXG 不支持科学计数法写法（如 `1.5e-3`），这样写会报 `error[E3001]`。整数与浮点混合运算时，整数自动提升为浮点。单精度约 7 位有效数字，存在舍入误差。
+
+float 使用 `%g` 风格打印：`print 92.5` 输出 `92.5`，`print 3.14159` 输出 `3.14159`，不会补成 6 位小数。
+
+更复杂的数学运算可使用 Math 标准库。Math 的所有方法都是 static，直接用 `类名.方法()` 调用，不需要 `new`：
 
     import yxg.Math;
 
     int main() {
-        Math m = new Math();
+        float x = Math.sqrt(16.0);
+        float y = Math.sin(1.5708);
+        float z = Math.fabs(-3.14);
 
-        float x = m.sqrt(16.0);
-        float y = m.sin(1.5708);
-        float z = m.fabs(-3.14);
-
-        print x, y, z;
+        print x, " ", y, " ", z, "\n";
         return 0;
     }
+
+输出：
+
+    4.0 1.0 3.14
+
+写成 `Math m = new Math(); m.sqrt(16.0);` 会报 `error[E3015]: no matching method 'sqrt'`。
 
 Math 库还提供了 cos、tan、pow、min、max、clamp 以及随机数等功能。
 
@@ -113,9 +136,13 @@ Math 库还提供了 cos、tan、pow、min、max、clamp 以及随机数等功�
         float discount = 0.8;
         ufloat final_price = price * discount;
 
-        print final_price;
+        print final_price, "\n";
         return 0;
     }
+
+输出：
+
+    15.992
 
 ufloat 与 float 混合运算时，结果提升为 ufloat。编译器在语义分析阶段检查负值赋值。
 
@@ -134,12 +161,19 @@ ufloat 与 float 混合运算时，结果提升为 ufloat。编译器在语义�
         int code = ch;
 
         if ch >= 'A' && ch <= 'Z' {
-            print ch, "is uppercase";
+            print ch, " is uppercase", "\n";
         }
 
-        print ch, next, code;
+        print ch, " ", next, " ", code, "\n";
         return 0;
     }
+
+输出：
+
+    A is uppercase
+    A B 65
+
+注意：不要直接打印 `char + char` 这种表达式的结果，例如 `print a + b`（a、b 均为 char）会让程序异常退出。需要整数值时先把结果存进 int，或用 `(a - 0) + (b - 0)` 这类写法拆开。
 
 转义序列：
 
@@ -170,15 +204,22 @@ char 和 int 可以互相赋值和运算。char 赋值给 int 时零扩展。
         bool not = !true;
 
         if flag {
-            print "flag is true";
+            print "flag is true", "\n";
         }
 
         int asInt = true;
         int asInt2 = false;
 
-        print result, and, or, not, asInt;
+        print result, " ", and, " ", or, " ", not, " ", asInt, "\n";
         return 0;
     }
+
+输出：
+
+    flag is true
+    true false true false 1
+
+bool 打印出来是 true/false 文本，转成 int 后是 1/0。
 
 bool 在内存中占 1 字节。true 存储为 1，false 存储为 0。bool 可以隐式转换为 int，但 int 不能隐式转换为 bool（条件表达式除外）。
 
@@ -189,26 +230,31 @@ bool 在内存中占 1 字节。true 存储为 1，false 存储为 0。bool 可�
     import yxg.String;
 
     int main() {
-        String str = new String();
-
         string s1 = "Hello";
         string s2 = "World";
 
         string s3 = s1 + " " + s2;
 
-        int len = str.len(s1);
+        int len = String.len(s1);
 
-        int c = str.charAt(s1, 0);
+        int c = String.charAt(s1, 0);
 
         if s1 == s2 {
-            print "equal";
+            print "equal", "\n";
         } else {
-            print "not equal";
+            print "not equal", "\n";
         }
 
-        print s3, len, c;
+        print s3, " ", len, " ", c, "\n";
         return 0;
     }
+
+输出：
+
+    not equal
+    Hello World 5 72
+
+String 的成员方法全是 static，必须用 `String.方法名(参数)` 调用。另外 `str` 是保留字，不能拿来当变量名——`string str = ...;` 会报 `error[E2002]: expected 'Semicolon' before 'Str'`，换个名字（`s`、`text`）即可。
 
 字符串在底层以 null 结尾，存储了长度信息。字符串是不可变的，每次拼接创建新对象，旧对象由 GC 回收。
 
@@ -219,13 +265,30 @@ bool 在内存中占 1 字节。true 存储为 1，false 存储为 0。bool 可�
     int main() {
         float f = 42;
         int i = 'A';
-        string s1 = "value:" + 42;
-        string s2 = "letter:" + 'A';
         int b = true;
         uint u = 100;
 
+        print f, " ", i, " ", b, " ", u, "\n";
         return 0;
     }
+
+输出：
+
+    42.0 65 1 100
+
+注意 `string + int` 和 `string + float` 都会报 `error[E3004]: incompatible types`。需要拼接数字时，把数字作为独立的 print 参数传进去：
+
+    int main() {
+        int v = 42;
+        // string s = "value:" + v;      // 错误！string 和 int 类型不匹配
+        print "value: ", v, "\n";        // 正确
+
+        return 0;
+    }
+
+输出：
+
+    value: 42
 
 ### 类型提升规则
 
@@ -242,9 +305,9 @@ bool 在内存中占 1 字节。true 存储为 1，false 存储为 0。bool 可�
 | uint | float | ufloat |
 | char | char | int |
 | char | int | int |
-| string | char | string |
-| string | int | string |
 | string | string | string |
+
+注意 `string + int`、`string + float` 会报 `error[E3004]: incompatible types`。`string + char` 虽然能编译通过，但运行时会让程序崩溃，实际使用时请先用 print 分隔参数代替。
 
 比较运算的结果始终是 bool。
 
@@ -261,9 +324,13 @@ bool 在内存中占 1 字节。true 存储为 1，false 存储为 0。bool 可�
         bool b;
         string s;
 
-        print i, f, b;
+        print i, " ", f, " ", b, "\n";
         return 0;
     }
+
+输出：
+
+    0 0.0 false
 
 建议始终显式初始化变量。特别注意未初始化的 string 是 null，访问其属性会出错。
 
@@ -279,9 +346,14 @@ bool 在内存中占 1 字节。true 存储为 1，false 存储为 0。bool 可�
 
 ### 条件表达式类型错误
 
-    int x = 10;
-    // if x { ... }         // 错误！int 不能直接作为条件
-    if x != 0 { ... }       // 正确
+    int main() {
+        int x = 10;
+        // if x { ... }         // 错误！error[E3020] condition must be boolean, got 'int'
+        if x != 0 {
+            print "x is not zero", "\n";    // 正确
+        }
+        return 0;
+    }
 
 ## 继续阅读
 

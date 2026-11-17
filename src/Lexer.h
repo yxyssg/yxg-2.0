@@ -20,4 +20,4 @@ void lexer_parse();
 Lexer* lexer(char* source,const char* filename);
 void lexer_free(Lexer* lexer);
 
-#endif //LEXER_H
+#endif

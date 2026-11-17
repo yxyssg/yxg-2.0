@@ -22,6 +22,7 @@ typedef enum IRTYPE
     IR_PARAM_DEF,
     IR_PUSH,
     IR_CALL,
+    IR_CALL_INDIRECT,
     IR_RET,
     IR_ARRAY_DECL,
     IR_ARRAY_LOAD,
@@ -36,12 +37,27 @@ typedef enum IRTYPE
     IR_LOAD_MEMBER,
     IR_STORE_MEMBER,
     IR_LOAD_THIS,
+    IR_DEREF,
+    IR_ADDRESS_OF,
+    IR_PTR_STORE,
+
+    IR_STR_FROM_STRING,
+    IR_STR_FROM_LITERAL,
+    IR_STR_LENGTH,
+    IR_STR_INDEX,
+    IR_STR_SUBSTR,
+    IR_STR_TO_STRING,
+    IR_VARARG_INIT,
 
     IR_PHI,
 
     IR_BOUNDS_CHECK,
 
     IR_COPY_BLOCK,
+
+    IR_TRUNCATE,
+
+    IR_CAST,
 
     IR_ERROR,
 }IRType;
@@ -77,17 +93,31 @@ typedef enum IROPTYPE
     IR_OP_ERROR,
 }IR_OP_Type;
 
+typedef enum CASTKIND
+{
+    CAST_NOP = 0,
+    CAST_INT_TO_FLOAT,
+    CAST_FLOAT_TO_INT,
+    CAST_TRUNC,
+    CAST_SIGN_EXTEND,
+    CAST_ZERO_EXTEND,
+    CAST_INT_TO_PTR,
+    CAST_PTR_TO_INT,
+    CAST_PTR_REINTERP,
+    CAST_DOWNCAST,
+}CastKind;
+
 typedef struct IR
 {
     IRType type;
     char* result;
-    int   def_id;
+    int def_id;
     IR_OP_Type op;
     char* args1;
-    int   args1_def;
+    int args1_def;
     DataType args1_type;
     char* args2;
-    int   args2_def;
+    int args2_def;
     DataType args2_type;
 
     int label_count;
@@ -112,10 +142,43 @@ typedef struct IR
     int func_stack_size;
     int func_local_area_base;
 
-    int     phi_arg_count;
-    char**  phi_arg_names;
-}IR;
+    int phi_arg_count;
+    char** phi_arg_names;
 
+    int ptr_depth;
+    bool is_function_addr;
+    bool is_static_local;
+    bool is_static_global;
+    int* init_values;
+    int init_count;
+
+    int stack_bytes;
+    int copy_bytes;
+    int push_bytes;
+    int class_id;
+    int* push_byte_sizes;
+    int total_push_bytes;
+    bool is_array_param;
+
+    bool ret_has_hidden_ptr;
+    int temp_stack_alloc;
+    bool is_str_param;
+    bool is_dynamic_array;
+    bool is_err;
+    bool returns_array;
+    char* hidden_ret_buf;
+
+    char* vararg_internal_name_ir;
+
+    int vararg_count;
+    int* vararg_bytes_array;
+    char** vararg_internal_names_array;
+
+    int cast_kind;
+    int cast_target_bytes;
+
+    char* vtable_label;
+}IR;
 
 typedef struct {
     char* break_label;
@@ -129,6 +192,6 @@ void print_IR(IR* ir);
 IR* create_IR(IRType ir_type);
 static int get_type_size(DataType type);
 void free_IR_chain(IR* ir);
-int  assign_def_id(IR* ir);
-int  get_def_id_by_name(const char* name, IR* head, IR* stop_before);
+int assign_def_id(IR* ir);
+int get_def_id_by_name(const char* name, IR* head, IR* stop_before);
 #endif

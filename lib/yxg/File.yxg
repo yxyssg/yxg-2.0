@@ -1,0 +1,275 @@
+// yxg/File.yxg —— File 标准库 v2
+// 分层设计：
+//   pro native 方法 = 系统原语（runtime_file.asm 实现），失败返回 0/空串，不抛异常
+//   pub 方法       = yxg 包装层，检查句柄，失败抛 FileError
+
+import yxg.Collections.List;
+import yxg.String;
+
+pub class FileError : ERROR {
+    pub FileError(string msg) {
+        this.info = msg;
+    }
+}
+
+pub class File {
+    pro int _handle;
+
+    // ---------- native 原语 ----------
+    pro native int _open(string path, string mode);
+    pro native void _closeRaw();
+    pro native string _readAllRaw();
+    pro native string _readLineRaw();
+    pro native int _writeRaw(string text);
+    pro native int _getSizeRaw();
+    pro native string _readBytesRaw(int count);
+    pro native int _writeBytesRaw(string data, int len);
+    pro native int _readIntoRaw(string buf, int len);
+
+    // ---------- 生命周期 ----------
+    pub File(string path, string mode) {
+        _handle = _open(path, mode);
+        if _handle == 0 {
+            throw new FileError("cannot open file: " + path);
+        }
+    }
+
+    pub void close() {
+        if _handle != 0 {
+            _closeRaw();
+            _handle = 0;
+        }
+    }
+
+    pub bool isOpen() {
+        return _handle != 0;
+    }
+
+    // ---------- 读取 ----------
+    pub string readAll() {
+        _ensureOpen();
+        return _readAllRaw();
+    }
+
+    pub string readLine() {
+        _ensureOpen();
+        return _readLineRaw();
+    }
+
+    pub string readBytes(int count) {
+        _ensureOpen();
+        return _readBytesRaw(count);
+    }
+
+    // 流式读入用户缓冲：最多读 len 字节到 buf，返回实际读取字节数，0 表示 EOF。
+    // buf 必须是可写 GC string（例如 String.repeat(" ", n)），
+    // 不要传字面量或 str 切片：native 会回写 GC 长度头。
+    pub int readInto(string buf, int len) {
+        _ensureOpen();
+        return _readIntoRaw(buf, len);
+    }
+
+    // ---------- 写入 ----------
+    pub int write(string text) {
+        _ensureOpen();
+        return _writeRaw(text);
+    }
+
+    pub int writeBytes(string data, int len) {
+        _ensureOpen();
+        return _writeBytesRaw(data, len);
+    }
+
+    pub int writeLine(string text) {
+        return write(text + "\n");
+    }
+
+    pub native void flush();
+
+    // ---------- 定位 ----------
+    // origin: 0 = 文件头, 1 = 当前位置, 2 = 文件尾
+    pub native int seek(int offset, int origin);
+    pub native int tell();
+    // 是否已读到文件末尾
+    pub native bool atEnd();
+
+    // ---------- 大小 ----------
+    pub int getSize() {
+        _ensureOpen();
+        return _getSizeRaw();
+    }
+
+    pro void _ensureOpen() {
+        if _handle == 0 {
+            throw new FileError("file is not open");
+        }
+    }
+
+    // ---------- 静态工具 ----------
+    pub static native bool exists(string path);
+    pub static native bool delete(string path);
+    pub static native string getCurrentDir();
+    pub static native bool setCurrentDir(string path);
+    pub static native string getTempDir();
+    pub static native bool copy(string src, string dst);
+    pub static native bool move(string src, string dst);
+    pub static native bool createDir(string path);
+    pub static native bool removeDir(string path);
+    pub static native int getFileSize(string path);
+    pro static native int _strByteLen(string data);
+    pro static native string _listDirRaw(string path);
+    pub static native bool isDir(string path);
+    pub static native string getExeDir();
+
+    pub static string readAllText(string path) {
+        File f = new File(path, "r");
+        try {
+            return f.readAll();
+        } end {
+            f.close();
+        }
+    }
+
+    pub static string[] readAllLines(string path) {
+        File f = new File(path, "r");
+        try {
+            List<string> lines = new List<string>();
+            while !f.atEnd() {
+                lines.add(f.readLine());
+            }
+            string[] arr = new string[lines.size()];
+            for int i = 0; i < lines.size(); i++ {
+                arr[i] = lines.get(i);
+            }
+            return arr;
+        } end {
+            f.close();
+        }
+    }
+
+    pub static void writeAllText(string path, string text) {
+        File f = new File(path, "w");
+        try {
+            f.write(text);
+        } end {
+            f.close();
+        }
+    }
+
+    pub static void appendAllText(string path, string text) {
+        File f = new File(path, "a");
+        try {
+            f.write(text);
+        } end {
+            f.close();
+        }
+    }
+
+    pub static string readAllBytes(string path) {
+        File f = new File(path, "r");
+        try {
+            return f.readBytes(f.getSize());
+        } end {
+            f.close();
+        }
+    }
+
+    pub int debugGetHandle() {
+        return _handle;
+    }
+
+    // byteLen：读 GC 字符串长度头，二进制安全。
+    // 只适用于 File 读出的字符串；字面量没有长度头，对字面量调用会读到垃圾。
+    pub static int byteLen(string data) {
+        return _strByteLen(data);
+    }
+
+    pub static void writeAllBytes(string path, string data, int len) {
+        File f = new File(path, "w");
+        try {
+            f.writeBytes(data, len);
+        } end {
+            f.close();
+        }
+    }
+
+    pub static bool copyFile(string src, string dst) {
+        File in = new File(src, "r");
+        try {
+            string data = in.readBytes(in.getSize());
+            int got = File.byteLen(data);
+            File out = new File(dst, "w");
+            try {
+                out.writeBytes(data, got);
+            } end {
+                out.close();
+            }
+            return true;
+        } end {
+            in.close();
+        }
+    }
+
+    // ---------- 目录遍历 ----------
+    // 返回目录下所有条目名（不含 '.'/'..'，不含路径前缀）
+    pub static string[] listDir(string path) {
+        if !File.isDir(path) {
+            throw new FileError("directory not found: " + path);
+        }
+        string raw = _listDirRaw(path);
+        if String.isEmpty(raw) {
+            int zero = 0;
+            string[] empty = new string[zero];
+            return empty;
+        }
+        return String.split(raw, "\n");
+    }
+
+    // ---------- 路径工具 ----------
+    pub static string pathJoin(string a, string b) {
+        if String.len(a) == 0 { return b; }
+        if String.len(b) == 0 { return a; }
+        if String.endsWith(a, "/") || String.endsWith(a, "\\") {
+            return a + b;
+        }
+        return a + "/" + b;
+    }
+
+    // 注意：String.sub(s, start, n) 的第三个参数是「长度」，不是结束下标
+    pub static string pathDirName(string path) {
+        int n = String.len(path);
+        int i = n - 1;
+        while i >= 0 {
+            int c = String.charAt(path, i);
+            if c == 47 || c == 92 { break; }   // 47 = '/', 92 = '\'
+            --i;
+        }
+        if i < 0 { return "."; }
+        if i == 0 { return "/"; }
+        return String.sub(path, 0, i);
+    }
+
+    pub static string pathBaseName(string path) {
+        int n = String.len(path);
+        int i = n - 1;
+        while i >= 0 {
+            int c = String.charAt(path, i);
+            if c == 47 || c == 92 { break; }
+            --i;
+        }
+        return String.sub(path, i + 1, n - i - 1);
+    }
+
+    pub static string pathExtName(string path) {
+        string base = pathBaseName(path);
+        int n = String.len(base);
+        int i = n - 1;
+        while i >= 0 {
+            int c = String.charAt(base, i);
+            if c == 46 { break; }   // 46 = '.'
+            --i;
+        }
+        if i <= 0 { return ""; }
+        return String.sub(base, i, n - i);
+    }
+}

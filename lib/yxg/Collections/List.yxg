@@ -1,0 +1,107 @@
+import yxg.Collections.Container;
+
+pub class <T> List : Container {
+    pub List() {
+        _init(64, sizeof(T));
+    }
+
+    pro unsafe T* _arr() {
+        return _buf;
+    }
+
+    pub void reserve(int n) {
+        if n > _cap {
+            _grow(n);
+        }
+    }
+
+    pub void add(T item) {
+        if _len >= _cap {
+            int nc = _cap * 2;
+            if nc < 8 {
+                nc = 8;
+            }
+            _grow(nc);
+        }
+        unsafe T* d = _arr();
+        d[_len] = item;
+        _len = _len + 1;
+    }
+
+    pub T get(int i) {
+        if i < 0 || i >= _len {
+            throw new ContainerError("list index out of range");
+        }
+        unsafe T* d = _arr();
+        return d[i];
+    }
+
+    pub void set(int i, T v) {
+        if i < 0 || i >= _len {
+            throw new ContainerError("list index out of range");
+        }
+        unsafe T* d = _arr();
+        d[i] = v;
+    }
+
+    pub T removeLast() {
+        if _len <= 0 {
+            throw new ContainerError("list is empty");
+        }
+        _len = _len - 1;
+        unsafe T* d = _arr();
+        return d[_len];
+    }
+
+    pub T removeAt(int i) {
+        if i < 0 || i >= _len {
+            throw new ContainerError("list index out of range");
+        }
+        unsafe T* d = _arr();
+        T v = d[i];
+        for int j = i; j < _len - 1; j++ {
+            d[j] = d[j + 1];
+        }
+        _len = _len - 1;
+        return v;
+    }
+
+    pub void insert(int i, T v) {
+        if i < 0 || i > _len {
+            throw new ContainerError("list index out of range");
+        }
+        if _len >= _cap {
+            int nc = _cap * 2;
+            if nc < 8 {
+                nc = 8;
+            }
+            _grow(nc);
+        }
+        unsafe T* d = _arr();
+        for int j = _len; j > i; j-- {
+            d[j] = d[j - 1];
+        }
+        d[i] = v;
+        _len = _len + 1;
+    }
+
+    pub bool contains(T v) {
+        unsafe T* d = _arr();
+        for int i = 0; i < _len; i++ {
+            if d[i] == v {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub int indexOf(T v) {
+        unsafe T* d = _arr();
+        for int i = 0; i < _len; i++ {
+            if d[i] == v {
+                return i;
+            }
+        }
+        return -1;
+    }
+}

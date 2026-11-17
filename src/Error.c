@@ -125,6 +125,8 @@ static const char *code_str(ErrorCode code) {
     case ERR_SEM_DUPLICATE_CASE:       return "E3018";
     case ERR_SEM_RETURN_TYPE_MISMATCH: return "E3019";
     case ERR_SEM_CONDITION_NOT_BOOL:   return "E3020";
+    case ERR_SEM_CANNOT_ASSIGN_CONST:  return "E3022";
+    case ERR_SEM_CONST_OVERFLOW:       return "E3023";
     case ERR_IR_NULL_AST:              return "E4001";
     case ERR_CG_UNKNOWN_VAR:           return "E5001";
     case ERR_INTERNAL:                 return "E9001";
@@ -166,11 +168,11 @@ void error_init(void) {
         exit(EXIT_FAILURE);
     }
 
-    error_mgr->options.max_errors        = 100;
+    error_mgr->options.max_errors = 128;
     error_mgr->options.warnings_as_errors = false;
-    error_mgr->options.suppress_warnings  = false;
-    error_mgr->options.use_color          = terminal_supports_color();
-    error_mgr->options.show_context       = true;
+    error_mgr->options.suppress_warnings = false;
+    error_mgr->options.use_color = terminal_supports_color();
+    error_mgr->options.show_context = true;
 
     error_mgr->source_file_capacity = 16;
     error_mgr->source_files = calloc(
@@ -280,25 +282,21 @@ void diagnostic_v(Severity sev, ErrorCode code, SourceLoc loc,
         break;
     }
 
+    set_tcolor(sev_color(sev));
     if (loc.file) {
-        set_tcolor(TCOL_WHITE);
         if (loc.line > 0)
             fprintf(err_out(), "%s:%d:%d: ", loc.file, loc.line, loc.column);
         else
             fprintf(err_out(), "%s: ", loc.file);
     }
 
-    set_tcolor(sev_color(sev));
     fprintf(err_out(), "%s", sev_label(sev));
 
     if (code != 0) {
-        set_tcolor(TCOL_WHITE);
         fprintf(err_out(), "[%s]", code_str(code));
     }
 
-    set_tcolor(TCOL_WHITE);
     fprintf(err_out(), ": ");
-    reset_tcolor();
     vfprintf(err_out(), fmt, args);
     fprintf(err_out(), "\n");
 
@@ -306,9 +304,7 @@ void diagnostic_v(Severity sev, ErrorCode code, SourceLoc loc,
         int line_len = 0;
         const char *line_text = error_get_source_line(loc.file, loc.line, &line_len);
         if (line_text && line_len > 0) {
-            set_tcolor(TCOL_WHITE);
             fprintf(err_out(), " %5d | ", loc.line);
-            reset_tcolor();
             for (int i = 0; i < line_len; i++) {
                 if (line_text[i] == '\t')
                     fputs("    ", err_out());
@@ -338,8 +334,10 @@ void diagnostic_v(Severity sev, ErrorCode code, SourceLoc loc,
     if (sev == SEV_FATAL) {
         fprintf(err_out(), "\nCompilation aborted due to fatal error.\n");
         fflush(err_out());
+        reset_tcolor();
         exit(EXIT_FAILURE);
     }
+    reset_tcolor();
 }
 
 void diagnostic(Severity sev, ErrorCode code, SourceLoc loc,

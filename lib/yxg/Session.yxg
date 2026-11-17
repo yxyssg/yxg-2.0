@@ -1,0 +1,232 @@
+import yxg.Utils;
+import yxg.Sync;
+import yxg.Math;
+import yxg.Collections.Map;
+import yxg.Collections.List;
+
+pub class Session {
+    pub string sid;
+    pub Map<string, string> data;
+    pub int64 created_at;
+    pub int64 expires_at;
+    pub int64 last_access;
+
+    pub Session(string s, int64 ttl_sec) {
+        sid = s;
+        data = new Map<string, string>();
+        created_at = _system_time() as int64;
+        expires_at = created_at + ttl_sec;
+        last_access = created_at;
+    }
+
+    pub bool isExpired() {
+        return (_system_time() as int64) >= expires_at;
+    }
+
+    pub void touch() {
+        last_access = _system_time() as int64;
+    }
+
+    pub string get(string key) {
+        return data.get(key);
+    }
+
+    pub void set(string key, string value) {
+        data.put(key, value);
+    }
+
+    pub void remove(string key) {
+        data.remove(key);
+    }
+
+    pub void destroy() {
+        data.destroy();
+    }
+}
+
+pub class SessionStore {
+    pro Map<string, Session> store;
+    pro List<string> sids;
+    pro Mutex mu;
+    pro int ttl_sec;
+    pro int max_size;
+    pro int gc_counter;
+    pro int gc_threshold;
+
+    pub SessionStore(int ttl, int max) {
+        store = new Map<string, Session>();
+        sids = new List<string>();
+        mu = new Mutex();
+        ttl_sec = ttl;
+        max_size = max;
+        gc_counter = 0;
+        gc_threshold = 100;
+    }
+
+    pub bool isValid() {
+        return mu.isValid();
+    }
+
+    pro string gen_sid() {
+        int r1 = Math.random();
+        int r2 = Math.random();
+        int r3 = Math.random();
+        int r4 = Math.random();
+        string a = Convert.formatInt(r1);
+        string b = Convert.formatInt(r2);
+        string c = Convert.formatInt(r3);
+        string d = Convert.formatInt(r4);
+        return a + "_" + b + "_" + c + "_" + d;
+    }
+
+    pro int find_sid_index(string sid) {
+        int i = 0;
+        int n = sids.size();
+        while i < n {
+            string cur = sids.get(i);
+            if cur == sid {
+                return i;
+            }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    pro void gc_locked() {
+        int i = 0;
+        while i < sids.size() {
+            string cur = sids.get(i);
+            if !store.has(cur) {
+                sids.removeAt(i);
+                continue;
+            }
+            Session s = store.get(cur);
+            if s.isExpired() {
+                s.destroy();
+                store.remove(cur);
+                sids.removeAt(i);
+                continue;
+            }
+            i = i + 1;
+        }
+    }
+
+    pro void evict_oldest_locked() {
+        if sids.size() == 0 {
+            return;
+        }
+        string first_sid = sids.get(0);
+        if store.has(first_sid) {
+            Session s = store.get(first_sid);
+            s.destroy();
+            store.remove(first_sid);
+        }
+        sids.removeAt(0);
+    }
+
+    pub Session create() {
+        mu.lock();
+        Session result = null;
+        try {
+            gc_counter = gc_counter + 1;
+            if gc_counter >= gc_threshold {
+                gc_counter = 0;
+                gc_locked();
+            }
+            if sids.size() >= max_size {
+                evict_oldest_locked();
+            }
+            string sid = gen_sid();
+            while store.has(sid) {
+                sid = gen_sid();
+            }
+            result = new Session(sid, ttl_sec as int64);
+            store.put(sid, result);
+            sids.add(sid);
+        } end {
+            mu.unlock();
+        }
+        return result;
+    }
+
+    pub Session get(string sid) {
+        mu.lock();
+        Session result = null;
+        try {
+            if store.has(sid) {
+                result = store.get(sid);
+                if result.isExpired() {
+                    result.destroy();
+                    store.remove(sid);
+                    int idx = find_sid_index(sid);
+                    if idx >= 0 {
+                        sids.removeAt(idx);
+                    }
+                    result = null;
+                } else {
+                    result.touch();
+                }
+            }
+        } end {
+            mu.unlock();
+        }
+        return result;
+    }
+
+    pub void destroy_sid(string sid) {
+        mu.lock();
+        try {
+            if store.has(sid) {
+                Session s = store.get(sid);
+                s.destroy();
+                store.remove(sid);
+                int idx = find_sid_index(sid);
+                if idx >= 0 {
+                    sids.removeAt(idx);
+                }
+            }
+        } end {
+            mu.unlock();
+        }
+    }
+
+    pub void gc() {
+        mu.lock();
+        try {
+            gc_locked();
+        } end {
+            mu.unlock();
+        }
+    }
+
+    pub int size() {
+        mu.lock();
+        int n = 0;
+        try {
+            n = sids.size();
+        } end {
+            mu.unlock();
+        }
+        return n;
+    }
+
+    pub void destroy() {
+        mu.lock();
+        try {
+            int i = 0;
+            while i < sids.size() {
+                string cur = sids.get(i);
+                if store.has(cur) {
+                    Session s = store.get(cur);
+                    s.destroy();
+                }
+                i = i + 1;
+            }
+            sids.clear();
+            store.destroy();
+        } end {
+            mu.unlock();
+        }
+        mu.destroy();
+    }
+}

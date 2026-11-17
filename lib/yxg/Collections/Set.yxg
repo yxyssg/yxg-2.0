@@ -1,0 +1,56 @@
+import yxg.Collections.Container;
+
+pub class <T> Set : Container {
+    pub Set() {
+        _init(64, sizeof(T));
+    }
+
+    pro unsafe T* _arr() {
+        return _buf;
+    }
+
+    pub void add(T item) {
+        if contains(item) {
+            return;
+        }
+        if _len >= _cap {
+            int nc = _cap * 2;
+            if nc < 8 {
+                nc = 8;
+            }
+            _grow(nc);
+        }
+        unsafe T* d = _arr();
+        d[_len] = item;
+        _len = _len + 1;
+    }
+
+    pub bool contains(T item) {
+        unsafe T* d = _arr();
+        for int i = 0; i < _len; i++ {
+            if d[i] == item {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub void remove(T item) {
+        unsafe T* d = _arr();
+        for int i = 0; i < _len; i++ {
+            if d[i] == item {
+                d[i] = d[_len - 1];
+                _len = _len - 1;
+                return;
+            }
+        }
+    }
+
+    pub T get(int i) {
+        if i < 0 || i >= _len {
+            throw new ContainerError("set index out of range");
+        }
+        unsafe T* d = _arr();
+        return d[i];
+    }
+}

@@ -26,8 +26,12 @@
     - [继承](part2/inheritance.md)
     - [成员访问控制](part2/access-control.md)
 - [枚举](part2/enums.md)
+- [异常处理](part2/exceptions.md)
+- [泛型](part2/generics.md)
+- [函数对象](part2/function-objects.md)
 - [模块系统（import）](part2/modules.md)
 - [内置函数参考](part2/builtins.md)
+- [标准库](part2/stdlib.md)
 
 # 第三部分：编译器架构概览
 - [整体流水线](part3/pipeline-overview.md)
@@ -38,6 +42,10 @@
 - [实现一个排序程序](part4/example-sort.md)
 - [实现一个简单链表](part4/example-linkedlist.md)
 - [实现一个命令行计算器](part4/example-calculator.md)
+
+# 第五部分：图形与多媒体库
+- [图形与多媒体库](part5/graphics.md)
+- [网络与文件库](part5/network-file.md)
 
 # 附录
 - [编译错误码速查](appendix/error-codes.md)

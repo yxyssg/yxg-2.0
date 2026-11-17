@@ -14,58 +14,61 @@ typedef enum {
 } Severity;
 
 typedef enum {
-    ERR_LEX_UNTERMINATED_STRING  = 1001,
-    ERR_LEX_UNTERMINATED_CHAR    = 1002,
+    ERR_LEX_UNTERMINATED_STRING = 1001,
+    ERR_LEX_UNTERMINATED_CHAR = 1002,
     ERR_LEX_UNTERMINATED_COMMENT = 1003,
-    ERR_LEX_UNKNOWN_CHAR         = 1004,
-    ERR_LEX_MULTICHAR_LITERAL    = 1005,
+    ERR_LEX_UNKNOWN_CHAR = 1004,
+    ERR_LEX_MULTICHAR_LITERAL = 1005,
 
-    ERR_PARSE_UNEXPECTED_TOKEN   = 2001,
-    ERR_PARSE_EXPECTED_TOKEN     = 2002,
-    ERR_PARSE_UNEXPECTED_EOF     = 2003,
-    ERR_PARSE_ILLEGAL_OPERAND    = 2004,
-    ERR_PARSE_INVALID_TYPE       = 2005,
-    ERR_PARSE_MODULE_NOT_FOUND   = 2006,
+    ERR_PARSE_UNEXPECTED_TOKEN = 2001,
+    ERR_PARSE_EXPECTED_TOKEN = 2002,
+    ERR_PARSE_UNEXPECTED_EOF = 2003,
+    ERR_PARSE_ILLEGAL_OPERAND = 2004,
+    ERR_PARSE_INVALID_TYPE = 2005,
+    ERR_PARSE_MODULE_NOT_FOUND = 2006,
 
-    ERR_SEM_UNDECLARED_VAR       = 3001,
-    ERR_SEM_DUPLICATE_VAR        = 3002,
-    ERR_SEM_TYPE_MISMATCH        = 3003,
-    ERR_SEM_INCOMPATIBLE_TYPES   = 3004,
-    ERR_SEM_DIV_BY_ZERO          = 3005,
-    ERR_SEM_NOT_ARRAY            = 3006,
-    ERR_SEM_INVALID_INDEX        = 3007,
-    ERR_SEM_NOT_FUNCTION         = 3008,
-    ERR_SEM_ARG_COUNT_MISMATCH   = 3009,
-    ERR_SEM_VOID_VALUE           = 3010,
-    ERR_SEM_NO_MAIN              = 3011,
-    ERR_SEM_INVALID_BREAK        = 3012,
-    ERR_SEM_INVALID_CONTINUE     = 3013,
-    ERR_SEM_FIELD_NOT_FOUND      = 3014,
-    ERR_SEM_METHOD_NOT_FOUND     = 3015,
-    ERR_SEM_CLASS_NOT_FOUND      = 3016,
-    ERR_SEM_CANNOT_ASSIGN_NEG    = 3017,
-    ERR_SEM_DUPLICATE_CASE       = 3018,
+    ERR_SEM_UNDECLARED_VAR = 3001,
+    ERR_SEM_DUPLICATE_VAR = 3002,
+    ERR_SEM_TYPE_MISMATCH = 3003,
+    ERR_SEM_INCOMPATIBLE_TYPES = 3004,
+    ERR_SEM_DIV_BY_ZERO = 3005,
+    ERR_SEM_NOT_ARRAY = 3006,
+    ERR_SEM_INVALID_INDEX = 3007,
+    ERR_SEM_NOT_FUNCTION = 3008,
+    ERR_SEM_ARG_COUNT_MISMATCH = 3009,
+    ERR_SEM_VOID_VALUE = 3010,
+    ERR_SEM_NO_MAIN = 3011,
+    ERR_SEM_INVALID_BREAK = 3012,
+    ERR_SEM_INVALID_CONTINUE = 3013,
+    ERR_SEM_FIELD_NOT_FOUND = 3014,
+    ERR_SEM_METHOD_NOT_FOUND = 3015,
+    ERR_SEM_CLASS_NOT_FOUND = 3016,
+    ERR_SEM_CANNOT_ASSIGN_NEG = 3017,
+    ERR_SEM_DUPLICATE_CASE = 3018,
     ERR_SEM_RETURN_TYPE_MISMATCH = 3019,
-    ERR_SEM_CONDITION_NOT_BOOL   = 3020,
+    ERR_SEM_CONDITION_NOT_BOOL = 3020,
+    ERR_SEM_INVALID_CATCH = 3021,
+    ERR_SEM_CANNOT_ASSIGN_CONST = 3022,
+    ERR_SEM_CONST_OVERFLOW = 3023,
 
-    ERR_IR_NULL_AST              = 4001,
+    ERR_IR_NULL_AST = 4001,
 
-    ERR_CG_UNKNOWN_VAR           = 5001,
+    ERR_CG_UNKNOWN_VAR = 5001,
 
-    ERR_INTERNAL                 = 9001,
-    ERR_OUT_OF_MEMORY            = 9002,
-    ERR_UNREACHABLE              = 9003,
-    ERR_UNHANDLED_AST_TYPE       = 9004,
+    ERR_INTERNAL = 9001,
+    ERR_OUT_OF_MEMORY = 9002,
+    ERR_UNREACHABLE = 9003,
+    ERR_UNHANDLED_AST_TYPE = 9004,
 } ErrorCode;
 
 typedef struct {
     const char *file;
-    int         line;
-    int         column;
+    int line;
+    int column;
 } SourceLoc;
 
-#define LOC_NONE     ((SourceLoc){NULL, 0, 0})
-#define LOC(f,l,c)   ((SourceLoc){(f), (l), (c)})
+#define LOC_NONE ((SourceLoc){NULL, 0, 0})
+#define LOC(f,l,c) ((SourceLoc){(f), (l), (c)})
 
 typedef struct {
     const char *filename;
@@ -75,7 +78,7 @@ typedef struct {
 typedef struct {
     bool warnings_as_errors;
     bool suppress_warnings;
-    int  max_errors;
+    int max_errors;
     bool use_color;
     bool show_context;
 } ErrorOptions;
@@ -83,18 +86,18 @@ typedef struct {
 typedef struct {
     ErrorOptions options;
 
-    int  error_count;
-    int  warning_count;
-    int  fatal_count;
+    int error_count;
+    int warning_count;
+    int fatal_count;
     bool has_error;
 
     SourceFile *source_files;
-    int         source_file_count;
-    int         source_file_capacity;
+    int source_file_count;
+    int source_file_capacity;
 } ErrorManager;
 
 extern ErrorManager *error_mgr;
-extern bool          has_error;
+extern bool has_error;
 
 void error_init(void);
 void error_init_options(ErrorOptions opts);

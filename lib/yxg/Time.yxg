@@ -1,0 +1,128 @@
+// yxg/Time.yxg
+
+class Time {
+    // 高精度时间（秒）
+    pub static native float now();
+
+    // 高精度时间（毫秒）
+    pub static native int millis();
+
+    // 阻塞延时（毫秒）——游戏里慎用，会卡消息循环
+    pub static native void delay(int ms);
+}
+
+// ============ 直接计时器（无回调） ============
+class Timer {
+    pri int start_ms;
+    pri int interval_ms;
+    pri bool running;
+
+    pub Timer() {
+        running = false;
+        start_ms = 0;
+        interval_ms = 0;
+    }
+
+    // 开始计时，interval 毫秒后到期
+    pub void start(int interval) {
+        interval_ms = interval;
+        start_ms = Time.millis();
+        running = true;
+    }
+
+    // 已经过了多少毫秒
+    pub int elapsed() {
+        if !running { return 0; }
+        return Time.millis() - start_ms;
+    }
+
+    // 还剩多少毫秒（到 0 为止）
+    pub int remaining() {
+        if !running { return 0; }
+        int r = interval_ms - elapsed();
+        if r < 0 { r = 0; }
+        return r;
+    }
+
+    // 是否到期
+    pub bool has_expired() {
+        return running && elapsed() >= interval_ms;
+    }
+
+    // 检查是否到期，若到期则自动重置（用于周期性触发）
+    pub bool check_expired() {
+        if running == 0 { return false; }
+        if elapsed() >= interval_ms {
+            start_ms = Time.millis();   // 重置，开始下一个周期
+            return true;
+        }
+        return false;
+    }
+
+    pub void stop() {
+        running = false;
+    }
+
+    pub bool is_running() {
+        return running;
+    }
+}
+
+// ============ 回调计时器（函数指针） ============
+class CallbackTimer {
+    pri int start_ms;
+    pri int interval_ms;
+    pri bool running;
+    pri bool repeat;
+    pri int (*callback)(int);
+
+    pub CallbackTimer() {
+        running = false;
+        repeat = false;
+        interval_ms = 0;
+        start_ms = 0;
+        callback = null;
+    }
+
+    // 循环定时器：每 interval 毫秒触发一次
+    pub void start_periodic(int interval, int (*cb)(int)) {
+        interval_ms = interval;
+        callback = cb;
+        start_ms = Time.millis();
+        running = true;
+        repeat = true;
+    }
+
+    // 一次性定时器：delay 毫秒后触发一次
+    pub void start_timeout(int delay, int (*cb)(int)) {
+        interval_ms = delay;
+        callback = cb;
+        start_ms = Time.millis();
+        running = true;
+        repeat = false;
+    }
+
+    // 每帧调用，检测到期并触发
+    pub void update() {
+        if !running { return; }
+        int now = Time.millis();
+        if now - start_ms >= interval_ms {
+            if callback != null {
+                callback(now);
+            }
+            if repeat {
+                start_ms = now;
+            } else {
+                running = false;
+            }
+        }
+    }
+
+    pub void stop() {
+        running = false;
+    }
+
+    pub bool is_running() {
+        return running;
+    }
+}

@@ -1,0 +1,31 @@
+// ============================================================
+// music.yxg — YXG 音频播放库 (miniaudio: WAV/MP3/FLAC)
+//
+// 用法:
+//     import yxg.Music;
+//     Music bgm = new Music();
+//     bgm.load("bgm.mp3");
+//     bgm.play(1);       // 1 = 循环播放
+// ============================================================
+
+class Music {
+    int handle;
+
+    pub Music() {
+        handle = 0;
+    }
+
+    // 加载音频文件(WAV/MP3/FLAC), 成功返回 1, 失败返回 0
+    pub native int  load(string path);
+    // 从头播放; loop 传 1 循环
+    pub native void play(int loop);
+    pub native void pause();
+    pub native void resume();
+    pub native void stop();
+    pub native int  is_playing();
+    // 音量 0..100
+    pub native void set_volume(int vol);
+    // 当前播放位置(毫秒)
+    pub native int  get_position();
+    pub native void unload();
+}

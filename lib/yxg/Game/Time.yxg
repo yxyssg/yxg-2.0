@@ -1,0 +1,42 @@
+import yxg.Window;
+
+pub class FrameClock {
+    pub int lastTick;
+    pub int deltaMs;
+    pub float deltaSec;
+    pub float totalSec;
+    pub int fps;
+    pub int frameCount;
+    pub int fpsTimer;
+}
+
+pub FrameClock g_clock;
+
+pub void clock_init(Window win) {
+    g_clock = new FrameClock();
+    g_clock.lastTick = win.get_ticks();
+    g_clock.deltaMs = 16;
+    g_clock.deltaSec = 0.016;
+    g_clock.totalSec = 0.0;
+    g_clock.fps = 0;
+    g_clock.frameCount = 0;
+    g_clock.fpsTimer = 0;
+}
+
+pub void clock_tick(Window win) {
+    int now = win.get_ticks();
+    int dt = now - g_clock.lastTick;
+    if dt < 0 { dt = 0; }
+    g_clock.deltaMs = dt;
+    g_clock.deltaSec = (dt as float) / 1000.0;
+    g_clock.totalSec = g_clock.totalSec + g_clock.deltaSec;
+    g_clock.lastTick = now;
+
+    g_clock.fpsTimer = g_clock.fpsTimer + dt;
+    g_clock.frameCount = g_clock.frameCount + 1;
+    if g_clock.fpsTimer >= 500 {
+        g_clock.fps = g_clock.frameCount * 1000 / g_clock.fpsTimer;
+        g_clock.frameCount = 0;
+        g_clock.fpsTimer = 0;
+    }
+}

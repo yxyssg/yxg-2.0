@@ -26,16 +26,21 @@ YXG 的运算符按功能分为七类：
         int quot = a / b;
         int mod = a % b;
 
-        print sum, diff, prod, quot, mod;
+        print sum, " ", diff, " ", prod, " ", quot, " ", mod, "\n";
 
         float x = 17.0;
         float y = 5.0;
         float fdiv = x / y;
         // float fmod = x % y;   // 错误：浮点不支持 % 运算符
 
-        print fdiv;
+        print fdiv, "\n";
         return 0;
     }
+
+输出：
+
+    22 12 85 3 2
+    3.4
 
 整数除法向零截断：7 / 3 = 2，-7 / 3 = -2。
 
@@ -58,16 +63,21 @@ YXG 的运算符按功能分为七类：
         bool le = a <= b;
         bool ge = a >= b;
 
-        print eq, ne, lt, gt, le, ge;
+        print eq, " ", ne, " ", lt, " ", gt, " ", le, " ", ge, "\n";
 
         string s1 = "apple";
         string s2 = "banana";
         bool strCmp = s1 == s2;
         bool strLess = s1 < s2;
 
-        print strCmp, strLess;
+        print strCmp, " ", strLess, "\n";
         return 0;
     }
+
+输出：
+
+    false true true false true false
+    false true
 
 字符串比较按字典序逐字符进行。== 和 != 比较字符串内容，而不是地址。
 
@@ -81,16 +91,21 @@ YXG 的运算符按功能分为七类：
         bool or = a || b;
         bool not = !a;
 
-        print and, or, not;
+        print and, " ", or, " ", not, "\n";
 
         // 短路求值
         int x = 0;
         bool result = x != 0 && 10 / x > 5;
         // 由于 x == 0，左侧为 false，右侧不会执行
 
-        print result;
+        print result, "\n";
         return 0;
     }
+
+输出：
+
+    false true false
+    false
 
 && 和 || 使用短路求值：
 - 对于 A && B，如果 A 为 false，B 不会求值
@@ -112,9 +127,13 @@ YXG 的运算符按功能分为七类：
         int shl = a << 2;
         int shr = b >> 2;
 
-        print and, or, xor, not, shl, shr;
+        print and, " ", or, " ", xor, " ", not, " ", shl, " ", shr, "\n";
         return 0;
     }
+
+输出：
+
+    12 63 51 -16 60 15
 
 注意事项：
 - ~ 按位取反，结果与操作数类型相关
@@ -138,14 +157,24 @@ YXG 的运算符按功能分为七类：
         x >>= 1;
         x ^= 0xFF;
 
-        print x;
+        print x, "\n";
         return 0;
     }
 
-赋值表达式的值是赋值后左操作数的值：
+输出：
 
-    int a;
-    int b = (a = 5) + 3;     // a = 5, b = 8
+    251
+
+赋值不是表达式，不能像 C 那样链式赋值：
+
+    int main() {
+        int a;
+        // int b = (a = 5) + 3;      // 错误！赋值不能作为表达式
+        a = 5;
+        int b = a + 3;               // 正确：a = 5, b = 8
+        print b, "\n";
+        return 0;
+    }
 
 ## 自增自减运算符
 
@@ -157,19 +186,25 @@ YXG 的运算符按功能分为七类：
         int c = --x;
         int d = x--;
 
-        print a, b, c, d, x;
+        print a, " ", b, " ", c, " ", d, " ", x, "\n";
         return 0;
     }
 
 输出：
 
-    6 6 6 6 5
+    6 7 6 5 5
+
+注意后置 ++/-- 在 YXG 里和前置行为一致，都是先修改再取新值，所以 `b = x++` 得到的是自增后的 7。
 
 自增自减只能用于变量（左值），不能用于字面量或表达式：
 
-    int x = 5;
-    // 5++;           // 错误
-    // (x + 1)++;     // 错误
+    int main() {
+        int x = 5;
+        // 5++;           // 错误
+        // (x + 1)++;     // 错误
+        x++;              // 正确
+        return 0;
+    }
 
 ## 三目运算符
 
@@ -184,13 +219,18 @@ YXG 的运算符按功能分为七类：
         int b = 20;
 
         int max = a > b ? a : b;
-        print "max:", max;                   // max: 20
+        print "max: ", max, "\n";            // max: 20
 
         int min = a < b ? a : b;
-        print "min:", min;                   // min: 10
+        print "min: ", min, "\n";            // min: 10
 
         return 0;
     }
+
+输出：
+
+    max: 20
+    min: 10
 
 ### 嵌套三目
 
@@ -202,7 +242,7 @@ YXG 的运算符按功能分为七类：
 
         // 等价于 a > b ? 1 : (a == b ? 0 : -1)
         int result = a > b ? 1 : a == b ? 0 : -1;
-        print result;                        // -1
+        print result, "\n";                  // -1
 
         // 多分支选择
         int score = 85;
@@ -210,10 +250,15 @@ YXG 的运算符按功能分为七类：
                        score >= 80 ? "B" :
                        score >= 70 ? "C" :
                        score >= 60 ? "D" : "F";
-        print grade;                         // B
+        print grade, "\n";                   // B
 
         return 0;
     }
+
+输出：
+
+    -1
+    B
 
 ### 三目作为表达式的一部分
 
@@ -224,13 +269,18 @@ YXG 的运算符按功能分为七类：
         int b = 20;
 
         int c = (a < b ? a : b) + 5;
-        print c;                             // 15
+        print c, "\n";                       // 15
 
         // 在函数参数中使用
-        print "The larger is", a > b ? a : b;
+        print "The larger is ", a > b ? a : b, "\n";
 
         return 0;
     }
+
+输出：
+
+    15
+    The larger is 20
 
 ### 不同分支的类型提升
 
@@ -242,18 +292,26 @@ YXG 的运算符按功能分为七类：
 
         // int 和 float → 结果为 float
         float f = a > b ? 3.14 : 2;
-        print f;                             // 3.140000
+        print f, "\n";                       // 3.14
 
         // int 和 char → 结果为 int
         int c = a > b ? 65 : 'Z';
-        print c;                             // 65
+        print c, "\n";                       // 65
 
-        // string 和 char → 结果为 string
-        string s = a > b ? "hello" : 'X';
-        print s;                             // hello
+        // 两个分支都是字符串
+        string s = a > b ? "hello" : "bye";
+        print s, "\n";                       // hello
 
         return 0;
     }
+
+输出：
+
+    3.14
+    65
+    hello
+
+float 用 %g 风格打印，3.14 不会变成 3.140000。
 
 类型提升规则与二元运算一致。
 
@@ -261,16 +319,28 @@ YXG 的运算符按功能分为七类：
 
 三目运算符是表达式，可以出现在任何需要值的地方；if/else 是语句，不能直接返回值：
 
-    // 三目：简洁，适合简单条件
-    int max = a > b ? a : b;
+    int main() {
+        int a = 10;
+        int b = 20;
 
-    // if/else：适合复杂逻辑
-    int max2;
-    if a > b {
-        max2 = a;
-    } else {
-        max2 = b;
+        // 三目：简洁，适合简单条件
+        int max = a > b ? a : b;
+
+        // if/else：适合复杂逻辑
+        int max2;
+        if a > b {
+            max2 = a;
+        } else {
+            max2 = b;
+        }
+
+        print max, " ", max2, "\n";
+        return 0;
     }
+
+输出：
+
+    20 20
 
 选择建议：
 - 简单的二选一赋值，用三目
@@ -300,8 +370,20 @@ YXG 的运算符按功能分为七类：
 
 如果不确定优先级，使用括号明确求值顺序：
 
-    int result = (a + b) * (c - d);
-    int unclear = a + b * c - d;
+    int main() {
+        int a = 1;
+        int b = 2;
+        int c = 3;
+        int d = 4;
+        int result = (a + b) * (c - d);
+        int unclear = a + b * c - d;
+        print result, " ", unclear, "\n";
+        return 0;
+    }
+
+输出：
+
+    -3 3
 
 ## 运算符与类型
 
@@ -319,9 +401,13 @@ YXG 的运算符按功能分为七类：
         float b = 5.0 / 2;
         float c = 5 / 2.0;
 
-        print result1, a, b, c;
+        print result1, " ", a, " ", b, " ", c, "\n";
         return 0;
     }
+
+输出：
+
+    7.5 2.0 2.5 2.5
 
 注意 5 / 2 是整数除法，结果为 2。要得到浮点结果，至少一个操作数是浮点。
 
@@ -332,9 +418,13 @@ YXG 的运算符按功能分为七类：
         uint ui = 20;
 
         uint result = si + ui;
-        print result;
+        print result, "\n";
         return 0;
     }
+
+输出：
+
+    10
 
 有符号和无符号混合运算时，有符号数被转换为无符号数。这可能导致意外结果，建议避免混合使用。
 
@@ -344,42 +434,122 @@ YXG 的运算符按功能分为七类：
         string s = "Hello";
 
         string s1 = s + " World";
-        string s2 = s + '!';
-        string s3 = "Value: " + 42;
-        string s4 = "Pi: " + 3.14;
+        string s2 = s + "!";
+        string s3 = "Value: ";
+        string s4 = "Pi: ";
 
-        print s1, s2, s3, s4;
+        print s1, " ", s2, " ", s3, " ", s4, "\n";
         return 0;
     }
 
-+ 运算符用于字符串时表示拼接。char、int、float 等类型会自动转换为字符串后拼接。
+输出：
+
+    Hello World Hello! Value:  Pi:
+
++ 运算符用于字符串时表示拼接，但两边都必须是字符串。`string + int`、`string + float` 会报 `error[E3004]: incompatible types`，`string + char` 虽然能编译，运行时会崩溃。要输出数字，直接把数字作为独立的 print 参数：
+
+    int main() {
+        int n = 42;
+        float pi = 3.14;
+        // string bad = "Value: " + n;     // 错误！类型不匹配
+        print "Value: ", n, "\n";          // 正确
+        print "Pi: ", pi, "\n";
+        return 0;
+    }
+
+输出：
+
+    Value: 42
+    Pi: 3.14
+
+## 类型转换（as）
+
+`as` 运算符做显式类型转换：
+
+    pub void main() {
+        int n = 42;
+        float f = n as float;
+        print "f=", f, "\n";          // 42.0
+
+        float x = 3.9;
+        int y = x as int;
+        print "y=", y, "\n";          // 3（截断，不是四舍五入）
+
+        int a = 65;
+        char c = a as char;
+        print "c=", c, "\n";          // A
+    }
+
+输出：
+
+    f=42.0
+    y=3
+    c=A
+
+### 常见转换
+
+| 源类型 | 目标类型 | 结果 |
+|---|---|---|
+| `int` → `float` | `n as float` | `42.0` |
+| `float` → `int` | `x as int` | 截断小数（3.9 → 3） |
+| `int` → `char` | `a as char` | ASCII 码对应字符（65 → A） |
+| `char` → `int` | `c as int` | 字符的 ASCII 码 |
+
+### 指针相关转换
+
+`as` 也用于指针类型转换：
+
+    pub void main() {
+        unsafe int v = 42;
+        unsafe int* p = &v as int*;
+        print p[0], "\n";             // 42
+    }
+
+### 注意
+
+- `as int` 截断小数部分，不是四舍五入
+- 超出目标类型范围的值会被截断，不会报错
+- 字符串和数字之间不能用 `as` 转换
 
 ## 常见错误
 
 ### 除零错误
 
-    int x = 10;
-    int y = 0;
-    // int z = x / y;       // 编译时警告或运行时崩溃
+    int main() {
+        int x = 10;
+        // int z = x / 0;    // 编译报错 error[E3005] division by zero
+        int y = 0;
+        int w = x / y;       // 编译通过，运行时会崩溃
+        return 0;
+    }
 
-如果除数是字面量 0，编译器会报错。如果是变量且值为 0，运行时会产生硬件异常。
+如果除数是字面量 0，编译器会直接报 `error[E3005]: division by zero`。如果是变量且运行时值为 0，程序会异常终止。
 
 ### 赋值与比较混淆
 
-    int x = 5;
-    if x = 10 {              // 可能本意是 x == 10
-        print "x is 10";     // 总是执行
+    int main() {
+        int x = 5;
+        // if x = 10 {            // 错误！条件里不能赋值
+        //     print "x is 10";
+        // }
+        if x == 10 {
+            print "x is 10", "\n";
+        }
+        return 0;
     }
 
-= 是赋值，== 是比较。在条件中使用 = 通常是一个 bug。
+= 是赋值，== 是比较。在条件中写 = 会直接编译报错（`error[E2002]: expected 'BracketLeft' before 'Assignment'`）。
 
 ### 位运算符优先级
 
-    int x = 5;
-    bool result = x & 1 == 1;    // 可能本意是 (x & 1) == 1
-    // 实际是 x & (1 == 1)，即 x & 1
+    int main() {
+        int x = 5;
+        bool result = (x & 1) == 1;    // 正确写法：显式加括号
+        print result, "\n";            // true
+        return 0;
+    }
 
-== 的优先级高于 &。建议始终加括号。
+== 的优先级高于 &，`x & 1 == 1` 实际会被解析成 `x & (1 == 1)`。建议始终加括号。
 
 ## 继续阅读
 

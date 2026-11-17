@@ -1,0 +1,518 @@
+// ThreadPool — 最小 HTTP/1.1 服务器（线程池 + Connection: close）
+import yxg.Socket;
+import yxg.String;
+import yxg.Utils;
+import yxg.Collections.List;
+import yxg.Thread;
+import yxg.Sync;
+
+pub class TPError : ERROR {
+    pub TPError(string msg) {
+        this.info = msg;
+    }
+}
+
+pub class TPUtil {
+    pub static string urlDecode(string s) {
+        string out = "";
+        int n = String.len(s);
+        int i = 0;
+        while i < n {
+            int c = String.charAt(s, i);
+            if c == 37 {
+                if i + 2 >= n { break; }
+                int h = TPUtil.hexDigit(String.charAt(s, i + 1));
+                int l = TPUtil.hexDigit(String.charAt(s, i + 2));
+                if h < 0 || l < 0 { break; }
+                out = out + _char_to_str((h << 4) | l);
+                i = i + 3;
+            } else if c == 43 {
+                out = out + " ";
+                i = i + 1;
+            } else {
+                out = out + _char_to_str(c);
+                i = i + 1;
+            }
+        }
+        return out;
+    }
+
+    pub static string urlEncode(string s) {
+        string out = "";
+        int n = String.len(s);
+        int i = 0;
+        string hex = "0123456789ABCDEF";
+        while i < n {
+            int c = String.charAt(s, i);
+            bool safe = (c >= 48 && c <= 57)
+                     || (c >= 65 && c <= 90)
+                     || (c >= 97 && c <= 122)
+                     || c == 45 || c == 95 || c == 46 || c == 126;
+            if safe {
+                out = out + _char_to_str(c);
+            } else if c == 32 {
+                out = out + "+";
+            } else {
+                int hi = (c >> 4) & 15;
+                int lo = c & 15;
+                out = out + "%";
+                out = out + _char_to_str(String.charAt(hex, hi));
+                out = out + _char_to_str(String.charAt(hex, lo));
+            }
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pri static int hexDigit(int c) {
+        if c >= 48 && c <= 57 { return c - 48; }
+        if c >= 65 && c <= 70 { return c - 65 + 10; }
+        if c >= 97 && c <= 102 { return c - 97 + 10; }
+        return -1;
+    }
+}
+
+pub class TPRequest {
+    pub string method;
+    pub string path;
+    pub string query;
+    pub string version;
+    pub string headers;
+    pub string body;
+    pub string pending;
+    pub List<string> paramNames;
+    pub List<string> paramValues;
+
+    pub TPRequest() {
+        this.pending = "";
+        this.paramNames = new List<string>();
+        this.paramValues = new List<string>();
+    }
+
+    pub string queryOf(string key) {
+        if String.len(this.query) == 0 { return ""; }
+        string[] parts = String.split(this.query, "&");
+        int i = 0;
+        while i < parts.length {
+            int eq = String.indexOfStr(parts[i], "=");
+            if eq >= 0 {
+                string k = String.sub(parts[i], 0, eq);
+                if k == key {
+                    int vlen = String.len(parts[i]) - eq - 1;
+                    string raw = String.sub(parts[i], eq + 1, vlen);
+                    return TPUtil.urlDecode(raw);
+                }
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    pub string param(string name) {
+        int i = 0;
+        while i < this.paramNames.size() {
+            if this.paramNames.get(i) == name {
+                return this.paramValues.get(i);
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    pub string cookieOf(string name) {
+        int hlen = String.len(this.headers);
+        if hlen == 0 { return ""; }
+        int pos = -1;
+        int scan = 0;
+        while scan < hlen {
+            int rem = hlen - scan;
+            if rem >= 8 {
+                string peek = String.sub(this.headers, scan, 8);
+                if peek == "Cookie: " {
+                    pos = scan + 8;
+                    break;
+                }
+            }
+            scan = scan + 1;
+        }
+        if pos < 0 { return ""; }
+        int eol = String.indexOfStr(String.sub(this.headers, pos, hlen - pos), "\r\n");
+        if eol < 0 { eol = hlen - pos; }
+        string cookieLine = String.sub(this.headers, pos, eol);
+        string[] parts = String.split(cookieLine, "; ");
+        int i = 0;
+        while i < parts.length {
+            int eq = String.indexOfStr(parts[i], "=");
+            if eq >= 0 {
+                string k = String.sub(parts[i], 0, eq);
+                if k == name {
+                    return String.sub(parts[i], eq + 1, String.len(parts[i]) - eq - 1);
+                }
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+}
+
+pub class TPResponse {
+    pub int status;
+    pub string headers;
+    pub string body;
+
+    pub void text(string s) {
+        this.body = s;
+        this.headers = "Content-Type: text/plain; charset=utf-8\r\n";
+    }
+
+    pub void json(string s) {
+        this.body = s;
+        this.headers = "Content-Type: application/json; charset=utf-8\r\n";
+    }
+
+    pub void html(string s) {
+        this.body = s;
+        this.headers = "Content-Type: text/html; charset=utf-8\r\n";
+    }
+
+    pub void setCookie(string name, string value) {
+        string line = "Set-Cookie: " + name + "=" + value + "\r\n";
+        if String.len(this.headers) == 0 {
+            this.headers = line;
+        } else {
+            this.headers = this.headers + line;
+        }
+    }
+
+    pub void redirect(string location) {
+        this.status = 302;
+        string line = "Location: " + location + "\r\n";
+        if String.len(this.headers) == 0 {
+            this.headers = line;
+        } else {
+            this.headers = this.headers + line;
+        }
+    }
+}
+
+pub class TPHandler {
+    pub virtual void handle(TPRequest req, TPResponse res) {}
+}
+
+pub class TPPool {
+    pub static Socket[256] queue;
+    pub static int qhead;
+    pub static int qtail;
+    pub static int qcount;
+    pub static int qcap;
+    pub static Mutex qlock;
+    pub static TPHandler handler;
+
+    pub static void init(TPHandler h) {
+        TPPool.qhead = 0;
+        TPPool.qtail = 0;
+        TPPool.qcount = 0;
+        TPPool.qcap = 256;
+        TPPool.handler = h;
+        TPPool.qlock = new Mutex();
+    }
+
+    pub static bool push(Socket peer) {
+        TPPool.qlock.lock();
+        if TPPool.qcount >= TPPool.qcap {
+            TPPool.qlock.unlock();
+            return false;
+        }
+        TPPool.queue[TPPool.qtail] = peer;
+        TPPool.qtail = (TPPool.qtail + 1) % TPPool.qcap;
+        TPPool.qcount = TPPool.qcount + 1;
+        TPPool.qlock.unlock();
+        return true;
+    }
+
+    pub static Socket pop() {
+        TPPool.qlock.lock();
+        if TPPool.qcount <= 0 {
+            TPPool.qlock.unlock();
+            return null;
+        }
+        Socket peer = TPPool.queue[TPPool.qhead];
+        TPPool.qhead = (TPPool.qhead + 1) % TPPool.qcap;
+        TPPool.qcount = TPPool.qcount - 1;
+        TPPool.qlock.unlock();
+        return peer;
+    }
+}
+
+pub class TPServer {
+    pri SocketServer listener;
+    pri int port;
+    pub static bool keepAliveEnabled = false;
+
+    pub TPServer(int port) {
+        this.port = port;
+        this.listener = new SocketServer(port);
+        if listener.isValid() == 0 {
+            throw new TPError("failed to bind port " + Convert.formatInt(port));
+        }
+    }
+    
+    pub TPServer(int port, string host) {
+        this.port = port;
+        this.listener = new SocketServer(port, host);
+        if listener.isValid() == 0 {
+            throw new TPError("failed to bind " + host + ":" + Convert.formatInt(port));
+        }
+    }
+
+    pub void run(TPHandler h) {
+        TPPool.init(h);
+        int workerCount = 128;
+        int i = 0;
+        while i < workerCount {
+            Thread t = new Thread(tp_pool_worker);
+            int hh = t.start();
+            i = i + 1;
+        }
+        while 1 == 1 {
+            Socket peer = listener.accept();
+            if peer == null {
+                _thread_sleep(1);
+                continue;
+            }
+            bool queued = false;
+            while !queued {
+                queued = TPPool.push(peer);
+                if !queued {
+                    _thread_sleep(1);
+                }
+            }
+        }
+    }
+
+    pub static void handle_one(Socket peer, TPHandler h) {
+        TPRequest req = TPServer.read_request(peer);
+        if req == null {
+            return;
+        }
+        TPResponse res = new TPResponse();
+        res.status = 200;
+        res.headers = "Content-Type: text/plain; charset=utf-8\r\n";
+        res.body = "";
+        try {
+            h.handle(req, res);
+        } catch (ERROR e) {
+            res.status = 500;
+            res.body = "Internal Server Error\n";
+        }
+        TPServer.write_response(peer, res);
+    }
+
+    pub static TPRequest read_request(Socket peer) {
+        return TPServer.read_request_with_pending(peer, "");
+    }
+
+    pub static TPRequest read_request_with_pending(Socket peer, string pending) {
+        string raw = pending;
+        int header_end = -1;
+        while true {
+            header_end = String.indexOfStr(raw, "\r\n\r\n");
+            if header_end >= 0 {
+                break;
+            }
+            if String.len(raw) > 65536 {
+                return null;
+            }
+            string chunk = peer.recv(4096);
+            int n = String.len(chunk);
+            if n == 0 {
+                return null;
+            }
+            raw = raw + chunk;
+        }
+        int first_crlf = String.indexOfStr(raw, "\r\n");
+        if first_crlf < 0 {
+            return null;
+        }
+        string first_line = String.sub(raw, 0, first_crlf);
+        string[] parts = String.split(first_line, " ");
+        if parts.length < 3 {
+            return null;
+        }
+        int body_start = header_end + 4;
+        int content_len = 0;
+        int scan = first_crlf + 2;
+        while scan < header_end {
+            int seg = header_end - scan;
+            int eol = String.indexOfStr(String.sub(raw, scan, seg), "\r\n");
+            int line_len;
+            if eol < 0 {
+                line_len = seg;
+            } else {
+                line_len = eol;
+            }
+            string line = String.sub(raw, scan, line_len);
+            if String.startsWith(line, "Content-Length: ") {
+                string num = String.sub(line, 16, String.len(line) - 16);
+                content_len = Convert.parseInt(num);
+                break;
+            }
+            scan = scan + line_len + 2;
+        }
+        int available = String.len(raw) - body_start;
+        while available < content_len {
+            string chunk = peer.recv(4096);
+            int n = String.len(chunk);
+            if n == 0 {
+                break;
+            }
+            raw = raw + chunk;
+            available = String.len(raw) - body_start;
+        }
+        TPRequest req = new TPRequest();
+        req.method = parts[0];
+        int qpos = String.indexOfStr(parts[1], "?");
+        if qpos >= 0 {
+            req.path = String.sub(parts[1], 0, qpos);
+            int qlen = String.len(parts[1]) - qpos - 1;
+            req.query = String.sub(parts[1], qpos + 1, qlen);
+        } else {
+            req.path = parts[1];
+            req.query = "";
+        }
+        req.version = parts[2];
+        req.headers = String.sub(raw, first_crlf + 2, header_end - first_crlf - 2);
+        req.body = String.sub(raw, body_start, content_len);
+        int rem_start = body_start + content_len;
+        int rem_len = String.len(raw) - rem_start;
+        if rem_len > 0 {
+            req.pending = String.sub(raw, rem_start, rem_len);
+        } else {
+            req.pending = "";
+        }
+        return req;
+    }
+
+    pub static bool is_keep_alive(TPRequest req) {
+        int hlen = String.len(req.headers);
+        int scan = 0;
+        bool has_close = false;
+        bool has_keep = false;
+        while scan < hlen {
+            int seg = hlen - scan;
+            int eol = String.indexOfStr(String.sub(req.headers, scan, seg), "\r\n");
+            int line_len;
+            if eol < 0 {
+                line_len = seg;
+            } else {
+                line_len = eol;
+            }
+            string line = String.sub(req.headers, scan, line_len);
+            if String.startsWith(line, "Connection: close") {
+                has_close = true;
+            }
+            if String.startsWith(line, "Connection: keep-alive") {
+                has_keep = true;
+            }
+            if eol < 0 {
+                break;
+            }
+            scan = scan + eol + 2;
+        }
+        if has_close {
+            return false;
+        }
+        if has_keep {
+            return true;
+        }
+        if req.version == "HTTP/1.1" {
+            return true;
+        }
+        return false;
+    }
+
+    pub static void write_response(Socket peer, TPResponse res) {
+        TPServer.write_response_ex(peer, res, false);
+    }
+
+    pub static void write_response_ex(Socket peer, TPResponse res, bool keepAlive) {
+        string status_text = "OK";
+        if res.status == 200 { status_text = "OK"; }
+        else if res.status == 201 { status_text = "Created"; }
+        else if res.status == 204 { status_text = "No Content"; }
+        else if res.status == 301 { status_text = "Moved Permanently"; }
+        else if res.status == 302 { status_text = "Found"; }
+        else if res.status == 303 { status_text = "See Other"; }
+        else if res.status == 304 { status_text = "Not Modified"; }
+        else if res.status == 307 { status_text = "Temporary Redirect"; }
+        else if res.status == 308 { status_text = "Permanent Redirect"; }
+        else if res.status == 400 { status_text = "Bad Request"; }
+        else if res.status == 401 { status_text = "Unauthorized"; }
+        else if res.status == 403 { status_text = "Forbidden"; }
+        else if res.status == 404 { status_text = "Not Found"; }
+        else if res.status == 405 { status_text = "Method Not Allowed"; }
+        else if res.status == 409 { status_text = "Conflict"; }
+        else if res.status == 422 { status_text = "Unprocessable Entity"; }
+        else if res.status == 429 { status_text = "Too Many Requests"; }
+        else if res.status == 500 { status_text = "Internal Server Error"; }
+        else if res.status == 502 { status_text = "Bad Gateway"; }
+        else if res.status == 503 { status_text = "Service Unavailable"; }
+        string conn = "Connection: close\r\n";
+        if keepAlive {
+            conn = "Connection: keep-alive\r\n";
+        }
+        int body_len = String.len(res.body);
+        string head = "HTTP/1.1 " + Convert.formatInt(res.status) + " " + status_text + "\r\n"
+                    + "Content-Length: " + Convert.formatInt(body_len) + "\r\n"
+                    + res.headers
+                    + conn
+                    + "\r\n";
+        peer.send(head);
+        if body_len > 0 {
+            peer.send(res.body);
+        }
+    }
+}
+
+void tp_worker_impl(Socket peer, TPHandler h) {
+    peer.setTimeout(60000);
+    string pending = "";
+    while 1 == 1 {
+        TPRequest req = TPServer.read_request_with_pending(peer, pending);
+        if req == null {
+            break;
+        }
+        pending = req.pending;
+        req.pending = "";
+        TPResponse res = new TPResponse();
+        res.status = 200;
+        res.headers = "Content-Type: text/plain; charset=utf-8\r\n";
+        res.body = "";
+        try {
+            h.handle(req, res);
+        } catch (ERROR e) {
+            res.status = 500;
+            res.body = "Internal Server Error\n";
+        }
+        bool ka = TPServer.is_keep_alive(req);
+        if !TPServer.keepAliveEnabled {
+            ka = false;
+        }
+        TPServer.write_response_ex(peer, res, ka);
+        if !ka {
+            break;
+        }
+    }
+    peer.close();
+}
+
+void tp_pool_worker() {
+    while 1 == 1 {
+        Socket peer = TPPool.pop();
+        if peer == null {
+            _thread_sleep(10);
+            continue;
+        }
+        tp_worker_impl(peer, TPPool.handler);
+    }
+}

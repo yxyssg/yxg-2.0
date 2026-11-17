@@ -72,9 +72,20 @@ void tokens_resize()
 #endif
 }
 
+static char unescape_char(char c) {
+    switch (c) {
+    case 't':  return '\t';
+    case 'n':  return '\n';
+    case 'r':  return '\r';
+    case '\\': return '\\';
+    case '\'': return '\'';
+    case '0':  return '\0';
+    default:   return c;
+    }
+}
+
 void tokens_add(Token token)
 {
-    // °²È«¼ì²é
     if (!lexers) {
         INTERNAL_ERROR("tokens_add: lexers is NULL");
     }
@@ -83,6 +94,7 @@ void tokens_add(Token token)
         tokens_resize();
     }
 
+    token.file = lexers->filename;
     lexers->tokens[lexers->index] = token;
 
     lexers->index++;
@@ -292,8 +304,8 @@ void lexer_parse()
                     has_escape = 1;
                     token_advance();
                     if (lex->current == '\0') break;
-                    string_append_char(string, '\\');
-                    string_append_char(string, lex->current);
+                    char decoded = unescape_char(lex->current);
+                    string_append_char(string, decoded);
                     token_advance();
                 }
                 else
@@ -321,19 +333,13 @@ void lexer_parse()
             strcpy(value, string_cstr(string));
 
             TokenType type;
-            if (len > 1 && !has_escape)
-            {
-                WARNING(ERR_LEX_MULTICHAR_LITERAL, LOC(current_filename, start_line, start_column),
+            if (char_count == 1) {
+                type = TOKEN_CHAR_LITERAL;
+            } else {
+                WARNING(ERR_LEX_MULTICHAR_LITERAL,
+                        LOC(current_filename, start_line, start_column),
                         "multi-character literal treated as string");
                 type = TOKEN_STRING_LITERAL;
-            }
-            else if (has_escape)
-            {
-                type = TOKEN_STRING_LITERAL;
-            }
-            else
-            {
-                type = TOKEN_CHAR_LITERAL;
             }
             Token token = { value, type, start_line, start_column };
             tokens_add(token);
@@ -344,6 +350,15 @@ void lexer_parse()
         if ((lex->current == '<' && lex->source[lex->i + 1] == '<') ||
             (lex->current == '>' && lex->source[lex->i + 1] == '>'))
         {
+            if (!string_is_empty(string))
+            {
+                char* value = malloc(string_length(string) + 1);
+                if (!value) { OUT_OF_MEMORY(); }
+                strcpy(value, string_cstr(string));
+                tokens_add((Token){value, find_key(value).type, line,
+                                   column - string_length(string)});
+                string_clear(string);
+            }
             int start_col = column;
             char first  = lex->current;
             token_advance(); column++;
@@ -361,6 +376,63 @@ void lexer_parse()
                 strcpy(val, compound);
                 tokens_add((Token){val, find_key(val).type, line, start_col});
             }
+            continue;
+        }
+
+        if (lex->current == '-' && lex->source[lex->i + 1] == '>') {
+            if (!string_is_empty(string)) {
+                char* value = malloc(string_length(string) + 1);
+                strcpy(value, string_cstr(string));
+                tokens_add((Token){value, find_key(value).type, line, column - string_length(string)});
+                string_clear(string);
+            }
+            int start_col = column;
+            token_advance(); column++;
+            token_advance(); column++;
+            char* arrow_val = strdup("->");
+            tokens_add((Token){arrow_val, TOKEN_ARROW, line, start_col});
+            continue;
+        }
+
+        if (lex->current == '.' && lex->source[lex->i + 1] == '.'
+            && lex->source[lex->i + 2] == '.') {
+            if (!string_is_empty(string))
+            {
+                char* value = malloc(string_length(string) + 1);
+                if (!value) { OUT_OF_MEMORY(); }
+                strcpy(value, string_cstr(string));
+                Token token = { value, find_key(value).type, line, column - string_length(string) };
+                tokens_add(token);
+                string_clear(string);
+            }
+            int start_col = column;
+            token_advance(); column++;
+            token_advance(); column++;
+            token_advance(); column++;
+            char* val = strdup("...");
+            Token token = { val, TOKEN_VARARG, line, start_col };
+            tokens_add(token);
+            continue;
+        }
+
+        if (lex->current == '.' && lex->source[lex->i + 1] == '.')
+        {
+            if (!string_is_empty(string))
+            {
+                char* value = malloc(string_length(string) + 1);
+                if (!value) { OUT_OF_MEMORY(); }
+                strcpy(value, string_cstr(string));
+                Token token = { value, find_key(value).type, line, column - string_length(string) };
+                tokens_add(token);
+                string_clear(string);
+            }
+            token_advance();
+            column++;
+            token_advance();
+            column++;
+            char* val = strdup("..");
+            Token token = { val, TOKEN_DOT_DOT, line, column - 2 };
+            tokens_add(token);
             continue;
         }
 

@@ -5,7 +5,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 #include <stdint.h>
+
+typedef struct {
+    uint64_t* words;
+    int num_words;
+    int total_bits;
+} BitSet;
+
+typedef struct {
+    char* key;
+    char* val;
+} LVNEntry;
+
+static LVNEntry* lvn_map = NULL;
+static int lvn_count = 0;
+static int lvn_cap = 0;
 
 char *strndup(const char *s, size_t n) {
     size_t len = strnlen(s, n);
@@ -15,12 +31,6 @@ char *strndup(const char *s, size_t n) {
     new[len] = '\0';
     return new;
 }
-
-typedef struct {
-    uint64_t* words;
-    int       num_words;
-    int       total_bits;
-} BitSet;
 
 static BitSet bitset_create(int num_bits) {
     BitSet bs;
@@ -77,11 +87,12 @@ static char* strip_all_ssa_suffixes(const char* name) {
     if (!name) return NULL;
 
     const char* p = name + strlen(name);
+    const char* end = p;
 
     while (p > name && isdigit((unsigned char)*(p - 1)))
         p--;
 
-    if (p > name && *(p - 1) == '@') {
+    if (p < end && p > name && *(p - 1) == '@') {
         size_t len = (size_t)(p - 1 - name);
         char* inner = strndup(name, len);
         char* result = strip_all_ssa_suffixes(inner);
@@ -194,7 +205,7 @@ static int vartable_find(VarSSATable* vt, const char* orig_name) {
 }
 
 static int vartable_get_or_create(VarSSATable* vt, const char* orig_name) {
-    /* å…ˆå‰¥ç¦» @N åç¼€ */
+    /* ÏÈ°şÀë @N ºó×º */
     char* base = strip_all_ssa_suffixes(orig_name);
     int idx = vartable_find(vt, base);
     if (idx >= 0) { free(base); return idx; }
@@ -281,12 +292,17 @@ static bool looks_like_bool(const char* s) {
 
 static bool needs_ssa_treatment(const char* s) {
     if (!s || !*s) return false;
-
     if (s[0] == '.') {
-        if ((s[1] == 't' || s[1] == 'f' || s[1] == 'd')
+        if ((s[1] == 't' || s[1] == 'f' || s[1] == 'd' || s[1] == 'r')
             && isdigit((unsigned char)s[2]))
             return false;
+        return false;
     }
+    if (s[0] == '_' && s[1] == 's' && s[2] == 't' && s[3] == 'r'
+        && isdigit((unsigned char)s[4])) {
+        return false;
+    }
+
     char* base = strip_all_ssa_suffixes(s);
 
     bool is_number = looks_like_number(base);
@@ -294,7 +310,11 @@ static bool needs_ssa_treatment(const char* s) {
     bool is_label = looks_like_label(base);
 
     bool is_bool = looks_like_bool(base);
-    bool result = !is_number && !is_label && !is_bool;
+
+    bool looks_like_func = !is_number && !is_label && !is_bool
+                           && base[0] != '_' && base[0] != '.'
+                           && base[0] != '\0';
+    bool result = !is_number && !is_label && !is_bool && !looks_like_func;
     free(base);
     return result;
 }
@@ -474,6 +494,12 @@ static const char* get_current_ssa_name(VarSSATable* vt, const char* orig_name) 
 }
 
 static void rename_ir_operands(IR* ir, VarSSATable* vt) {
+    if (ir->type == IR_CALL || ir->type == IR_CALL_INDIRECT) {
+        if (ir->type == IR_CALL) return;
+    }
+    if (ir->type == IR_ADDRESS_OF && ir->is_function_addr) {
+        return;
+    }
     if (ir->args1 && needs_ssa_treatment(ir->args1)) {
         const char* ssa = get_current_ssa_name(vt, ir->args1);
         if (ssa && strcmp(ir->args1, ssa) != 0) {
@@ -512,11 +538,11 @@ static void rename_block(BasicBlock* bb, CFG* cfg, VarSSATable* vt) {
     while (ir) {
         if (ir->type == IR_PHI && ir->result) {
             const char* orig = ir->result;
+            int idx = vartable_find(vt, orig);
             const char* new_ssa = create_new_ssa_version(vt, orig);
             free(ir->result);
             ir->result = strdup(new_ssa);
 
-            int idx = vartable_find(vt, orig);
             if (idx >= 0 && pushed_count < MAX_PUSHED)
                 pushed_indices[pushed_count++] = idx;
         } else if (ir->type != IR_LABEL && ir->type != IR_PARAM_DEF) {
@@ -539,8 +565,9 @@ static void rename_block(BasicBlock* bb, CFG* cfg, VarSSATable* vt) {
                 const char* new_ssa = create_new_ssa_version(vt, ir->result);
                 free(ir->result);
                 ir->result = strdup(new_ssa);
-                int idx = vartable_find(vt,
-                    strip_all_ssa_suffixes(ir->result));
+                char* base = strip_all_ssa_suffixes(ir->result);
+                int idx = vartable_find(vt, base);
+                free(base);
                 if (idx >= 0 && pushed_count < MAX_PUSHED)
                     pushed_indices[pushed_count++] = idx;
             }
@@ -560,29 +587,14 @@ static void rename_block(BasicBlock* bb, CFG* cfg, VarSSATable* vt) {
         default:
             rename_ir_operands(ir, vt);
             if (ir->result && needs_ssa_treatment(ir->result)) {
-                bool should_rename = true;
-                {
-                    char* base = strip_all_ssa_suffixes(ir->result);
-                    int idx = vartable_find(vt, base);
-                    if (idx < 0 || vt->entries[idx].stack.top == 0)
-                        should_rename = false;
-                    free(base);
-                }
-                if (should_rename) {
-                    const char* new_ssa = create_new_ssa_version(vt, ir->result);
-                    free(ir->result);
-                    ir->result = strdup(new_ssa);
-                    int idx = vartable_find(vt, ir->result);
-                    const char* at = strrchr(ir->result, '@');
-                    if (at) {
-                        size_t len = (size_t)(at - ir->result);
-                        char* orig = strndup(ir->result, len);
-                        idx = vartable_find(vt, orig);
-                        free(orig);
-                    }
-                    if (idx >= 0 && pushed_count < MAX_PUSHED)
-                        pushed_indices[pushed_count++] = idx;
-                }
+                const char* new_ssa = create_new_ssa_version(vt, ir->result);
+                free(ir->result);
+                ir->result = strdup(new_ssa);
+                char* base = strip_all_ssa_suffixes(ir->result);
+                int idx = vartable_find(vt, base);
+                free(base);
+                if (idx >= 0 && pushed_count < MAX_PUSHED)
+                    pushed_indices[pushed_count++] = idx;
             }
             break;
         }
@@ -750,7 +762,9 @@ bool ssa_construct(CFG* cfg) {
             }
 
             if (ir->args1 && needs_ssa_treatment(ir->args1)
-                && ir->type != IR_JMP && ir->type != IR_LABEL) {
+                && ir->type != IR_JMP && ir->type != IR_LABEL
+                && ir->type != IR_CALL
+                && !(ir->type == IR_ADDRESS_OF && ir->is_function_addr)) {
                 if (bb->use_count >= bb->use_capacity) {
                     bb->use_capacity = bb->use_capacity ? bb->use_capacity * 2 : 16;
                     bb->use_names = realloc(bb->use_names,
@@ -944,39 +958,331 @@ IR* ssa_destruct(CFG* cfg) {
     return linear_head;
 }
 
-static bool ir_has_side_effects(const IR* ir) {
+static void lvn_set(const char* key, const char* val) {
+    for (int i = 0; i < lvn_count; i++) {
+        if (strcmp(lvn_map[i].key, key) == 0) {
+            free(lvn_map[i].val);
+            lvn_map[i].val = strdup(val);
+            return;
+        }
+    }
+    if (lvn_count >= lvn_cap) {
+        lvn_cap = lvn_cap ? lvn_cap * 2 : 32;
+        lvn_map = realloc(lvn_map, sizeof(LVNEntry) * (size_t)lvn_cap);
+        if (!lvn_map) OUT_OF_MEMORY();
+    }
+    lvn_map[lvn_count].key = strdup(key);
+    lvn_map[lvn_count].val = strdup(val);
+    lvn_count++;
+}
+
+static bool lvn_get(const char* key, const char** out_val) {
+    for (int i = 0; i < lvn_count; i++) {
+        if (strcmp(lvn_map[i].key, key) == 0) {
+            *out_val = lvn_map[i].val;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void lvn_kill(const char* name) {
+    int w = 0;
+    for (int i = 0; i < lvn_count; i++) {
+        if (strcmp(lvn_map[i].key, name) == 0
+            || strcmp(lvn_map[i].val, name) == 0) {
+            free(lvn_map[i].key);
+            free(lvn_map[i].val);
+        } else {
+            lvn_map[w++] = lvn_map[i];
+        }
+    }
+    lvn_count = w;
+}
+
+static void lvn_clear(void) {
+    for (int i = 0; i < lvn_count; i++) {
+        free(lvn_map[i].key);
+        free(lvn_map[i].val);
+    }
+    lvn_count = 0;
+}
+
+static bool lvn_clobbers_memory(const IR* ir) {
     switch (ir->type) {
-    case IR_PRINT:
+    case IR_CALL:
+    case IR_CALL_INDIRECT:
     case IR_INPUT:
     case IR_FORMAT:
-    case IR_CALL:
-    case IR_RET:
-    case IR_JMP:
-    case IR_JMPZ:
-    case IR_JMPNZ:
+    case IR_PTR_STORE:
     case IR_ARRAY_STORE:
-    case IR_VAR_ASS:
-    case IR_PUSH:
-    case IR_BOUNDS_CHECK:
-    case IR_ALLOC_ARRAY:
-    case IR_ALLOC_CLASS:
-    case IR_LABEL:
-    case IR_PARAM_DEF:
-    case IR_ARRAY_DECL:
-    case IR_VAR:
-    case IR_VAR_UNINIT:
-    case IR_ARRAY_LENGTH:
+    case IR_COPY_BLOCK:
+    case IR_STORE_MEMBER:
         return true;
     default:
         return false;
     }
 }
 
+static bool lvn_copy_src(const char* s) {
+    if (!s || !s[0]) return false;
+    if (looks_like_number(s)) return true;
+    return s[0] == '_' || s[0] == '.';
+}
+
+int ssa_local_value_numbering(CFG* cfg) {
+    if (!cfg) return 0;
+    int changed = 0;
+
+    for (int bi = 0; bi < cfg->block_count; bi++) {
+        BasicBlock* bb = cfg->blocks[bi];
+        if (!bb || !bb->first_ir) continue;
+
+        lvn_clear();
+        IR* ir = bb->first_ir;
+        while (ir) {
+            bool can_rewrite =
+                ir->type != IR_LABEL && ir->type != IR_JMP
+                && ir->type != IR_JMPZ && ir->type != IR_JMPNZ
+                && ir->type != IR_CALL && ir->type != IR_CALL_INDIRECT
+                && ir->type != IR_ADDRESS_OF;
+
+            if (can_rewrite) {
+                const char* v = NULL;
+                if (ir->args1 && lvn_get(ir->args1, &v)) {
+                    free(ir->args1);
+                    ir->args1 = strdup(v);
+                    changed++;
+                }
+                if (ir->args2 && lvn_get(ir->args2, &v)) {
+                    free(ir->args2);
+                    ir->args2 = strdup(v);
+                    changed++;
+                }
+            }
+
+            if (lvn_clobbers_memory(ir))
+                lvn_clear();
+
+            if (ir->result && ir->result[0]) {
+                lvn_kill(ir->result);
+                if (ir->data_type != DATA_STRING
+                    && ir->data_type != DATA_IDENTIFIER
+                    && ir->ptr_depth == 0
+                    && (ir->type == IR_LITERAL || ir->type == IR_VAR
+                        || ir->type == IR_VAR_ASS)
+                    && ir->args1 && lvn_copy_src(ir->args1)) {
+                    lvn_set(ir->result, ir->args1);
+                }
+            }
+
+            if (ir == bb->last_ir) break;
+            ir = ir->next;
+        }
+    }
+
+    lvn_clear();
+    free(lvn_map);
+    lvn_map = NULL;
+    lvn_cap = 0;
+    return changed;
+}
+
+IR* ssa_strip_versions(IR* head) {
+    if (!head) return NULL;
+
+    for (IR* ir = head; ir; ir = ir->next) {
+        if (ir->result && strchr(ir->result, '@')) {
+            char* b = strip_all_ssa_suffixes(ir->result);
+            free(ir->result);
+            ir->result = b;
+        }
+        if (ir->args1 && strchr(ir->args1, '@')) {
+            char* b = strip_all_ssa_suffixes(ir->args1);
+            free(ir->args1);
+            ir->args1 = b;
+        }
+        if (ir->args2 && strchr(ir->args2, '@')) {
+            char* b = strip_all_ssa_suffixes(ir->args2);
+            free(ir->args2);
+            ir->args2 = b;
+        }
+        for (int i = 0; i < ir->phi_arg_count; i++) {
+            if (ir->phi_arg_names[i] && strchr(ir->phi_arg_names[i], '@')) {
+                char* b = strip_all_ssa_suffixes(ir->phi_arg_names[i]);
+                free(ir->phi_arg_names[i]);
+                ir->phi_arg_names[i] = b;
+            }
+        }
+    }
+
+    IR** pp = &head;
+    while (*pp) {
+        IR* ir = *pp;
+        if (ir->type == IR_VAR_ASS && ir->result && ir->args1
+            && strcmp(ir->result, ir->args1) == 0) {
+            *pp = ir->next;
+            ir->next = NULL;
+            ir->result = NULL;
+            ir->args1 = NULL;
+            ir->args2 = NULL;
+            free(ir);
+            continue;
+            }
+        pp = &ir->next;
+    }
+    return head;
+}
+
+static bool ir_has_side_effects(const IR* ir) {
+    switch (ir->type) {
+        case IR_PRINT:
+        case IR_INPUT:
+        case IR_FORMAT:
+        case IR_CALL:
+        case IR_CALL_INDIRECT:
+        case IR_RET:
+        case IR_JMP:
+        case IR_JMPZ:
+        case IR_JMPNZ:
+        case IR_ARRAY_STORE:
+        case IR_PTR_STORE:
+        case IR_VAR_ASS:
+        case IR_PUSH:
+        case IR_BOUNDS_CHECK:
+        case IR_ALLOC_ARRAY:
+        case IR_ALLOC_CLASS:
+        case IR_LABEL:
+        case IR_PARAM_DEF:
+        case IR_ARRAY_DECL:
+        case IR_VAR:
+        case IR_VAR_UNINIT:
+        case IR_ARRAY_LENGTH:
+        case IR_ADDRESS_OF:
+        case IR_DEREF:
+        case IR_COPY_BLOCK:
+        case IR_BITWISE_NOT:
+        case IR_TRUNCATE:
+        case IR_ARRAY_TOSTRING:
+        case IR_STR_FROM_STRING:
+        case IR_STR_TO_STRING:
+        case IR_STR_LENGTH:
+        case IR_STR_INDEX:
+        case IR_STORE_MEMBER:
+        case IR_LOAD_MEMBER:
+        case IR_LOAD_THIS:
+            return true;
+        default:
+            return false;
+    }
+}
+
+typedef struct DCEBucket {
+    char* name;
+    int mark_idx;
+    struct DCEBucket* next;
+} DCEBucket;
+
+static unsigned int dce_hash_name(const char* s) {
+    unsigned int h = 2166136261u;
+    while (*s) {
+        h ^= (unsigned char)(*s);
+        h *= 16777619u;
+        s++;
+    }
+    return h;
+}
+
+static void dce_map_insert(DCEBucket** table, int table_size,
+                           const char* name, int mark_idx) {
+    if (!name || !name[0]) return;
+    unsigned int h = dce_hash_name(name) & (unsigned int)(table_size - 1);
+    DCEBucket* b = malloc(sizeof(DCEBucket));
+    if (!b) OUT_OF_MEMORY();
+    b->name = strdup(name);
+    if (!b->name) OUT_OF_MEMORY();
+    b->mark_idx = mark_idx;
+    b->next = table[h];
+    table[h] = b;
+}
+
+static void dce_map_free(DCEBucket** table, int table_size) {
+    for (int i = 0; i < table_size; i++) {
+        DCEBucket* b = table[i];
+        while (b) {
+            DCEBucket* n = b->next;
+            free(b->name);
+            free(b);
+            b = n;
+        }
+    }
+    free(table);
+}
+
+static void dce_mark_use(DCEBucket** table, int table_size,
+                         bool* live_flags, const char* use,
+                         int* queue, int* qtail) {
+    if (!use || !use[0]) return;
+    if (looks_like_number(use) || looks_like_label(use)) return;
+    unsigned int h = dce_hash_name(use) & (unsigned int)(table_size - 1);
+    for (DCEBucket* b = table[h]; b; b = b->next) {
+        if (strcmp(b->name, use) == 0) {
+            if (!live_flags[b->mark_idx]) {
+                live_flags[b->mark_idx] = true;
+                queue[(*qtail)++] = b->mark_idx;
+            }
+        }
+    }
+}
+
+typedef struct DCEPtrBucket {
+    IR* ir;
+    int mark_idx;
+    struct DCEPtrBucket* next;
+} DCEPtrBucket;
+
+static unsigned int dce_ptr_hash(IR* ir) {
+    uintptr_t v = (uintptr_t)ir;
+    v ^= v >> 17;
+    v *= 0x9E3779B1u;
+    return (unsigned int)v;
+}
+
+static void dce_ptr_insert(DCEPtrBucket** table, int table_size,
+                           IR* ir, int mark_idx) {
+    unsigned int h = dce_ptr_hash(ir) & (unsigned int)(table_size - 1);
+    DCEPtrBucket* b = malloc(sizeof(DCEPtrBucket));
+    if (!b) OUT_OF_MEMORY();
+    b->ir = ir;
+    b->mark_idx = mark_idx;
+    b->next = table[h];
+    table[h] = b;
+}
+
+static int dce_ptr_find(DCEPtrBucket** table, int table_size, IR* ir) {
+    unsigned int h = dce_ptr_hash(ir) & (unsigned int)(table_size - 1);
+    for (DCEPtrBucket* b = table[h]; b; b = b->next)
+        if (b->ir == ir) return b->mark_idx;
+    return -1;
+}
+
+static void dce_ptr_free(DCEPtrBucket** table, int table_size) {
+    for (int i = 0; i < table_size; i++) {
+        DCEPtrBucket* b = table[i];
+        while (b) {
+            DCEPtrBucket* n = b->next;
+            free(b);
+            b = n;
+        }
+    }
+    free(table);
+}
+
 int ssa_dead_code_elimination(CFG* cfg) {
     if (!cfg) return 0;
     int removed = 0;
 
-    typedef struct { IR* ir; bool live; } IRMark;
+    typedef struct { IR* ir; } IRMark;
     int total_ir = 0, cap = 1024;
     IRMark* marks = malloc(sizeof(IRMark) * (size_t)cap);
     if (!marks) OUT_OF_MEMORY();
@@ -992,54 +1298,52 @@ int ssa_dead_code_elimination(CFG* cfg) {
                 if (!marks) OUT_OF_MEMORY();
             }
             marks[total_ir].ir = ir;
-            marks[total_ir].live = ir_has_side_effects(ir);
             total_ir++;
             if (ir == bb->last_ir) break;
             ir = ir->next;
         }
     }
 
-    bool changed;
-    do {
-        changed = false;
-        for (int i = 0; i < total_ir; i++) {
-            if (!marks[i].live) continue;
-            IR* ir = marks[i].ir;
-            if (ir->args1 && !looks_like_number(ir->args1) && !looks_like_label(ir->args1)) {
-                for (int j = 0; j < total_ir; j++) {
-                    if (marks[j].ir->result &&
-                        strcmp(marks[j].ir->result, ir->args1) == 0) {
-                        if (!marks[j].live) { marks[j].live = true; changed = true; }
-                        break;
-                    }
-                }
-            }
-            if (ir->args2 && !looks_like_number(ir->args2) && !looks_like_label(ir->args2)) {
-                for (int j = 0; j < total_ir; j++) {
-                    if (marks[j].ir->result &&
-                        strcmp(marks[j].ir->result, ir->args2) == 0) {
-                        if (!marks[j].live) { marks[j].live = true; changed = true; }
-                        break;
-                    }
-                }
-            }
-            if (ir->type == IR_PHI && ir->phi_arg_names) {
-                for (int p = 0; p < ir->phi_arg_count; p++) {
-                    if (ir->phi_arg_names[p] && !looks_like_number(ir->phi_arg_names[p])
-                        && !looks_like_label(ir->phi_arg_names[p])) {
-                        for (int j = 0; j < total_ir; j++) {
-                            if (marks[j].ir->result &&
-                                strcmp(marks[j].ir->result,
-                                       ir->phi_arg_names[p]) == 0) {
-                                if (!marks[j].live) { marks[j].live = true; changed = true; }
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
+    bool* live_flags = calloc((size_t)total_ir, sizeof(bool));
+    if (!live_flags) OUT_OF_MEMORY();
+
+    int table_size = 4096;
+    while (table_size < total_ir * 4) table_size *= 2;
+
+    DCEBucket** def_table = calloc((size_t)table_size, sizeof(DCEBucket*));
+    if (!def_table) OUT_OF_MEMORY();
+    for (int i = 0; i < total_ir; i++)
+        dce_map_insert(def_table, table_size, marks[i].ir->result, i);
+
+    DCEPtrBucket** ptr_table = calloc((size_t)table_size, sizeof(DCEPtrBucket*));
+    if (!ptr_table) OUT_OF_MEMORY();
+    for (int i = 0; i < total_ir; i++)
+        dce_ptr_insert(ptr_table, table_size, marks[i].ir, i);
+
+    int* queue = malloc(sizeof(int) * (size_t)(total_ir + 16));
+    if (!queue) OUT_OF_MEMORY();
+    int qh = 0, qt = 0;
+    for (int i = 0; i < total_ir; i++) {
+        if (ir_has_side_effects(marks[i].ir)) {
+            live_flags[i] = true;
+            queue[qt++] = i;
         }
-    } while (changed);
+    }
+
+    while (qh < qt) {
+        int idx = queue[qh++];
+        IR* ir = marks[idx].ir;
+        dce_mark_use(def_table, table_size, live_flags, ir->args1, queue, &qt);
+        dce_mark_use(def_table, table_size, live_flags, ir->args2, queue, &qt);
+        for (int li = 0; li < ir->label_count; li++)
+            dce_mark_use(def_table, table_size, live_flags,
+                         ir->label[li], queue, &qt);
+        if (ir->type == IR_PHI && ir->phi_arg_names) {
+            for (int p = 0; p < ir->phi_arg_count; p++)
+                dce_mark_use(def_table, table_size, live_flags,
+                             ir->phi_arg_names[p], queue, &qt);
+        }
+    }
 
     for (int bi = 0; bi < cfg->block_count; bi++) {
         BasicBlock* bb = cfg->blocks[bi];
@@ -1049,14 +1353,12 @@ int ssa_dead_code_elimination(CFG* cfg) {
         IR* ir = bb->first_ir;
         while (ir) {
             bool is_block_end = (ir == bb->last_ir);
-
-            int idx = -1;
-            for (int i = 0; i < total_ir; i++)
-                if (marks[i].ir == ir) { idx = i; break; }
-
             IR* next = ir->next;
 
-            if (idx >= 0 && !marks[idx].live) {
+            int idx = dce_ptr_find(ptr_table, table_size, ir);
+            bool dead = (idx >= 0) && !live_flags[idx];
+
+            if (dead) {
                 if (prev)
                     prev->next = next;
                 else
@@ -1086,6 +1388,10 @@ int ssa_dead_code_elimination(CFG* cfg) {
 
     cfg_assign_linear_ids(cfg);
 
+    free(queue);
+    dce_ptr_free(ptr_table, table_size);
+    dce_map_free(def_table, table_size);
+    free(live_flags);
     free(marks);
     return removed;
 }
@@ -1148,7 +1454,6 @@ int ssa_copy_propagation(CFG* cfg) {
     }
 
     if (copy_cnt == 0) {
-        printf("  Â· æ²¡æœ‰å¯ä¼ æ’­çš„å¤åˆ¶\n");
         free(copies);
         return 0;
     }
@@ -1274,16 +1579,164 @@ int ssa_constant_folding(CFG* cfg) {
         IR* ir = bb->first_ir;
         while (ir) {
             if (ir->type == IR_BINARY) {
+                if (ir->data_type == DATA_STRING ||
+                    ir->args1_type == DATA_STRING ||
+                    ir->args2_type == DATA_STRING) {
+                    if (ir == bb->last_ir) break;
+                    ir = ir->next;
+                    continue;
+                }
                 bool arg1_const = looks_like_number(ir->args1);
                 bool arg2_const = looks_like_number(ir->args2);
 
                 bool arg1_is_float = (strchr(ir->args1, '.') != NULL);
                 bool arg2_is_float = (strchr(ir->args2, '.') != NULL);
 
+                if (!ir->args1 || !ir->args2) {
+                    if (ir == bb->last_ir) break;
+                    ir = ir->next;
+                    continue;
+                }
+
                 if (arg1_is_float != arg2_is_float) {
                     if (ir == bb->last_ir) break;
                     ir = ir->next;
                     continue;
+                }
+
+                if (arg1_is_float && arg1_const && arg2_const) {
+                    float f1 = strtof(ir->args1, NULL);
+                    float f2 = strtof(ir->args2, NULL);
+                    bool is_cmp = (ir->op == IR_JE  || ir->op == IR_JNE ||
+                                   ir->op == IR_JG  || ir->op == IR_JL  ||
+                                   ir->op == IR_JGE || ir->op == IR_JLE);
+                    bool cmp_result = false;
+                    bool valid = true;
+
+                    switch (ir->op) {
+                    case IR_ADD: f1 = f1 + f2; break;
+                    case IR_SUB: f1 = f1 - f2; break;
+                    case IR_MUL: f1 = f1 * f2; break;
+                    case IR_DIV:
+                        if (f2 == 0.0f) { valid = false; break; }
+                        f1 = f1 / f2;
+                        break;
+                    case IR_JE:  cmp_result = (f1 == f2); break;
+                    case IR_JNE: cmp_result = (f1 != f2); break;
+                    case IR_JG:  cmp_result = (f1 >  f2); break;
+                    case IR_JL:  cmp_result = (f1 <  f2); break;
+                    case IR_JGE: cmp_result = (f1 >= f2); break;
+                    case IR_JLE: cmp_result = (f1 <= f2); break;
+                    default: valid = false; break;
+                }
+
+                    if (valid && !is_cmp && !isfinite(f1))
+                        valid = false;
+
+                    if (valid) {
+                        DataType result_dt = ir->data_type;
+                        ir->type = IR_LITERAL;
+                        free(ir->args1);
+                        free(ir->args2);
+                        if (is_cmp) {
+                            ir->args1 = strdup(cmp_result ? "1" : "0");
+                            ir->args1_type = DATA_INT;
+                            ir->data_type = result_dt;
+                        } else {
+                            char buf[64];
+                            snprintf(buf, sizeof(buf), "%.9g", (double)f1);
+                            ir->args1 = strdup(buf);
+                            ir->args1_type = result_dt;
+                            ir->data_type = result_dt;
+                        }
+                        ir->args2 = NULL;
+                        ir->args2_type = DATA_ERROR;
+                        folded++;
+                    }
+                    if (ir == bb->last_ir) break;
+                    ir = ir->next;
+                    continue;
+                }
+
+                if (arg1_const != arg2_const && ir->args1 && ir->args2) {
+                    long long k_ll = arg1_const ? parse_integer64(ir->args1)
+                                                : parse_integer64(ir->args2);
+                    if (k_ll > 2147483647LL || k_ll < -2147483648LL) {
+                        if (ir == bb->last_ir) break;
+                        ir = ir->next;
+                        continue;
+                    }
+                    int k = (int)k_ll;
+                    const char* var = arg1_const ? ir->args2 : ir->args1;
+                    int mode = 0;
+
+                    switch (ir->op) {
+                    case IR_MUL:
+                        if (k == 0) mode = 2;
+                        else if (k == 1) mode = 1;
+                        else if (k == 2) mode = 4;
+                        break;
+                    case IR_ADD:
+                        if (k == 0) mode = 1;
+                        break;
+                    case IR_SUB:
+                        if (!arg1_const && k == 0) mode = 1;
+                        break;
+                    case IR_DIV:
+                    case IR_UDIV:
+                        if (!arg1_const && k == 1) mode = 1;
+                        break;
+                    case IR_MOD:
+                    case IR_UMOD:
+                        if (!arg1_const && k == 1) mode = 2;
+                        break;
+                    case IR_BITWISE_AND:
+                        if (k == 0) mode = 2;
+                        break;
+                    case IR_BITWISE_OR:
+                    case IR_BITWISE_XOR:
+                        if (k == 0) mode = 1;
+                        break;
+                    case IR_SHL:
+                    case IR_SHR:
+                    case IR_SAR:
+                        if (!arg1_const && k == 0) mode = 1;
+                        break;
+                    default:
+                        break;
+                    }
+
+                    if (mode != 0) {
+                        if (mode == 4) {
+                            free(ir->args1);
+                            free(ir->args2);
+                            ir->op = IR_SHL;
+                            ir->args1 = strdup(var);
+                            ir->args1_type = DATA_INT;
+                            ir->args2 = strdup("1");
+                            ir->args2_type = DATA_INT;
+                            ir->data_type = DATA_INT;
+                        } else {
+                            free(ir->args1);
+                            free(ir->args2);
+                            if (mode == 1) {
+                                ir->type = IR_VAR_ASS;
+                                ir->args1 = strdup(var);
+                                ir->args1_type = DATA_INT;
+                            } else {
+                                ir->type = IR_LITERAL;
+                                ir->args1 = strdup(mode == 2 ? "0" : "1");
+                                ir->args1_type = DATA_INT;
+                            }
+                            ir->data_type = DATA_INT;
+                            ir->args2 = NULL;
+                            ir->args2_type = DATA_ERROR;
+                        }
+                        folded++;
+                        if (ir == bb->last_ir) break;
+                        ir = ir->next;
+                        continue;
+                    }
                 }
 
                 if (arg1_const && arg2_const) {
@@ -1370,6 +1823,7 @@ int ssa_constant_propagation(CFG* cfg) {
         IR* ir = bb->first_ir;
         while (ir) {
             if (ir->result && ir->type == IR_LITERAL &&
+                ir->data_type != DATA_STRING &&
                 ir->args1 && looks_like_number(ir->args1) &&
                 needs_ssa_treatment(ir->result)) {
                 if (const_cnt >= const_cap) {
@@ -1447,8 +1901,6 @@ int ssa_constant_propagation(CFG* cfg) {
         }
     }
 
-    printf("  Â· ä¼ æ’­äº† %d ä¸ªå¸¸é‡åˆ° %d å¤„ä½¿ç”¨\n", const_cnt, propagated);
-
     for (int i = 0; i < const_cnt; i++) {
         free(consts[i].name);
         free(consts[i].const_value);
@@ -1458,32 +1910,30 @@ int ssa_constant_propagation(CFG* cfg) {
 }
 
 void ssa_print_cfg(const CFG* cfg) {
-    if (!cfg) { printf("SSA CFG: (null)\n"); return; }
-
-    printf("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n");
-    printf("  SSA CFG: %d blocks, %d variables\n", cfg->block_count, cfg->var_count);
-    printf("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n");
+    if (!cfg) {
+        printf("SSA CFG: (null)\n"); return;
+    }
 
     for (int bi = 0; bi < cfg->block_count; bi++) {
         const BasicBlock* bb = cfg->blocks[bi];
-        printf("\nâ”Œâ”€ BB%d â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n", bb->id);
-        printf("â”‚ preds: ");
+        printf("\n©°©¤ BB%d ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤\n", bb->id);
+        printf("©¦ preds: ");
         for (int p = 0; p < bb->pred_count; p++)
             printf("BB%d ", bb->preds[p]->id);
-        printf("\nâ”‚ succs: ");
+        printf("\n©¦ succs: ");
         for (int s = 0; s < bb->succ_count; s++)
             printf("BB%d ", bb->succs[s]->id);
-        printf("\nâ”‚ idom: BB%s\n",
+        printf("\n©¦ idom: BB%s\n",
                bb->idom ? (bb->idom->id >= 0 ? "?" : "(none)") : "(none)");
         if (bb->idom) printf("%d", bb->idom->id);
-        printf("\nâ”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n");
+        printf("\n©À©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤\n");
 
         IR* ir = bb->first_ir;
         while (ir) {
-            printf("â”‚ ");
+            printf("©¦ ");
             switch (ir->type) {
             case IR_PHI:
-                printf("Ï† %s = (", ir->result);
+                printf("¦Õ %s = (", ir->result);
                 for (int i = 0; i < ir->phi_arg_count; i++) {
                     if (i > 0) printf(", ");
                     printf("%s", ir->phi_arg_names[i] ? ir->phi_arg_names[i] : "?");
@@ -1524,7 +1974,7 @@ void ssa_print_cfg(const CFG* cfg) {
             if (ir == bb->last_ir) break;
             ir = ir->next;
         }
-        printf("â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n");
+        printf("©¸©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤\n");
     }
     printf("\n");
     fflush(stdout);

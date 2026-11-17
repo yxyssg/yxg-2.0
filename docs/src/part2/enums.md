@@ -12,14 +12,23 @@
 
     int main() {
         Color c = Color.Red;
-        print(c);                    // 0（枚举值本质是 int）
+        print c, "\n";                       // 0（枚举值本质是 int）
 
-        if (c == Color.Red) {
-            print("红色");
+        if c == Color.Red {
+            print "红色\n";
         }
 
         return 0;
     }
+
+输出：
+
+    0
+    红色
+
+if 的条件可以加括号，`if (c == Color.Red) { ... }` 与上面等价。
+
+print 也支持括号形式，但括号里只能放一个参数：`print c` 和 `print(c)` 等价。
 
 枚举成员默认从 0 开始自动递增。上面 Red = 0，Green = 1，Blue = 2。
 
@@ -46,14 +55,15 @@
     }
 
     int main() {
-        print(ErrorCode.Success);             // 0
-        print(ErrorCode.NotFound);            // 1
-        print(ErrorCode.PermissionDenied);    // 2
-        print(ErrorCode.InternalError);       // 100
-        print(ErrorCode.ServiceUnavailable);  // 101
-        print(ErrorCode.Timeout);             // 102
+        print ErrorCode.Success, " ", ErrorCode.NotFound, " ", ErrorCode.PermissionDenied, "\n";
+        print ErrorCode.InternalError, " ", ErrorCode.ServiceUnavailable, " ", ErrorCode.Timeout, "\n";
         return 0;
     }
+
+输出：
+
+    0 1 2
+    100 101 102
 
 ## 枚举与 switch
 
@@ -72,15 +82,15 @@
     int main() {
         Day today = Day.Wednesday;
 
-        switch (today) {
-            case Day.Monday:    print("星期一"); break;
-            case Day.Tuesday:   print("星期二"); break;
-            case Day.Wednesday: print("星期三"); break;
-            case Day.Thursday:  print("星期四"); break;
-            case Day.Friday:    print("星期五"); break;
-            case Day.Saturday:  print("星期六"); break;
-            case Day.Sunday:    print("星期日"); break;
-            default:            print("无效日期");
+        switch today {
+            case Day.Monday:    print "星期一"; break;
+            case Day.Tuesday:   print "星期二"; break;
+            case Day.Wednesday: print "星期三"; break;
+            case Day.Thursday:  print "星期四"; break;
+            case Day.Friday:    print "星期五"; break;
+            case Day.Saturday:  print "星期六"; break;
+            case Day.Sunday:    print "星期日"; break;
+            default:            print "无效日期";
         }
 
         return 0;
@@ -90,6 +100,8 @@
 
     星期三
 
+switch 的条件也可以带括号：`switch (today) { ... }`。
+
 ## 枚举本质
 
 枚举成员本质是 int 类型的编译时常量，可以参与整数运算：
@@ -98,13 +110,25 @@
         int x = Color.Red + 10;      // 10
         int y = Color.Blue * 2;      // 4
 
+        print "x = ", x, ", y = ", y, "\n";
+
         // 遍历枚举（利用递增特性）
-        for (int i = Color.Red; i <= Color.Blue; i++) {
-            print(i);                // 0, 1, 2
+        // for 不支持括号，初始化段必须是声明
+        for int i = Color.Red; i <= Color.Blue; i++ {
+            print i, "\n";           // 0, 1, 2
         }
 
         return 0;
     }
+
+输出：
+
+    x = 10, y = 4
+    0
+    1
+    2
+
+`for (int i = Color.Red; i <= Color.Blue; i++)` 这种带括号的写法会直接报语法错误。
 
 ## 枚举作为函数参数
 
@@ -116,11 +140,11 @@
     }
 
     void log(LogLevel level, string message) {
-        switch (level) {
-            case LogLevel.Debug:   print("[DEBUG]", message); break;
-            case LogLevel.Info:    print("[INFO]", message); break;
-            case LogLevel.Warning: print("[WARN]", message); break;
-            case LogLevel.Error:   print("[ERROR]", message); break;
+        switch level {
+            case LogLevel.Debug:   print "[DEBUG] ", message, "\n"; break;
+            case LogLevel.Info:    print "[INFO] ", message, "\n"; break;
+            case LogLevel.Warning: print "[WARN] ", message, "\n"; break;
+            case LogLevel.Error:   print "[ERROR] ", message, "\n"; break;
         }
     }
 
@@ -136,6 +160,10 @@
     [INFO] 程序启动
     [WARN] 磁盘空间不足
     [ERROR] 连接失败
+
+注意 print 不会自动插空格：写成 `print "[INFO] ", message` 才会在 `[INFO]` 和消息之间留出空格；写成 `print "[INFO]", message` 会输出 `[INFO]程序启动`。
+
+另外 print 的括号形式只接受一个参数，`print("[INFO]", message)` 会编译报错，多个参数必须用无括号形式。
 
 ## 完整示例：HTTP 状态码
 
@@ -153,7 +181,7 @@
     }
 
     string getStatusMessage(HttpStatus status) {
-        switch (status) {
+        switch status {
             case HttpStatus.OK:                  return "OK";
             case HttpStatus.Created:             return "Created";
             case HttpStatus.NoContent:           return "No Content";
@@ -173,37 +201,41 @@
         HttpStatus s2 = HttpStatus.NotFound;
         HttpStatus s3 = HttpStatus.InternalServerError;
 
-        print(s1, getStatusMessage(s1));   // 200 OK
-        print(s2, getStatusMessage(s2));   // 404 Not Found
-        print(s3, getStatusMessage(s3));   // 500 Internal Server Error
+        print s1, " ", getStatusMessage(s1), "\n";   // 200 OK
+        print s2, " ", getStatusMessage(s2), "\n";   // 404 Not Found
+        print s3, " ", getStatusMessage(s3), "\n";   // 500 Internal Server Error
 
         return 0;
     }
 
 ## 常见错误
 
-### 重复的枚举值
+### 枚举成员重名
 
-    enum Bad {
-        A = 1,
-        B = 1           // 错误！重复的值
-    }
-
-编译器会检测重复的显式枚举值并报错。
-
-### 枚举名冲突
+不同枚举里可以有同名成员，编译器不会报错，但取到的值可能和直觉不符，建议不同枚举的成员名不要重复：
 
     enum Color { Red, Green, Blue }
-    // enum Traffic { Red, Yellow, Green }   // 错误！Red 和 Green 重复
+    enum Traffic { Red, Yellow, Green }
 
-枚举成员名在同一作用域内必须唯一。如果确实需要同名，可以将枚举放在不同类中。
+    int main() {
+        print Color.Red, "\n";       // 0
+        print Traffic.Red, "\n";     // 0（同名成员会复用已注册的值）
+        return 0;
+    }
+
+访问时始终写全 `枚举名.成员`，不要只写成员名。
 
 ### 将枚举当作类使用
 
     Color c = Color.Red;
-    // c.someMethod();     // 错误！枚举不是类，没有方法
+    // c.someMethod();     // 错误！error[E3016]: cannot determine class of object 'c'
 
 枚举只是 int 的别名集合，不具备类的特性。
+
+### 用带括号的 for 遍历枚举
+
+    // for (int i = Color.Red; i <= Color.Blue; i++) { ... }   // 错误！for 不允许括号
+    for int i = Color.Red; i <= Color.Blue; i++ { print i, "\n"; }   // 正确
 
 ## 继续阅读
 

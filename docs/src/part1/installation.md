@@ -2,253 +2,321 @@
 
 ## 环境要求
 
-YXG 编译器目前仅支持 Windows 平台，需要以下工具链：
+YXG 编译器目前**仅支持 Windows 平台**，生成 32 位（x86）可执行文件。需要以下工具链：
 
 | 工具 | 最低版本 | 用途 |
 |------|----------|------|
-| GCC (MinGW) | 8.0+ | 编译 C 源码、链接目标文件 |
-| NASM | 2.15+ | 汇编生成的 .asm 文件 |
-| GNU Make | 4.0+ | 自动化构建 |
+| GCC (MinGW-w64，需支持 `-m32`) | 8.0+ | 编译 C 源码、链接目标文件 |
+| NASM | 2.15+ | 汇编生成的 `.asm` 文件 |
 | Git | 任意版本 | 获取源码 |
 
-### 安装 MinGW
+> 注意：GCC 必须是能生成 **32 位**代码的版本（`-m32`）。UCRT64/MINGW64 环境需要额外安装 32 位支持包。
 
-推荐使用 MSYS2 安装，它提供了完整的类 Unix 环境：
+### 安装 MinGW 与 NASM
 
-1. 从 https://www.msys2.org/ 下载安装 MSYS2
-2. 打开 MSYS2 终端（UCRT64 或 MINGW64），执行：
+推荐用 MSYS2，它一次装齐：
 
-    pacman -Syu
-    pacman -S mingw-w64-ucrt-x86_64-gcc
-    pacman -S mingw-w64-ucrt-x86_64-nasm
-    pacman -S make
-    pacman -S git
+1. 从 https://www.msys2.org/ 下载并安装 MSYS2
+2. 打开 MSYS2 终端，执行：
 
-3. 将 MSYS2 的 bin 目录添加到系统 PATH：
+```
+pacman -Syu
+pacman -S mingw-w64-ucrt-x86_64-gcc
+pacman -S mingw-w64-ucrt-x86_64-nasm
+pacman -S git
+```
 
-    C:\msys64\ucrt64\bin
+3. 把 MSYS2 的 `bin` 目录加入系统 `PATH`：
 
-4. 验证安装：
+```
+C:\msys64\ucrt64\bin
+```
 
-    gcc --version
-    nasm --version
-    make --version
+4. 验证：
 
-### 手动安装各组件
-
-如果不想用 MSYS2，也可以分别安装：
-
-- MinGW-w64：从 https://www.mingw-w64.org/ 下载，选择 i686 或 x86_64 版本
-- NASM：从 https://www.nasm.us/ 下载安装包
-- Make：从 https://gnuwin32.sourceforge.net/packages/make.htm 获取
-
-确保所有工具的 bin 目录都在 PATH 中。
+```
+gcc --version
+nasm --version
+```
 
 ## 获取源码
 
-    git clone https://github.com/yxyssg/yxg_language.git
-    cd yxg
+```
+git clone https://github.com/yxyssg/yxg_language.git
+cd yxg_language
+```
 
-目录结构概览：
+### 目录结构
 
-    yxg_language/
-    ├── src/
-    │   ├── main.c              # 主程序入口
-    │   ├── Lexer.c             # 词法分析器
-    │   ├── parser.c            # 语法分析器
-    │   ├── Semantics.c         # 语义分析
-    │   ├── IR.c                # 中间代码生成
-    │   ├── CFG.c               # 控制流图构建
-    │   ├── SSA.c               # SSA 构造与优化
-    │   ├── regmap.c            # 寄存器分配
-    │   ├── Codegen_win32.c     # x86 代码生成
-    │   ├── Token.c             # Token 定义与工具函数
-    │   ├── Error.c             # 错误报告系统
-    │   ├── YString.c           # 动态字符串库
-    │   └── *.h                 # 头文件
-    ├── runtime/                # 运行时汇编库
-    │   ├── runtime_print.asm
-    │   ├── runtime_string.asm
-    │   ├── runtime_memory.asm
-    │   ├── runtime_gc.asm
-    │   ├── runtime_float.asm
-    │   ├── runtime_array.asm
-    │   ├── runtime_system.asm
-    │   └── runtime_bounds.asm
-    ├── lib/                    # YXG 标准库
-    │   ├── Math.yxg
-    │   ├── String.yxg
-    │   └── System.yxg
-    ├── examples/               # 示例程序
-    ├── Makefile                # 构建脚本
-    └── docs/                   # 本文档
+```
+yxg/
+├── main.c                # 主程序入口、命令行解析
+├── Lexer.c               # 词法分析
+├── parser.c              # 语法分析
+├── Semantics.c           # 语义分析
+├── IR.c                  # 中间代码生成
+├── CFG.c                 # 控制流图
+├── SSA.c                 # SSA 构造与优化
+├── regmap.c              # 寄存器分配
+├── Codegen_win32.c       # x86 代码生成
+├── Token.c               # Token 定义
+├── Error.c               # 错误报告
+├── YString.c             # 动态字符串库
+├── *.h                   # 头文件
+├── runtime/              # 运行时汇编源码
+│   ├── runtime_print.asm
+│   ├── runtime_string.asm
+│   ├── runtime_memory.asm
+│   ├── runtime_gc.asm
+│   ├── runtime_float.asm
+│   ├── runtime_array.asm
+│   ├── runtime_system.asm
+│   ├── runtime_bounds.asm
+│   ├── runtime_socket.asm
+│   ├── runtime_window.asm
+│   └── ...
+├── runtime_cache/        # 运行时汇编的 .obj 缓存
+├── lib/yxg/              # 标准库（.yxg 源码）
+│   ├── String.yxg
+│   ├── Math.yxg
+│   ├── System.yxg
+│   ├── Collections/
+│   └── ...
+├── docs/                 # 本文档
+└── repro/                # 回归测试用例
+```
 
 ## 编译编译器
 
-### 一键构建
+源码和头文件都在仓库根目录（**没有 `src/` 子目录**）。在根目录执行：
 
-项目提供了 Makefile，在项目根目录执行：
+```
+gcc -m32 -std=c23 -O2 -o yxg.exe ^
+    main.c Token.c Lexer.c parser.c Semantics.c Error.c ^
+    IR.c Codegen_win32.c regmap.c CFG.c SSA.c YString.c -I.
+```
 
-    make
+PowerShell 里把续行符 `^` 换成反引号 `` ` ``，或直接写成一行：
 
-这会依次完成：
-1. 编译所有 .c 文件为目标文件
-2. 汇编所有运行时 .asm 文件
-3. 链接生成 yxg.exe
+```
+gcc -m32 -std=c23 -O2 -o yxg.exe main.c Token.c Lexer.c parser.c Semantics.c Error.c IR.c Codegen_win32.c regmap.c CFG.c SSA.c YString.c -I.
+```
 
-### 分步构建
+编译参数说明：
 
-如果需要调试，可以分步执行：
-
-    # 第一步：编译 C 源码
-    gcc -m32 -g -c src/main.c -o build/main.o
-    gcc -m32 -g -c src/Lexer.c -o build/Lexer.o
-    gcc -m32 -g -c src/parser.c -o build/parser.o
-    gcc -m32 -g -c src/Semantics.c -o build/Semantics.o
-    gcc -m32 -g -c src/IR.c -o build/IR.o
-    gcc -m32 -g -c src/CFG.c -o build/CFG.o
-    gcc -m32 -g -c src/SSA.c -o build/SSA.o
-    gcc -m32 -g -c src/regmap.c -o build/regmap.o
-    gcc -m32 -g -c src/Codegen_win32.c -o build/Codegen_win32.o
-    gcc -m32 -g -c src/Token.c -o build/Token.o
-    gcc -m32 -g -c src/Error.c -o build/Error.o
-    gcc -m32 -g -c src/YString.c -o build/YString.o
-
-    # 第二步：汇编运行时库
-    nasm -g -f win32 -O0 runtime/runtime_print.asm -o runtime_print.obj
-    nasm -g -f win32 -O0 runtime/runtime_string.asm -o runtime_string.obj
-    nasm -g -f win32 -O0 runtime/runtime_memory.asm -o runtime_memory.obj
-    nasm -g -f win32 -O0 runtime/runtime_gc.asm -o runtime_gc.obj
-    nasm -g -f win32 -O0 runtime/runtime_float.asm -o runtime_float.obj
-    nasm -g -f win32 -O0 runtime/runtime_array.asm -o runtime_array.obj
-    nasm -g -f win32 -O0 runtime/runtime_system.asm -o runtime_system.obj
-    nasm -g -f win32 -O0 runtime/runtime_bounds.asm -o runtime_bounds.obj
-
-    # 第三步：链接
-    gcc -m32 -g build/*.o build/*.obj -o yxg.exe
-
-### 编译选项说明
-
-| 选项 | 含义 |
+| 参数 | 含义 |
 |------|------|
-| -m32 | 生成 32 位代码（YXG 编译器目前仅支持 x86） |
-| -g | 包含调试信息 |
-| -O0 | 关闭优化（编译器自身不需要优化，便于调试） |
-| -f win32 | NASM 输出 Win32 目标格式 |
+| `-m32` | 生成 32 位代码（YXG 只支持 x86） |
+| `-std=c23` | 使用 C23 标准 |
+| `-O2` | 优化级别 |
+| `-I.` | 头文件在当前目录 |
+
+## 运行时库
+
+编译器**不会**在编译编译器时链接运行时汇编，而是在**编译用户程序时**按需汇编并链接。首次使用某个运行时模块时：
+
+```
+runtime/runtime_gc.asm  →  nasm -f win32  →  runtime_cache/runtime_gc.obj
+```
+
+因此需要保证：
+
+1. `runtime/` 目录里有 `.asm` 源文件
+2. `runtime_cache/` 目录**可写**（编译器要往这里写 `.obj`）
+
+> **常见坑**：如果编译器装在 `C:\Program Files\` 这类需要管理员权限的目录，写 `runtime_cache/` 会失败并报 `Permission denied`。请把编译器放在普通可写目录，或确保 `runtime_cache/` 有写权限。
+
+同理，编译器会相对**自身 exe 所在目录**查找 `runtime/`、`runtime_cache/`、`lib/`。所以移动 exe 时要连这三个目录一起移。
 
 ## 验证安装
 
-编译完成后，测试编译器是否正常工作：
+```
+yxg -version
+```
 
-    yxg --version
+输出：
 
-预期输出：
+```
+version: 1.0.0-alpha.1
+```
 
-    version: 1.0.0-alpha.1
+查看帮助：
 
-查看帮助信息：
+```
+yxg -help
+```
 
-    yxg --help
+输出：
 
-预期输出：
+```
+Usage: yxg <command> [options] [files|dirs...]
 
-    Usage: yxg file_name [Parameter]
-    Parameter:
-    -o: Change output name
-    -r: Compile and run
-    -d: Debug mode
-    -a: Compile to assembly only
-    -time: Show current time
-    -version: Show current version
-    -help: Show this help information
+Commands:
+  build [options] [files|dirs...]   Compile project
+  run   [options] [options] [files|dirs...]   Compile and run
+  clean                             Remove build artifacts
+  new   <name>                      Create a new project
+  help                              Show this help
+
+Options:
+  -o <path>       Output executable path
+  -r              Compile and run (same as 'run')
+  -a              Emit assembly only
+  -w              Windowed-only program (no console)
+  -noassert       Disable assert checks
+  --force         Force rebuild (ignore timestamps)
+  -d              Debug mode
+
+Others:
+  -time           Show current time
+  -version        Show current version
+```
 
 ## 编译并运行第一个程序
 
-创建一个测试文件 hello.yxg：
+创建 `hello.yxg`：
 
-    int main() {
-        print "Hello, YXG!";
-        return 0;
-    }
+```
+pub void main() {
+    print "Hello, YXG!\n";
+}
+```
 
-编译运行：
+编译并运行：
 
-    yxg hello.yxg -r
+```
+yxg run hello.yxg
+```
 
 预期输出：
 
-    Hello, YXG!
-    Compilation complete, output file is: output.exe
-    Total compilation time: 0.123456 second
+```
+Compilation complete, output file is: output.exe
+Total compilation time: 0.350000 second
+Hello, YXG!
+```
 
-### 命令行参数详解
+## 创建项目
 
-    yxg hello.yxg              # 编译为 output.exe
-    yxg hello.yxg -o myapp.exe # 指定输出文件名
-    yxg hello.yxg -r           # 编译后立即运行
-    yxg hello.yxg -a           # 只生成汇编文件 output.asm，不链接
-    yxg hello.yxg -d           # 调试模式，打印更多信息
+除了编译单个文件，也可以用 `new` 生成标准项目骨架：
 
-### 编译流程
+```
+yxg new demo
+```
 
-当你执行 yxg hello.yxg 时，编译器内部经历了以下步骤：
+输出：
 
-    hello.yxg
-       │
-       ▼
-    [词法分析]  → Token 序列
-       │
-       ▼
-    [语法分析]  → AST 抽象语法树
-       │
-       ▼
-    [语义分析]  → 标注类型的 AST + 符号表
-       │
-       ▼
-    [IR 生成]   → IR 中间表示链表
-       │
-       ▼
-    [CFG 构建]  → 基本块 + 控制流图
-       │
-       ▼
-    [SSA 构造]  → SSA 形式 + 优化 Pass
-       │
-       ▼
-    [寄存器分配] → 寄存器映射表
-       │
-       ▼
-    [代码生成]  → output.asm (NASM 汇编)
-       │
-       ▼
-    [NASM 汇编] → output.obj
-       │
-       ▼
-    [GCC 链接]  → output.exe (含运行时库)
+```
+created project 'demo' (console template)
+```
 
-可以使用 -a 参数停在汇编阶段，查看生成的 output.asm 来理解代码生成结果。
+生成的目录结构：
+
+```
+demo/
+├── yxg.toml
+├── README.md
+├── .gitignore
+└── src/
+    └── Main.yxg
+```
+
+`yxg.toml` 内容：
+
+```toml
+[project]
+name = "demo"
+version = "0.1.0"
+entry = "src/Main.yxg"
+
+[output]
+path = "bin/demo.exe"
+
+[build]
+# 编译时附加参数，等同命令行效果，命令行优先级更高
+# 支持: -a -w -r -noassert --force -o <path>
+flags = ""
+```
+
+在项目根目录（有 `yxg.toml` 的那一层）执行：
+
+```
+cd demo
+yxg build        # 产物: bin/demo.exe
+yxg run          # 编译并运行
+yxg clean        # 清理构建产物
+```
+
+## 编译流程
+
+执行 `yxg build` 时内部依次经过：
+
+```
+hello.yxg
+   │
+   ▼
+[词法分析]   → Token 序列
+   │
+   ▼
+[语法分析]   → AST
+   │
+   ▼
+[语义分析]   → 带类型的 AST + 符号表
+   │
+   ▼
+[IR 生成]    → 三地址中间表示
+   │
+   ▼
+[CFG 构建]   → 基本块 + 控制流图
+   │
+   ▼
+[SSA 构造]   → SSA 形式 + 优化
+   │
+   ▼
+[寄存器分配] → Chaitin-Briggs 图着色
+   │
+   ▼
+[代码生成]   → output.asm
+   │
+   ▼
+[NASM 汇编]  → output.obj
+   │
+   ▼
+[GCC 链接]   → output.exe
+```
+
+用 `-a` 可以停在汇编阶段，查看生成的 `output.asm`。
 
 ## 常见问题
 
-### Q: 提示 "nasm 不是内部或外部命令"
+### 提示 "nasm 不是内部或外部命令"
 
-NASM 未安装或未添加到 PATH。重新运行 NASM 安装程序，确保勾选"添加到 PATH"选项，或手动将 NASM 安装目录添加到系统环境变量。
+NASM 未安装或不在 `PATH` 中。重新安装时勾选"添加到 PATH"，或手动把 NASM 目录加进系统环境变量。
 
-### Q: 提示 "gcc 不是内部或外部命令"
+### 提示 "gcc 不是内部或外部命令"
 
-MinGW 未安装或未添加到 PATH。检查 C:\msys64\ucrt64\bin 是否在 PATH 中。
+MinGW 未安装或不在 `PATH` 中。检查 `C:\msys64\ucrt64\bin` 是否已加入 `PATH`。
 
-### Q: 链接时提示 undefined reference
+### 编译报 "Permission denied"（写 runtime_cache 失败）
 
-通常是运行时库的 .obj 文件未正确生成。检查 runtime/ 目录下的 .asm 文件是否完整，重新执行 nasm 汇编步骤。
+编译器所在目录不可写。把整个 yxg 目录移到可写位置，例如 `D:\yxg\`。
 
-### Q: 编译时提示 "无法解析的外部符号 _ExitProcess@4"
+### 链接时提示 undefined reference
 
-链接时缺少 Windows API 库。确保使用 MinGW 的 gcc 进行链接，它会自动链接 kernel32 等系统库。
+通常是 `runtime_cache/` 里的 `.obj` 缺失或损坏。删除 `runtime_cache/` 下的 `.obj` 后重新编译，让编译器重新生成。
 
-### Q: 生成的 exe 无法运行，提示缺少 DLL
+### 提示 "无法解析的外部符号 _ExitProcess@4"
 
-YXG 编译器生成的是 32 位程序，需要 32 位运行时。在 64 位 Windows 上通常可以直接运行。如果提示缺少 libgcc_s_dw2-1.dll，将 MinGW 的 bin 目录添加到 PATH 即可。
+链接时缺少 Windows 系统库。确保用 MinGW 的 `gcc` 链接（它会自动带 kernel32 等）。
+
+### 生成的 exe 提示缺少 DLL
+
+YXG 生成 32 位程序。如果提示缺 `libgcc_s_dw2-1.dll`，把 MinGW 的 `bin` 目录加入 `PATH`。
+
+### 文件名大小写
+
+源码文件名必须和 `import` 中写的一致（Windows 上不敏感，但跨平台/发布时要注意）。`Semantics.c`、`Lexer.c`、`Codegen_win32.c` 这些源码文件名首字母大写。
 
 ## 继续阅读
 
-环境搭建完成后，下一章我们将编写第一个 YXG 程序，深入了解语言的基本语法。
+环境搭好后，下一章写第一个 YXG 程序，逐行拆解基本语法。

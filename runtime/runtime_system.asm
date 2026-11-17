@@ -403,9 +403,6 @@ _str_to_float:
     fninit
     fldz
     xor ecx, ecx
-    mov al, [esi]
-    cmp al, '.'
-    je .parse_fraction
 .parse_integer:
     mov al, [esi]
     cmp al, '0'
@@ -2021,7 +2018,7 @@ global _system_sleep
 _system_sleep:
     push dword [esp+4]
     call _Sleep@4
-    ret 4
+    ret
 
 global _system_time
 _system_time:
@@ -2054,13 +2051,13 @@ _system_getenv:
     pop esi
     pop ebx
     pop ebp
-    ret 4
+    ret 
 .env_empty:
     mov eax, _sys_empty_str
     pop esi
     pop ebx
     pop ebp
-    ret 4
+    ret 
 
 global _system_call
 _system_call:
@@ -2159,7 +2156,7 @@ _system_call:
 .done:
     mov  esp, ebp
     pop  ebp
-    ret  4
+    ret
 
 global _sys_argv_at
 _sys_argv_at:
@@ -2283,7 +2280,7 @@ _sys_argv_at:
     pop esi
     pop ebx
     pop ebp
-    ret 4
+    ret
 
 _sys_skip_ws:
     cmp word [esi], ' '

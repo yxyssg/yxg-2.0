@@ -1,0 +1,46 @@
+// ============================================================
+// yxg.Function — 一等函数对象
+//
+// Function 类被编译器特殊标记：
+//   - `Function f = worker;` 自动展开为 `new Function(&worker)`
+//   - `f(1)` 自动展开为 `f.call(1)`
+// 其余方法均为 native，由 runtime_function.asm 提供实现
+// ============================================================
+
+pub class FunctionError : ERROR {
+    pub FunctionError(string msg) {
+        this.info = msg;
+    }
+}
+
+pub class Function {
+    pub int _raw;
+    pub unsafe int* _env;
+    pub unsafe int* _ret;
+
+    pub Function(int f) {
+        _raw = f;
+        _env = null;
+        _ret = null;
+    }
+
+    pub Function(int f, int env) {
+        _raw = f;
+        unsafe int* e = env as int*;
+        _env = e;
+        _ret = null;
+    }
+
+    pub Function(int f, int env, int ret) {
+        _raw = f;
+        unsafe int* e = env as int*;
+        unsafe int* r = ret as int*;
+        _env = e;
+        _ret = r;
+    }
+
+    pub native int  call();
+    pub native int  call(int a);
+    pub native int  raw();
+    pub native bool isNull();
+}

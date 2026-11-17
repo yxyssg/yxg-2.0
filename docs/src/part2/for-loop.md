@@ -2,14 +2,14 @@
 
 ## 基本语法
 
-for 循环将初始化、条件判断和更新操作集中在一行。各部分用分号分隔，条件不需要括号：
+for 循环将初始化、条件判断和更新操作集中在一行。各部分用分号分隔，整体不加括号：
 
     int main() {
         for int i = 0; i < 5; i++ {
-            print "i =", i;
+            print "i = ", i, "\n";
         }
 
-        print "循环结束";
+        print "循环结束\n";
         return 0;
     }
 
@@ -33,42 +33,51 @@ for 循环将初始化、条件判断和更新操作集中在一行。各部分�
 
 ### 初始化
 
-初始化部分在循环开始前执行一次。通常用于声明和初始化循环变量：
+初始化部分在循环开始前执行一次，必须是变量声明：
 
-    for int i = 0; ...       // i 的作用域仅限于 for 循环内
-    for int i = 10; ...      // 可以从任意值开始
-    for int i = n - 1; ...   // 可以使用表达式
+    for int i = 0; ...
+    for int i = 10; ...         // 可以从任意值开始
+    for int i = n - 1; ...      // 可以使用表达式
 
 初始化部分声明的变量作用域仅限于 for 循环内：
 
     int main() {
         for int i = 0; i < 3; i++ {
-            print i;
+            print i, "\n";
         }
         // print i;            // 错误！i 已超出作用域
         return 0;
     }
 
-也可以使用已存在的变量：
+如果把整个循环头用括号包起来，编译器会直接报语法错误：
 
-    int main() {
-        int i;
-        for i = 0; i < 5; i++ {
-            print i;
-        }
-        print "最终 i =", i;
-        return 0;
-    }
+    // for (int i = 0; i < 3; i++) { ... }   // 错误！expects BracketLeft
 
-初始化部分可以留空：
+for 的初始化段不能是给已有变量赋值，也不能声明多个变量：
+
+    // int i;
+    // for i = 0; i < 5; i++ { ... }          // 错误！expects Semicolon before '='
+    // for int i = 0, j = 10; i < j; i++ { }  // 错误！不支持多变量初始化
+
+需要沿用外部变量时，把初始化段留空，在循环前赋值：
 
     int main() {
         int i = 0;
         for ; i < 5; i++ {
-            print i;
+            print i, "\n";
         }
+        print "最终 i = ", i, "\n";
         return 0;
     }
+
+输出：
+
+    0
+    1
+    2
+    3
+    4
+    最终 i = 5
 
 ### 条件
 
@@ -81,7 +90,7 @@ for 循环将初始化、条件判断和更新操作集中在一行。各部分�
 条件可以留空，表示始终为 true（无限循环）：
 
     for ;; {
-        print "loop";
+        print "loop\n";
         break;
     }
 
@@ -96,7 +105,7 @@ for 循环将初始化、条件判断和更新操作集中在一行。各部分�
 更新部分可以留空，在循环体中手动更新：
 
     for int i = 0; i < 10; {
-        print i;
+        print i, "\n";
         i += 2;
     }
 
@@ -109,7 +118,7 @@ break 立即终止整个循环：
             if i == 5 {
                 break;
             }
-            print i;
+            print i, "\n";
         }
         return 0;
     }
@@ -129,7 +138,7 @@ continue 跳过本次迭代的剩余部分：
             if i % 2 == 0 {
                 continue;
             }
-            print i;
+            print i, "\n";
         }
         return 0;
     }
@@ -149,17 +158,19 @@ continue 跳过本次迭代的剩余部分：
             for int j = 1; j <= i; j++ {
                 print j, "*", i, "=", i * j, "  ";
             }
-            print "";
+            print "\n";
         }
         return 0;
     }
 
 输出：
 
-    1 * 1 = 1
-    1 * 2 = 2   2 * 2 = 4
-    1 * 3 = 3   2 * 3 = 6   3 * 3 = 9
+    1*1=1  
+    1*2=2  2*2=4  
+    1*3=3  2*3=6  3*3=9  
     ...
+
+print 不会自动换行，乘法表每行末尾的 `print "\n"` 必须自己写。
 
 内层 break 只跳出内层循环。
 
@@ -171,7 +182,7 @@ continue 跳过本次迭代的剩余部分：
         int[] arr = {10, 20, 30, 40, 50};
 
         for int i = 0; i < arr.length; i++ {
-            print "arr[", i, "] =", arr[i];
+            print "arr[", i, "] = ", arr[i], "\n";
         }
 
         return 0;
@@ -183,7 +194,7 @@ continue 跳过本次迭代的剩余部分：
         int[] arr = {10, 20, 30, 40, 50};
 
         for int i = arr.length - 1; i >= 0; i-- {
-            print "arr[", i, "] =", arr[i];
+            print "arr[", i, "] = ", arr[i], "\n";
         }
 
         return 0;
@@ -193,16 +204,20 @@ continue 跳过本次迭代的剩余部分：
 
     int main() {
         for int i = 0; i <= 20; i += 2 {
-            print i;
+            print i, "\n";
         }
         return 0;
     }
 
-### 多个变量
+### 两个循环变量
+
+for 的初始化段只支持声明一个变量，需要两个计数器时分别声明：
 
     int main() {
-        for int i = 0, j = 10; i < j; i++, j-- {
-            print "i =", i, ", j =", j;
+        int j = 10;
+        for int i = 0; i < j; i++ {
+            print "i = ", i, ", j = ", j, "\n";
+            j--;
         }
         return 0;
     }
@@ -220,7 +235,7 @@ continue 跳过本次迭代的剩余部分：
 for 循环：
 
     for int i = 0; i < 10; i++ {
-        print i;
+        print i, "\n";
     }
 
 等价的 while 循环：
@@ -228,7 +243,7 @@ for 循环：
     {
         int i = 0;
         while i < 10 {
-            print i;
+            print i, "\n";
             i++;
         }
     }
@@ -243,22 +258,35 @@ for 循环：
 ### 循环变量作用域
 
     for int i = 0; i < 5; i++ {
-        print i;
+        print i, "\n";
     }
     // print i;                   // 错误！i 已超出作用域
 
-如果需要在循环外使用，在循环前声明：
+如果需要在循环外使用循环变量，在循环前声明并把初始化段留空：
 
-    int i;
-    for i = 0; i < 5; i++ {
-        print i;
+    int i = 0;
+    for ; i < 5; i++ {
+        print i, "\n";
     }
-    print "最终 i =", i;
+    print "最终 i = ", i, "\n";
+
+### 初始化段写成赋值
+
+    // int i;
+    // for i = 0; i < 5; i++ { ... }   // 错误！初始化段必须是声明
+
+### 带括号的 for
+
+    // for (int i = 0; i < 5; i++) { ... }   // 错误！for 后面不允许括号
+
+### 多变量初始化
+
+    // for int i = 0, j = 10; i < j; i++, j-- { ... }   // 错误！不支持
 
 ### 分号误用
 
     for int i = 0; i < 5; i++; {   // 注意分号！
-        print i;                    // 错误！i 不在作用域内
+        print i, "\n";             // 错误！i 不在作用域内
     }
 
 ### 修改循环变量

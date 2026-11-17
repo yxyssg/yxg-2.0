@@ -9,7 +9,7 @@
 static struct key_token key_token[] = {
     {"=",TOKEN_ASSIGN},{"+",TOKEN_ADD},{"-",TOKEN_SUB},
     {"*",TOKEN_MUL},{"/",TOKEN_DIV},{";",TOKEN_SEMICOLON},
-    {"print",TOKEN_PRINT},{",",TOKEN_COMMA},{".",TOKEN_DOT},
+    {"print",TOKEN_PRINT},{",",TOKEN_COMMA},{".",TOKEN_DOT},{"..",TOKEN_DOT_DOT},
     {"int",TOKEN_INT},{"string",TOKEN_STRING},{"float",TOKEN_FLOAT},
     {"bool", TOKEN_BOOL},{"char",TOKEN_CHAR}, {"if", TOKEN_IF},
     {"while",TOKEN_WHILE},{"for",TOKEN_FOR},{"do",TOKEN_DO},{"else",TOKEN_ELSE},
@@ -28,7 +28,11 @@ static struct key_token key_token[] = {
     {"this",  TOKEN_THIS},{"import",TOKEN_IMPORT},{"as",TOKEN_AS},
     {"<<", TOKEN_SHIFT_LEFT},{">>", TOKEN_SHIFT_RIGHT},{"<<=", TOKEN_SHIFT_LEFT_ASSIGN},
     {">>=", TOKEN_SHIFT_RIGHT_ASSIGN},{"^",  TOKEN_BITWISE_XOR},{"^=", TOKEN_BITWISE_XOR_ASSIGN},
-    {"?",TOKEN_QUESTION},
+    {"?",TOKEN_QUESTION},{"null",TOKEN_NULL},{"unsafe",TOKEN_UNSAFE},{"static",TOKEN_STATIC},
+    {"sizeof",TOKEN_SIZEOF},{"str",TOKEN_STR},{"->", TOKEN_ARROW},{"...",TOKEN_VARARG},{"InputSet", TOKEN_INPUT_SET},
+    {"try",TOKEN_TRY},{"catch",TOKEN_CATCH},{"throw",TOKEN_THROW},{"end",TOKEN_END},{"native",TOKEN_NATIVE},
+    {"virtual",TOKEN_VIRTUAL},{"override",TOKEN_OVERRIDE},{"const",TOKEN_CONST},
+
 };
 
 static int key_length = sizeof(key_token)/sizeof(struct key_token);
@@ -219,6 +223,45 @@ struct key_token find_bool(char* code)
 
 struct key_token find_identifier(char* code)
 {
+    static const char* prefixes[] = {"int", "uint", "float", "ufloat"};
+    static const int widths[] = {8, 16, 32, 64, 128};
+    for (int p = 0; p < 4; p++) {
+        int plen = strlen(prefixes[p]);
+        if (strncmp(code, prefixes[p], plen) != 0) continue;
+        const char* rest = code + plen;
+        if (rest[0] == '\0') break;
+        for (int w = 0; w < 5; w++) {
+            char wbuf[8];
+            snprintf(wbuf, sizeof(wbuf), "%d", widths[w]);
+            if (strcmp(rest, wbuf) != 0) continue;
+            TokenType t = TOKEN_IDENTIFIER;
+            switch (p) {
+            case 0:
+                if (widths[w]==8) t=TOKEN_INT8; else if (widths[w]==16) t=TOKEN_INT16;
+                else if (widths[w]==32) t=TOKEN_INT32; else if (widths[w]==64) t=TOKEN_INT64;
+                else if (widths[w]==128) t=TOKEN_INT128;
+                break;
+            case 1:
+                if (widths[w]==8) t=TOKEN_UINT8; else if (widths[w]==16) t=TOKEN_UINT16;
+                else if (widths[w]==32) t=TOKEN_UINT32; else if (widths[w]==64) t=TOKEN_UINT64;
+                else if (widths[w]==128) t=TOKEN_UINT128;
+                break;
+            case 2:
+                if (widths[w]==8) t=TOKEN_FLOAT8; else if (widths[w]==16) t=TOKEN_FLOAT16;
+                else if (widths[w]==32) t=TOKEN_FLOAT32; else if (widths[w]==64) t=TOKEN_FLOAT64;
+                else if (widths[w]==128) t=TOKEN_FLOAT128;
+                break;
+            case 3:
+                if (widths[w]==8) t=TOKEN_UFLOAT8; else if (widths[w]==16) t=TOKEN_UFLOAT16;
+                else if (widths[w]==32) t=TOKEN_UFLOAT32; else if (widths[w]==64) t=TOKEN_UFLOAT64;
+                else if (widths[w]==128) t=TOKEN_UFLOAT128;
+                break;
+            }
+            struct key_token token = {code, t};
+            return token;
+        }
+    }
+
     struct key_token token = {code,TOKEN_IDENTIFIER};
     return token;
 }
@@ -250,15 +293,63 @@ int parse_integer(const char* s) {
     return (int)strtol(s, NULL, 10);
 }
 
-char* normalize_number_str(const char* s) {
-    if (!s) return NULL;
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%d", parse_integer(s));
-    return strdup(buf);
+long long parse_integer64(const char* s) {
+    if (!s) return 0;
+    unsigned long long val = 0;
+    if (s[0] == '0') {
+        if (s[1] == 'x' || s[1] == 'X') {
+            val = strtoull(s + 2, NULL, 16);
+            return (long long)val;
+        }
+        if (s[1] == 'b' || s[1] == 'B') {
+            val = strtoull(s + 2, NULL, 2);
+            return (long long)val;
+        }
+        if (s[1] != '\0' && s[1] != '.') {
+            val = strtoull(s, NULL, 8);
+            return (long long)val;
+        }
+    }
+    val = strtoull(s, NULL, 10);
+    return (long long)val;
 }
 
-char* type_to_string(TokenType type)
-{
+char* normalize_number_str(const char* s) {
+    if (!s || !*s) {
+        return s ? strdup(s) : NULL;
+    }
+
+    int base = 10;
+    bool neg = false;
+    const char* p = s;
+
+    if (*p == '-' || *p == '+') {
+        neg = (*p == '-');
+        p++;
+    }
+
+    if (p[0] == '0') {
+        if (p[1] == 'x' || p[1] == 'X') {
+            base = 16;
+        } else if (p[1] == 'b' || p[1] == 'B') {
+            base = 2;
+        } else if (p[1] != '\0' && p[1] != '.') {
+            base = 8;
+        }
+    }
+
+    unsigned long long uval = strtoull(p, NULL, base);
+    long long val = neg ? -(long long)uval : (long long)uval;
+
+    if (val >= -2147483648LL && val <= 2147483647LL) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%lld", val);
+        return strdup(buf);
+    }
+    return strdup(s);
+}
+
+char* type_to_string(TokenType type) {
     switch (type)
     {
         case TOKEN_PLACEHOLDER:
@@ -269,6 +360,8 @@ char* type_to_string(TokenType type)
         return "Int";
         case TOKEN_STRING:
         return "String";
+        case TOKEN_STR:
+        return "Str";
         case TOKEN_CHAR:
         return "Char";
         case TOKEN_BOOL:
@@ -279,6 +372,46 @@ char* type_to_string(TokenType type)
         return "UInt";
         case TOKEN_UFLOAT:
         return "UFloat";
+        case TOKEN_INT8:
+        return "Int8";
+        case TOKEN_INT16:
+        return "Int16";
+        case TOKEN_INT32:
+        return "Int32";
+        case TOKEN_INT64:
+        return "Int64";
+        case TOKEN_INT128:
+        return "Int128";
+        case TOKEN_UINT8:
+        return "UInt8";
+        case TOKEN_UINT16:
+        return "UInt16";
+        case TOKEN_UINT32:
+        return "UInt32";
+        case TOKEN_UINT64:
+        return "UInt64";
+        case TOKEN_UINT128:
+        return "UInt128";
+        case TOKEN_FLOAT8:
+        return "Float8";
+        case TOKEN_FLOAT16:
+        return "Float16";
+        case TOKEN_FLOAT32:
+        return "Float32";
+        case TOKEN_FLOAT64:
+        return "Float64";
+        case TOKEN_FLOAT128:
+        return "Float128";
+        case TOKEN_UFLOAT8:
+        return "UFloat8";
+        case TOKEN_UFLOAT16:
+        return "UFloat16";
+        case TOKEN_UFLOAT32:
+        return "UFloat32";
+        case TOKEN_UFLOAT64:
+        return "UFloat64";
+        case TOKEN_UFLOAT128:
+        return "UFloat128";
         case TOKEN_VOID:
         return "Void";
         case TOKEN_FLOAT_LITERAL:
@@ -293,6 +426,10 @@ char* type_to_string(TokenType type)
         return "Identifier";
         case TOKEN_ASSIGN:
         return "Assignment";
+        case TOKEN_CONST:
+        return "Const";
+        case TOKEN_ARROW:
+       return "Arrow";
         case TOKEN_PRINT:
         return "Print";
         case TOKEN_SWITCH:
@@ -317,6 +454,10 @@ char* type_to_string(TokenType type)
         return "Comma";
         case TOKEN_DOT:
         return "Dot";
+        case TOKEN_DOT_DOT:
+        return "DotDot";
+        case TOKEN_VARARG:
+        return "Vararg";
         case TOKEN_QUESTION:
         return "Question";
         case TOKEN_COLON:
@@ -385,6 +526,8 @@ char* type_to_string(TokenType type)
         return "ModAssign";
         case TOKEN_INPUT:
         return "Input";
+        case TOKEN_INPUT_SET:
+        return "InputSet";
         case TOKEN_DO:
         return "DO";
         case TOKEN_IF:
@@ -419,6 +562,28 @@ char* type_to_string(TokenType type)
         return "Import";
         case TOKEN_AS:
         return "As";
+        case TOKEN_NULL:
+        return "Null";
+        case TOKEN_SIZEOF:
+        return "Sizeof";
+        case TOKEN_STATIC:
+        return "Static";
+        case TOKEN_NATIVE:
+        return "Native";
+        case TOKEN_TRY:
+        return "Try";
+        case TOKEN_CATCH:
+        return "Catch";
+        case TOKEN_THROW:
+        return "Throw";
+        case TOKEN_END:
+        return "End";
+        case TOKEN_UNSAFE:
+        return "Unsafe";
+        case TOKEN_VIRTUAL:
+        return "Virtual";
+        case TOKEN_OVERRIDE:
+        return "Override";
         case TOKEN_ERROR:
         return "Error";
         case TOKEN_NONE:

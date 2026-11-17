@@ -1,0 +1,112 @@
+import yxg.Function;
+
+pub class Thread {
+    pro int handle;
+    pro Function func;
+    pro int retval;
+    pro unsafe int* _ret_slot;
+
+    pub Thread(Function f) {
+        handle = 0;
+        func = f;
+        retval = 0;
+        _ret_slot = f._ret;
+    }
+
+    pub int start() {
+        if handle != 0 { return handle; }
+        handle = _thread_create(func);
+        return handle;
+    }
+
+    pub int join() {
+        if handle == 0 { return -1; }
+        int r = _thread_join(handle);
+        retval = r;
+        handle = 0;
+        return r;
+    }
+
+    // ==================== 单返回值 ====================
+    pub int resultInt() {
+        if _ret_slot == null { return retval; }
+        return _ret_slot[0];
+    }
+
+    pub float resultFloat() {
+        if _ret_slot == null { return retval as float; }
+        return _bits_to_float(_ret_slot[0]);
+    }
+
+    pub int64 resultI64() {
+        if _ret_slot == null { return retval as int64; }
+        unsafe int64* p = _ret_slot as int64*;
+        return *p;
+    }
+
+    pub str resultStr() {
+        str s;
+        unsafe int* sp = &s as int*;
+        if _ret_slot == null {
+            sp[0] = retval;
+            sp[1] = 0;
+            return s;
+        }
+        sp[0] = _ret_slot[0];
+        sp[1] = _ret_slot[1];
+        return s;
+    }
+
+    // ==================== join 返回码 ====================
+    pub int result() {
+        return retval;
+    }
+
+    pub int isRunning() {
+        return handle != 0;
+    }
+
+    // ==================== 编译器内部接口（勿删，getReturn 依赖） ====================
+    pri int resultSretAt(int offset) {
+        if _ret_slot == null { return 0; }
+        int sret_addr = _ret_slot[0];
+        unsafe int* sret = sret_addr as int*;
+        return sret[offset / 4];
+    }
+
+    pri int64 resultSretAt64(int offset) {
+        if _ret_slot == null { return 0; }
+        int sret_addr = _ret_slot[0];
+        unsafe int64* sret = (sret_addr + offset) as int64*;
+        return *sret;
+    }
+
+    pri str resultStrAt(int offset) {
+        str s;
+        unsafe int* sp = &s as int*;
+        if _ret_slot == null {
+            sp[0] = 0;
+            sp[1] = 0;
+            return s;
+        }
+        sp[0] = resultSretAt(offset);
+        sp[1] = resultSretAt(offset + 4);
+        return s;
+    }
+
+    pri int resultSretElemInt(int offset, int sub_index) {
+        if _ret_slot == null { return 0; }
+        int arr_ptr = resultSretAt(offset);
+        if arr_ptr == 0 { return 0; }
+        unsafe int* arr = arr_ptr as int*;
+        return arr[sub_index];
+    }
+
+    pub static int self() {
+        return _thread_self();
+    }
+
+    pub static void sleep(int ms) {
+        _thread_sleep(ms);
+    }
+}

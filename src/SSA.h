@@ -8,6 +8,10 @@ bool ssa_construct(CFG* cfg);
 
 IR* ssa_destruct(CFG* cfg);
 
+IR* ssa_strip_versions(IR* head);
+
+int ssa_local_value_numbering(CFG* cfg);
+
 int ssa_dead_code_elimination(CFG* cfg);
 
 int ssa_copy_propagation(CFG* cfg);

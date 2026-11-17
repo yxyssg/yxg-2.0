@@ -11,14 +11,37 @@ typedef enum TokenType
     TOKEN_FLOAT,
     TOKEN_UINT,
     TOKEN_UFLOAT,
+    TOKEN_INT8,
+    TOKEN_INT16,
+    TOKEN_INT32,
+    TOKEN_INT64,
+    TOKEN_INT128,
+    TOKEN_UINT8,
+    TOKEN_UINT16,
+    TOKEN_UINT32,
+    TOKEN_UINT64,
+    TOKEN_UINT128,
+    TOKEN_FLOAT8,
+    TOKEN_FLOAT16,
+    TOKEN_FLOAT32,
+    TOKEN_FLOAT64,
+    TOKEN_FLOAT128,
+    TOKEN_UFLOAT8,
+    TOKEN_UFLOAT16,
+    TOKEN_UFLOAT32,
+    TOKEN_UFLOAT64,
+    TOKEN_UFLOAT128,
     TOKEN_STRING,
+    TOKEN_STR,
     TOKEN_CHAR,
     TOKEN_BOOL,
     TOKEN_VOID,
+
     TOKEN_FLOAT_LITERAL,
     TOKEN_STRING_LITERAL,
     TOKEN_CHAR_LITERAL,
     TOKEN_BOOL_LITERAL,
+
     TOKEN_ASSIGN,
     TOKEN_ADD,
     TOKEN_SUB,
@@ -29,6 +52,9 @@ typedef enum TokenType
     TOKEN_COMMA,
     TOKEN_COLON,
     TOKEN_DOT,
+    TOKEN_DOT_DOT,
+    TOKEN_VARARG,
+    TOKEN_ARROW,
     TOKEN_QUESTION,
     TOKEN_EQ,
     TOKEN_OPPOSE,
@@ -64,6 +90,7 @@ typedef enum TokenType
 
     TOKEN_PRINT,
     TOKEN_INPUT,
+    TOKEN_INPUT_SET,
     TOKEN_IF,
     TOKEN_SWITCH,
     TOKEN_CASE,
@@ -77,6 +104,10 @@ typedef enum TokenType
     TOKEN_PUB,
     TOKEN_PRO,
     TOKEN_PRI,
+    TOKEN_CONST,
+    TOKEN_NATIVE,
+    TOKEN_VIRTUAL,
+    TOKEN_OVERRIDE,
     TOKEN_RETURN,
     TOKEN_NEW,
     TOKEN_CLASS,
@@ -84,6 +115,14 @@ typedef enum TokenType
     TOKEN_THIS,
     TOKEN_IMPORT,
     TOKEN_AS,
+    TOKEN_NULL,
+    TOKEN_UNSAFE,
+    TOKEN_STATIC,
+    TOKEN_SIZEOF,
+    TOKEN_TRY,
+    TOKEN_CATCH,
+    TOKEN_THROW,
+    TOKEN_END,
 
     TOKEN_ERROR,
     TOKEN_NONE,
@@ -96,6 +135,7 @@ typedef struct Token
     TokenType type;
     int line;
     int column;
+    const char* file;
 }Token;
 
 struct key_token
@@ -114,5 +154,6 @@ char* type_to_string(TokenType type);
 bool is_key_symbol(char code);
 char* normalize_number_str(const char* s);
 int parse_integer(const char* s);
+long long parse_integer64(const char* s);
 
-#endif //TOKEN_H
+#endif

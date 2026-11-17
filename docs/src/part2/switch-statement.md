@@ -25,6 +25,8 @@ switch 语句根据一个整数值选择执行不同的分支。条件直接跟�
 
     Wednesday
 
+条件也可以加括号，`switch (day) { ... }` 与上面等价。
+
 ## switch 详解
 
 ### 条件表达式
@@ -46,7 +48,10 @@ switch 的条件必须是整数类型（int、uint、char、bool）：
         return 0;
     }
 
-float 和 string 不能用于 switch。
+float 和 string 不能用于 switch：
+
+    string s = "hello";
+    // switch s { ... }         // 错误！error[E3003]: switch condition must be integer type
 
 ### case 值
 
@@ -71,7 +76,7 @@ case 的值必须是编译时常量（字面量或枚举成员）：
 
 ### break 语句
 
-每个 case 必须显式使用 break 退出，YXG 不会自动穿透：
+按惯例每个 case 结束都要显式使用 break 退出。YXG 编译器不会强制检查漏写 break，但漏写会导致落穿（继续执行下一个 case 的语句）：
 
     int main() {
         int x = 1;
@@ -135,7 +140,9 @@ default 分支在所有 case 都不匹配时执行，它是可选的：
 
 输出：
 
-    未知状态码: 999
+    未知状态码:999
+
+注意 print 不会自动补空格，`print "未知状态码:", code` 输出的是 `未知状态码:999`。想要空格就写成 `print "未知状态码: ", code`。
 
 ## 与枚举配合
 
@@ -189,8 +196,12 @@ switch 可以嵌套，内层的 break 只跳出内层 switch：
 
 输出：
 
-    电子产品
-    电脑
+    电子产品电脑
+
+因为 print 不换行，两条输出会连在一起。要分行显示请显式加 `"\n"`：
+
+    print "电子产品\n";
+    print "电脑";
 
 ## switch 与 if 的选择
 
@@ -205,14 +216,29 @@ switch 可以嵌套，内层的 break 只跳出内层 switch：
 
 ### 忘记 break
 
-    switch x {
-        case 1:
-            print "one";
-            // 忘记 break，编译器会报错
-        case 2:
-            print "two";
-            break;
+    int main() {
+        int x = 1;
+
+        switch x {
+            case 1:
+                print "one";
+                print "\n";
+                // 漏写 break：会继续执行 case 2 的语句
+            case 2:
+                print "two";
+                print "\n";
+                break;
+        }
+
+        return 0;
     }
+
+输出：
+
+    one
+    two
+
+编译器不会为漏写 break 报错，所以每个 case 结束时都要检查一遍。
 
 ### 重复的 case 值
 

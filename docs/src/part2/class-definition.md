@@ -10,14 +10,18 @@
     }
 
     int main() {
-        Point p;
+        Point p = new Point();
         p.x = 10;
         p.y = 20;
-        print p.x, p.y;
+        print p.x, " ", p.y, "\n";
         return 0;
     }
 
-类将数据（字段）和行为（方法）封装在一起。
+输出：
+
+    10 20
+
+类将数据（字段）和行为（方法）封装在一起。对象变量声明时不分配实例，默认值是 null，必须用 `new` 创建实例后才能访问字段和方法。
 
 ## 字段
 
@@ -30,22 +34,27 @@
     }
 
     int main() {
-        Person p1;
+        Person p1 = new Person();
         p1.name = "Alice";
         p1.age = 25;
         p1.height = 165.5;
 
-        Person p2;
+        Person p2 = new Person();
         p2.name = "Bob";
         p2.age = 30;
         p2.height = 178.0;
 
-        print p1.name, p1.age, p1.height;
-        print p2.name, p2.age, p2.height;
+        print p1.name, " ", p1.age, " ", p1.height, "\n";
+        print p2.name, " ", p2.age, " ", p2.height, "\n";
         return 0;
     }
 
-字段的默认值与其类型对应：int 为 0，float 为 0.0，string 为 null，bool 为 false。
+输出：
+
+    Alice 25 165.5
+    Bob 30 178.0
+
+每个 new 出来的实例都有一份独立的字段副本。字段的默认值与其类型对应：int 为 0，float 为 0.0，string 为 null，bool 为 false。
 
 ## 方法
 
@@ -72,20 +81,26 @@
     }
 
     int main() {
-        Counter c;
+        Counter c = new Counter();
         c.increment();
         c.increment();
         c.increment();
-        print c.getValue();
+        print c.getValue(), "\n";
 
         c.decrement();
-        print c.getValue();
+        print c.getValue(), "\n";
 
         c.reset();
-        print c.getValue();
+        print c.getValue(), "\n";
 
         return 0;
     }
+
+输出：
+
+    3
+    2
+    0
 
 方法使用 pub 标记为公开，外部代码才能调用。没有 pub 的方法默认为私有，仅类内部可用。
 
@@ -122,17 +137,17 @@
             this.y = y;
         }
 
-        pub void print() {
-            print "Point(", x, ", ", y, ")";
+        pub void show() {
+            print "Point(", x, ", ", y, ")\n";
         }
     }
 
     int main() {
         Point p = new Point(10, 20);
-        p.print();
+        p.show();
 
         Point q = new Point(5, 15);
-        q.print();
+        q.show();
 
         return 0;
     }
@@ -144,18 +159,26 @@
 
 构造函数没有返回类型（连 void 也不写）。使用 new 调用构造函数创建实例。
 
-如果没有定义构造函数，可以使用无参的默认构造：
+注意方法名不能叫 `print`：print 是语言内建的关键字，写成 `pub void print()` 会编译报错 `error[E2002]: expected variable name`。改用 `show()`、`printInfo()` 这类名字。
+
+即使类里没有定义构造函数，也不能省略 new：
 
     class Simple {
         int value;
     }
 
     int main() {
-        Simple s;
+        Simple s = new Simple();
         s.value = 42;
-        print s.value;
+        print s.value, "\n";
         return 0;
     }
+
+输出：
+
+    42
+
+写成 `Simple s;` 只是声明了一个值为 null 的引用，紧接着访问 `s.value` 会在运行时输出 `Error: null pointer dereference`。
 
 ## 访问控制
 
@@ -167,15 +190,15 @@ YXG 提供三种访问级别：
         pri int privateField;
 
         pub void publicMethod() {
-            print "public";
+            print "public\n";
         }
 
         pro void protectedMethod() {
-            print "protected";
+            print "protected\n";
         }
 
         pri void privateMethod() {
-            print "private";
+            print "private\n";
         }
     }
 
@@ -186,9 +209,23 @@ pri 字段的特殊之处：编译器会自动生成 getter 和 setter 方法。
 
 外部代码通过 getter/setter 访问私有字段：
 
-    Example e;
-    e.setValue(100);
-    int v = e.getValue();
+    class Example {
+        pri int value;
+    }
+
+    int main() {
+        Example e = new Example();
+        e.setValue(100);
+        int v = e.getValue();
+        print v, "\n";
+        return 0;
+    }
+
+输出：
+
+    100
+
+getter/setter 是按字段自动生成的，签名固定为 `get字段名()` / `set字段名(值)`，所以一个 pri 字段就同时拥有了读写入口。注意：类里必须真的有对应的 pri 字段才会生成；只声明而没有对应 pri 字段的 getC()/setC() 会编译报错 `error[E3015]: no matching method`。
 
 ## 完整示例：银行账户
 
@@ -206,17 +243,17 @@ pri 字段的特殊之处：编译器会自动生成 getter 和 setter 方法。
         pub void deposit(float amount) {
             if amount > 0 {
                 balance = balance + amount;
-                print "存入:", amount, "余额:", balance;
+                print "存入: ", amount, " 余额: ", balance, "\n";
             }
         }
 
         pub bool withdraw(float amount) {
             if amount > 0 && amount <= balance {
                 balance = balance - amount;
-                print "取出:", amount, "余额:", balance;
+                print "取出: ", amount, " 余额: ", balance, "\n";
                 return true;
             }
-            print "余额不足";
+            print "余额不足\n";
             return false;
         }
 
@@ -232,15 +269,15 @@ pri 字段的特殊之处：编译器会自动生成 getter 和 setter 方法。
     int main() {
         BankAccount acc = new BankAccount("Alice", "6222021234567890");
 
-        print "账户:", acc.getAccountNumber();
-        print "户主:", acc.ownerName;
+        print "账户: ", acc.getAccountNumber(), "\n";
+        print "户主: ", acc.ownerName, "\n";
 
         acc.deposit(1000.0);
         acc.deposit(500.0);
         acc.withdraw(300.0);
         acc.withdraw(2000.0);
 
-        print "最终余额:", acc.getBalance();
+        print "最终余额: ", acc.getBalance(), "\n";
         return 0;
     }
 
@@ -248,18 +285,39 @@ pri 字段的特殊之处：编译器会自动生成 getter 和 setter 方法。
 
     账户: 6222021234567890
     户主: Alice
-    存入: 1000.000000 余额: 1000.000000
-    存入: 500.000000 余额: 1500.000000
-    取出: 300.000000 余额: 1200.000000
+    存入: 1000.0 余额: 1000.0
+    存入: 500.0 余额: 1500.0
+    取出: 300.0 余额: 1200.0
     余额不足
-    最终余额: 1200.000000
+    最终余额: 1200.0
+
+float 用 %g 格式输出，1000.0 打印出来是 `1000.0`，不会带 6 位小数。
 
 ## 常见错误
 
 ### 忘记 new
 
     Point p = new Point(1, 2);     // 正确
-    // Point p = Point(1, 2);      // 错误！需要 new
+    // Point p = Point(1, 2);      // 错误！需要 new，报 E3008 找不到函数 Point
+
+即使类没有构造函数，也不能写成 `Point p;` 然后直接访问成员：
+
+    class Point { int x; int y; }
+
+    int main() {
+        Point p;                   // p 是 null
+        p.x = 10;                  // 运行时输出：Error: null pointer dereference
+        return 0;
+    }
+
+正确写法：
+
+    int main() {
+        Point p = new Point();
+        p.x = 10;
+        print p.x, "\n";
+        return 0;
+    }
 
 ### 访问私有成员
 
@@ -268,11 +326,16 @@ pri 字段的特殊之处：编译器会自动生成 getter 和 setter 方法。
     }
 
     int main() {
-        Foo f;
-        // f.secret = 42;           // 错误！secret 是私有的
+        Foo f = new Foo();
+        // f.secret = 42;           // 错误！secret 是私有的，报 E3014
         f.setSecret(42);            // 正确：通过自动生成的 setter
+        print f.getSecret(), "\n";
         return 0;
     }
+
+输出：
+
+    42
 
 ### 构造函数没有返回类型
 

@@ -120,4 +120,4 @@ String* string_read_line();
 String* string_read_line_with_prompt(const char* prompt);
 int string_read_line_into(String* str);
 
-#endif //YSTRING_H
+#endif

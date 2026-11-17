@@ -8,7 +8,7 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
         int[] numbers = {10, 20, 30, 40, 50};
 
         for int v : numbers {
-            print v;
+            print v, "\n";
         }
 
         return 0;
@@ -28,6 +28,8 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
         循环体
     }
 
+foreach 后面不能加括号，也不允许 `for (int v : arr)` 这种写法。
+
 ## 类型声明
 
 ### 显式类型
@@ -36,11 +38,18 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
         float[] scores = {95.5, 88.0, 76.5, 92.0};
 
         for float s : scores {
-            print s;
+            print s, "\n";
         }
 
         return 0;
     }
+
+输出：
+
+    95.5
+    88.0
+    76.5
+    92.0
 
 ### 省略类型（自动推断）
 
@@ -48,7 +57,7 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
         string[] names = {"Alice", "Bob", "Charlie"};
 
         for name : names {
-            print name;
+            print name, "\n";
         }
 
         return 0;
@@ -58,6 +67,8 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
 
 ## 遍历多维数组
 
+foreach 的循环变量只能是普通元素类型，不能声明成数组（`for int[] row : matrix` 会报 `expected variable name`）。遍历二维数组请用下标形式的 for：
+
     int main() {
         int[][] matrix = {
             {1, 2, 3},
@@ -65,9 +76,9 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
             {7, 8, 9}
         };
 
-        for int[] row : matrix {
-            for int elem : row {
-                print elem;
+        for int r = 0; r < matrix.length; r++ {
+            for int c = 0; c < matrix[r].length; c++ {
+                print matrix[r][c], "\n";
             }
         }
 
@@ -86,13 +97,52 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
     8
     9
 
+如果想一行输出一行结果，把内层改成 `print matrix[r][c], " "` 并在外层循环末尾 `print "\n"`。
+
 ## 遍历字符串
+
+foreach 只能用于数组。字符串不是数组，不能直接 foreach：
 
     int main() {
         string text = "Hello";
 
-        for char ch : text {
-            print ch;
+        // for char ch : text { ... }   // 错误！
+        // error[E3006]: cannot iterate over non-array type
+
+        return 0;
+    }
+
+遍历字符串请用下标 + String 库：
+
+    import yxg.String;
+
+    int main() {
+        string text = "Hello";
+
+        for int i = 0; i < String.len(text); i++ {
+            print String.charAt(text, i), "\n";
+        }
+
+        return 0;
+    }
+
+输出：
+
+    72
+    101
+    108
+    108
+    111
+
+因为 String.charAt 返回的是 int（字符的 ASCII 码），要按字符输出可以用 `String.sub`：
+
+    import yxg.String;
+
+    int main() {
+        string text = "Hello";
+
+        for int i = 0; i < String.len(text); i++ {
+            print String.sub(text, i, 1), "\n";
         }
 
         return 0;
@@ -113,12 +163,12 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
 
         // 传统 for：需要索引时使用
         for int i = 0; i < arr.length; i++ {
-            print "arr[", i, "] =", arr[i];
+            print "arr[", i, "] = ", arr[i], "\n";
         }
 
         // foreach：只读遍历时更简洁
         for int v : arr {
-            print v;
+            print v, "\n";
         }
 
         return 0;
@@ -138,7 +188,7 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
         // 找到第一个偶数
         for int v : arr {
             if v % 2 == 0 {
-                print "第一个偶数:", v;
+                print "第一个偶数: ", v, "\n";
                 break;
             }
         }
@@ -148,7 +198,7 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
             if v % 2 == 0 {
                 continue;
             }
-            print "奇数:", v;
+            print "奇数: ", v, "\n";
         }
 
         return 0;
@@ -173,9 +223,13 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
             sum += v;
         }
 
-        print "总和:", sum;
+        print "总和: ", sum, "\n";
         return 0;
     }
+
+输出：
+
+    总和: 15
 
 ### 查找最大值
 
@@ -189,7 +243,7 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
             }
         }
 
-        print "最大值:", max;
+        print "最大值: ", max, "\n";
         return 0;
     }
 
@@ -205,7 +259,7 @@ foreach 循环用于遍历数组的每个元素，无需手动管理索引：
             }
         }
 
-        print "90 分以上的人数:", count;
+        print "90 分以上的人数: ", count, "\n";
         return 0;
     }
 
@@ -223,7 +277,7 @@ foreach 中的循环变量是数组元素的副本，修改它不会影响原数
         }
 
         for int v : arr {
-            print v;                 // 仍然是 1, 2, 3, 4, 5
+            print v, "\n";           // 仍然是 1, 2, 3, 4, 5
         }
 
         return 0;
@@ -245,18 +299,21 @@ foreach 不提供索引信息。如果需要索引，使用传统 for。
 
 ## 常见错误
 
-### 类型不匹配
-
-    float[] arr = {1.5, 2.5, 3.5};
-    // for int v : arr { ... }       // 错误！类型不匹配
-    for float v : arr { ... }        // 正确
-
 ### 遍历非数组类型
 
     int x = 42;
     // for v : x { ... }             // 错误！x 不是数组
 
-foreach 只能用于数组和字符串。
+foreach 只能用于数组，不能用于字符串、单个变量等非数组类型。
+
+### 带括号的 foreach
+
+    // for (int v : arr) { ... }     // 错误！foreach 后面不允许括号
+
+### 二维数组
+
+    int[][] matrix = {{1, 2}, {3, 4}};
+    // for int[] row : matrix { ... }   // 错误！循环变量不能是数组类型
 
 ## 继续阅读
 

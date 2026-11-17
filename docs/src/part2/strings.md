@@ -4,18 +4,24 @@
 
 字符串用双引号包裹：
 
-    import yxg.String;
-
     int main() {
         string s1 = "Hello, World!";
         string s2 = "";
         string s3 = "包含中文和日本語";
 
-        print s1;
-        print s2;
-        print s3;
+        print s1, "\n";
+        print s2, "\n";
+        print s3, "\n";
         return 0;
     }
+
+输出：
+
+    Hello, World!
+
+    包含中文和日本語
+
+注意 print 不会自动加空格，也不会自动换行，要换行必须自己写 `"\n"`。
 
 转义序列：
 
@@ -33,100 +39,140 @@
     string s1 = hello + " " + world;
     string s2 = hello + "!";
 
-    print s1;
-    print s2;
+    print s1, "\n";
+    print s2, "\n";
+
+输出：
+
+    Hello World
+    Hello!
 
 与字符拼接：
 
     string s = "ABC";
     char ch = 'D';
-    string result = s + ch;
+    string result = s + ch;         // "ABCD"
 
-与数字拼接：
+注意：字符串只能和字符（char）拼接，不能直接和 int、float、bool 相加：
 
-    string s1 = "Value: " + 42;
-    string s2 = "Pi ≈ " + 3.14;
-    string s3 = "Flag: " + true;
+    // string s = "Value: " + 42;   // 错误！
+
+要输出数字，直接把数字作为 print 的另一个参数：
+
+    int n = 42;
+    print "Value: ", n, "\n";
 
 ## 使用 String 库
 
-String 库中的方法需要通过实例调用。首先创建 String 对象：
+String 库中的所有方法都是 static 的，直接用类名 `String.方法名()` 调用，不需要、也不能 new 实例：
 
     import yxg.String;
 
     int main() {
-        String str = new String();
-
-        // 之后通过 str 调用方法
-        int len = str.len("Hello");
-        print len;
+        int len = String.len("Hello");
+        print len, "\n";                    // 5
 
         return 0;
     }
+
+输出：
+
+    5
+
+下面的写法是错的：String 是 static 库类，拿不到实例来调用方法：
+
+    // String text = new String();      // 错误！String 没有可实例化的对象
+    // text.len("Hello");               // 错误！cannot determine class of object 'text'
+    // s.len("Hello");                  // 错误！string 变量本身也没有方法
+
+另外 `str` 是保留字，不能当变量名：
+
+    // string str = "Hello";            // 错误！expected variable name
+
+变量名请用 `s`、`text`、`msg` 等。
 
 ## 字符串长度
 
     import yxg.String;
 
     int main() {
-        String str = new String();
+        string s = "Hello, World!";
 
-        int len = str.len("Hello, World!");
-        print len;                          // 13
+        int len = String.len(s);
+        print len, "\n";                    // 13
 
-        bool empty = str.isEmpty("");
-        print empty;                        // true
+        bool empty = String.isEmpty("");
+        print empty, "\n";                  // true
 
         return 0;
     }
+
+输出：
+
+    13
+    true
 
 ## 访问单个字符
 
     import yxg.String;
 
     int main() {
-        String str = new String();
         string s = "Hello";
 
-        int c0 = str.charAt(s, 0);         // 72（'H' 的 ASCII 码）
-        int c1 = str.charAt(s, 1);         // 101（'e'）
-        int c4 = str.charAt(s, 4);         // 111（'o'）
+        int c0 = String.charAt(s, 0);       // 72（'H' 的 ASCII 码）
+        int c1 = String.charAt(s, 1);       // 101（'e'）
+        int c4 = String.charAt(s, 4);       // 111（'o'）
 
-        print c0, c1, c4;
+        print c0, " ", c1, " ", c4, "\n";
 
         // 遍历
-        for int i = 0; i < str.len(s); i++ {
-            print "s[", i, "] =", str.charAt(s, i);
+        for int i = 0; i < String.len(s); i++ {
+            print "s[", i, "] = ", String.charAt(s, i), "\n";
         }
 
         return 0;
     }
 
+输出：
+
+    72 101 111
+    s[0] = 72
+    s[1] = 101
+    s[2] = 108
+    s[3] = 108
+    s[4] = 111
+
 首尾字符快捷方法：
 
-    int first = str.first(s);              // 72
-    int last = str.last(s);                // 111
+    int first = String.first(s);            // 72
+    int last = String.last(s);              // 111
 
 ## 子串操作
 
     import yxg.String;
 
     int main() {
-        String str = new String();
         string s = "Hello, World!";
 
-        string sub1 = str.sub(s, 0, 5);    // "Hello"
-        string sub2 = str.sub(s, 7, 5);    // "World"
-        string left = str.left(s, 5);      // "Hello"
-        string right = str.right(s, 6);    // "World!"
+        string sub1 = String.sub(s, 0, 5);  // "Hello"
+        string sub2 = String.sub(s, 7, 5);  // "World"
+        string left = String.left(s, 5);    // "Hello"
+        string right = String.right(s, 6);  // "World!"
 
-        print sub1;
-        print sub2;
-        print left;
-        print right;
+        print sub1, "\n";
+        print sub2, "\n";
+        print left, "\n";
+        print right, "\n";
 
         return 0;
     }
+
+输出：
+
+    Hello
+    World
+    Hello
+    World!
 
 ## 字符串比较
 
@@ -134,91 +180,100 @@ String 库中的方法需要通过实例调用。首先创建 String 对象：
     string s2 = "apple";
     string s3 = "banana";
 
-    if s1 == s2 { print "相同"; }
-    if s1 != s3 { print "不同"; }
-    if s1 < s3  { print "apple 在 banana 之前"; }
+    if s1 == s2 { print "相同\n"; }
+    if s1 != s3 { print "不同\n"; }
+    if s1 < s3  { print "apple 在 banana 之前\n"; }
 
 == 比较的是字符串内容，不是内存地址。比较区分大小写。
+
+if 的条件也可以加括号，两种写法等价：`if (s1 == s2) { ... }`。
 
 ## 前后缀判断
 
     import yxg.String;
 
     int main() {
-        String str = new String();
         string s = "Hello, World!";
 
-        bool b1 = str.startsWith(s, "Hello");    // true
-        bool b2 = str.startsWith(s, "World");    // false
-        bool b3 = str.endsWith(s, "World!");     // true
-        bool b4 = str.endsWith(s, "Hello");      // false
+        bool b1 = String.startsWith(s, "Hello");    // true
+        bool b2 = String.startsWith(s, "World");    // false
+        bool b3 = String.endsWith(s, "World!");     // true
+        bool b4 = String.endsWith(s, "Hello");      // false
 
-        print b1, b2, b3, b4;
+        print b1, " ", b2, " ", b3, " ", b4, "\n";
 
         return 0;
     }
+
+输出：
+
+    true false true false
 
 ## 字符与子串查找
 
     import yxg.String;
 
     int main() {
-        String str = new String();
         string s = "Hello, World!";
 
-        int pos1 = str.indexOf(s, 'o');          // 4
-        int pos2 = str.lastIndexOf(s, 'o');      // 8
-        bool has = str.contains(s, 'W');         // true
+        int pos1 = String.indexOf(s, 'o');           // 4
+        int pos2 = String.lastIndexOf(s, 'o');       // 8
+        bool has = String.contains(s, 'W');          // true
 
-        int pos3 = str.indexOfStr(s, "World");   // 7
-        bool has2 = str.containsStr(s, "llo");   // true
+        int pos3 = String.indexOfStr(s, "World");    // 7
+        bool has2 = String.containsStr(s, "llo");    // true
 
-        print pos1, pos2, has, pos3, has2;
+        print pos1, " ", pos2, " ", has, " ", pos3, " ", has2, "\n";
 
         return 0;
     }
 
+输出：
+
+    4 8 true 7 true
+
 ## 大小写转换
+
+String 库只提供整串转换的 `toUpperStr` / `toLowerStr`，没有单字符版本 `toUpper` / `toLower`：
 
     import yxg.String;
 
     int main() {
-        String str = new String();
-
-        int upper = str.toUpper('a');            // 65（'A'）
-        int lower = str.toLower('Z');            // 122（'z'）
-
         string s = "Hello, World!";
-        string up = str.toUpperStr(s);           // "HELLO, WORLD!"
-        string lo = str.toLowerStr(s);           // "hello, world!"
 
-        print upper, lower;
-        print up;
-        print lo;
+        string up = String.toUpperStr(s);            // "HELLO, WORLD!"
+        string lo = String.toLowerStr(s);            // "hello, world!"
+
+        print up, "\n";
+        print lo, "\n";
 
         return 0;
     }
+
+输出：
+
+    HELLO, WORLD!
+    hello, world!
 
 ## 空白处理
 
     import yxg.String;
 
     int main() {
-        String str = new String();
         string s = "   Hello, World!   ";
 
-        string t1 = str.trimL(s);
-        string t2 = str.trimR(s);
-        string t3 = str.trim(s);
+        string t1 = String.trimL(s);
+        string t2 = String.trimR(s);
+        string t3 = String.trim(s);
 
-        print "'", t1, "'";
-        print "'", t2, "'";
-        print "'", t3, "'";
+        print "'", t1, "'\n";
+        print "'", t2, "'\n";
+        print "'", t3, "'\n";
 
-        bool space = str.isSpace(' ');
-        bool tab   = str.isSpace('\t');
+        bool space = String.isSpace(' ');
+        bool tab   = String.isSpace('\t');
 
-        print space, tab;
+        print space, " ", tab, "\n";
 
         return 0;
     }
@@ -235,54 +290,66 @@ String 库中的方法需要通过实例调用。首先创建 String 对象：
     import yxg.String;
 
     int main() {
-        String str = new String();
+        string r1 = String.repeat("Hi", 3);          // "HiHiHi"
+        string r2 = String.repeat("AB", 2);          // "ABAB"
 
-        string r1 = str.repeat("Hi", 3);         // "HiHiHi"
-        string r2 = str.repeat("AB", 2);         // "ABAB"
+        string p1 = String.padL("42", 5, '0');       // "00042"
+        string p2 = String.padR("YXG", 6, '.');      // "YXG..."
 
-        string p1 = str.padL("42", 5, '0');      // "00042"
-        string p2 = str.padR("YXG", 6, '.');     // "YXG..."
-
-        print r1;
-        print r2;
-        print p1;
-        print p2;
+        print r1, "\n";
+        print r2, "\n";
+        print p1, "\n";
+        print p2, "\n";
 
         return 0;
     }
+
+输出：
+
+    HiHiHi
+    ABAB
+    00042
+    YXG...
 
 ## 替换
 
     import yxg.String;
 
     int main() {
-        String str = new String();
+        string r = String.replace("Hello, World!", "World", "YXG");
+        string r2 = String.replace("one two one two", "one", "1");
 
-        string r = str.replace("Hello, World!", "World", "YXG");
-        string r2 = str.replace("one two one two", "one", "1");
-
-        print r;                                 // Hello, YXG!
-        print r2;                                // 1 two 1 two
+        print r, "\n";                              // Hello, YXG!
+        print r2, "\n";                             // 1 two 1 two
 
         return 0;
     }
+
+输出：
+
+    Hello, YXG!
+    1 two 1 two
 
 ## 统计
 
     import yxg.String;
 
     int main() {
-        String str = new String();
         string s = "Hello, World!";
 
-        int n1 = str.count(s, 'l');              // 3
-        int n2 = str.countStr(s, "lo");          // 1
+        int n1 = String.count(s, 'l');               // 3
+        int n2 = String.countStr(s, "lo");           // 1
 
-        print n1;
-        print n2;
+        print n1, "\n";
+        print n2, "\n";
 
         return 0;
     }
+
+输出：
+
+    3
+    1
 
 ## 字符串不可变性
 
@@ -291,8 +358,8 @@ YXG 中字符串是不可变的。每次操作都创建新字符串：
     string s = "Hello";
     string t = s;
     s = s + " World";
-    print "s:", s;
-    print "t:", t;
+    print "s:", s, "\n";
+    print "t:", t, "\n";
 
 输出：
 
@@ -303,26 +370,32 @@ YXG 中字符串是不可变的。每次操作都创建新字符串：
 
 ## 字符串与数组
 
-字符串可以像字符数组一样遍历：
+字符串不是数组，不能用下标或 foreach 取字符。遍历字符串请结合 `String.len` 和 `String.charAt`：
 
     import yxg.String;
 
     int main() {
-        String str = new String();
         string s = "YXG";
 
-        for int i = 0; i < str.len(s); i++ {
-            print str.charAt(s, i);
-        }
-
-        for char ch : s {
-            print ch;
+        for int i = 0; i < String.len(s); i++ {
+            print "s[", i, "] = ", String.charAt(s, i), "\n";
         }
 
         return 0;
     }
 
-但字符串不是数组，不能赋值给 string[] 类型。
+输出：
+
+    s[0] = 89
+    s[1] = 88
+    s[2] = 71
+
+以下写法都会报错：
+
+    // for char ch : s { ... }        // 错误！E3006: cannot iterate over non-array type
+    // int c = s[0];                  // 错误！字符串不能用下标取字符
+
+字符串不是数组，也不能赋值给 string[] 类型。
 
 ## 常见模式
 
@@ -331,10 +404,9 @@ YXG 中字符串是不可变的。每次操作都创建新字符串：
     import yxg.String;
 
     int countChar(string s, char target) {
-        String str = new String();
         int count = 0;
-        for int i = 0; i < str.len(s); i++ {
-            if str.charAt(s, i) == target {
+        for int i = 0; i < String.len(s); i++ {
+            if String.charAt(s, i) == target {
                 count++;
             }
         }
@@ -343,16 +415,21 @@ YXG 中字符串是不可变的。每次操作都创建新字符串：
 
 ### 反转字符串
 
+用 `String.sub(s, i, 1)` 取出单字符子串再拼接（`string + int` 不被允许，`String.charAt` 返回 int）：
+
     import yxg.String;
 
     string reverse(string s) {
-        String str = new String();
         string result = "";
-        for int i = str.len(s) - 1; i >= 0; i-- {
-            int ch = str.charAt(s, i);
-            result = result + ch;
+        for int i = String.len(s) - 1; i >= 0; i-- {
+            result = result + String.sub(s, i, 1);
         }
         return result;
+    }
+
+    int main() {
+        print reverse("Hello"), "\n";       // olleH
+        return 0;
     }
 
 ### 判断是否以某子串开头
@@ -360,16 +437,17 @@ YXG 中字符串是不可变的。每次操作都创建新字符串：
     import yxg.String;
 
     bool startsWith(string s, string prefix) {
-        String str = new String();
-        if str.len(prefix) > str.len(s) { return false; }
+        if String.len(prefix) > String.len(s) { return false; }
 
-        for int i = 0; i < str.len(prefix); i++ {
-            if str.charAt(s, i) != str.charAt(prefix, i) {
+        for int i = 0; i < String.len(prefix); i++ {
+            if String.charAt(s, i) != String.charAt(prefix, i) {
                 return false;
             }
         }
         return true;
     }
+
+标准库里已有 `String.startsWith`，实际开发中直接用即可。
 
 ## 常见错误
 
@@ -385,18 +463,30 @@ YXG 中字符串是不可变的。每次操作都创建新字符串：
     import yxg.String;
 
     int main() {
-        String str = new String();
-
         string s;
-        // int len = str.len(s);    // 运行时错误：s 是 null
+        // int len = String.len(s);    // 运行时错误：s 是 null
 
         string t = "";
-        int len = str.len(t);       // 正确：0
+        int len = String.len(t);       // 正确：0
+        print len, "\n";               // 0
 
         return 0;
     }
 
-未初始化的字符串默认是 null，访问其属性或方法会出错。建议始终初始化字符串。
+未初始化的字符串默认是 null，传给 String 库方法会出错。建议始终初始化字符串。
+
+### 用实例方式调用 String 库
+
+    import yxg.String;
+
+    int main() {
+        // String text = new String();  // 错误！String 是 static 库类
+        // text.len("Hello");           // 错误！
+
+        int len = String.len("Hello");  // 正确
+        print len, "\n";
+        return 0;
+    }
 
 ## 继续阅读
 

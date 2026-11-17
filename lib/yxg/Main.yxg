@@ -1,0 +1,1187 @@
+// // import game.GameUpdate;
+
+// // pub void main() {
+// //     GameUpdate gameupdate = new GameUpdate();
+// //     gameupdate.start();
+// // }
+// // ============================================================
+// // minilisp.yxg — 用 YXG 实现的迷你 Lisp 解释器
+// // ============================================================
+// import yxg.String;
+// import yxg.Utils;
+
+// // ------------------------------------------------------------
+// // 错误类型
+// // ------------------------------------------------------------
+// pub class LispError : ERROR {
+//     pub LispError(string msg) {
+//         this.info = msg;
+//     }
+// }
+
+// // ------------------------------------------------------------
+// // 参数容器 —— 避开值数组传参的编译器限制
+// // ------------------------------------------------------------
+// pub class ArgsBox {
+//     pub Value[32] items;
+//     pub int count;
+
+//     pub ArgsBox() {
+//         count = 0;
+//         int i = 0;
+//         while i < 32 {
+//             items[i] = null;
+//             i = i + 1;
+//         }
+//     }
+
+//     pub void add(Value v) {
+//         if count >= 32 {
+//             throw new LispError("too many arguments");
+//         }
+//         items[count] = v;
+//         count = count + 1;
+//     }
+
+//     pub Value at(int i) {
+//         return items[i];
+//     }
+// }
+
+// // ------------------------------------------------------------
+// // 环境（作用域链）
+// // ------------------------------------------------------------
+// pub class Env {
+//     pub Env parent;
+//     pub string[32] keys;
+//     pub Value[32] vals;
+//     pub int count;
+
+//     pub Env(Env p) {
+//         parent = p;
+//         count = 0;
+//         int i = 0;
+//         while i < 32 {
+//             keys[i] = "";
+//             vals[i] = null;
+//             i = i + 1;
+//         }
+//     }
+
+//     pub Value lookup(string name) {
+//         Env e = this;
+//         while e != null {
+//             int i = 0;
+//             while i < e.count {
+//                 if e.keys[i] == name {
+//                     return e.vals[i];
+//                 }
+//                 i = i + 1;
+//             }
+//             e = e.parent;
+//         }
+//         throw new LispError("undefined symbol: " + name);
+//     }
+
+//     pub void define(string name, Value v) {
+//         int i = 0;
+//         while i < count {
+//             if keys[i] == name {
+//                 vals[i] = v;
+//                 return;
+//             }
+//             i = i + 1;
+//         }
+//         if count >= 32 {
+//             throw new LispError("Env overflow: too many bindings");
+//         }
+//         keys[count] = name;
+//         vals[count] = v;
+//         count = count + 1;
+//     }
+
+//     pub void set(string name, Value v) {
+//         Env e = this;
+//         while e != null {
+//             int i = 0;
+//             while i < e.count {
+//                 if e.keys[i] == name {
+//                     e.vals[i] = v;
+//                     return;
+//                 }
+//                 i = i + 1;
+//             }
+//             e = e.parent;
+//         }
+//         throw new LispError("unbound variable: " + name);
+//     }
+// }
+
+// // ------------------------------------------------------------
+// // 值对象
+// // tag: 0=nil, 1=bool, 2=int, 3=string, 4=symbol,
+// //      5=pair, 6=closure, 7=builtin
+// // ------------------------------------------------------------
+// pub class Value {
+//     pub int tag;
+//     pub bool b;
+//     pub int i;
+//     pub string s;
+//     pub Value car;
+//     pub Value cdr;
+//     pub Value params;
+//     pub Value body;
+//     pub Env env;
+//     pub string builtin_name;
+
+//     pub Value() {
+//         tag = 0;
+//         b = false;
+//         i = 0;
+//         s = "";
+//         car = null;
+//         cdr = null;
+//         params = null;
+//         body = null;
+//         env = null;
+//         builtin_name = "";
+//     }
+// }
+
+// // ------------------------------------------------------------
+// // 构造器
+// // ------------------------------------------------------------
+// pub Value V_nil() {
+//     Value v = new Value();
+//     v.tag = 0;
+//     return v;
+// }
+
+// pub Value V_bool(bool x) {
+//     Value v = new Value();
+//     v.tag = 1;
+//     v.b = x;
+//     return v;
+// }
+
+// pub Value V_int(int x) {
+//     Value v = new Value();
+//     v.tag = 2;
+//     v.i = x;
+//     return v;
+// }
+
+// pub Value V_str(string x) {
+//     Value v = new Value();
+//     v.tag = 3;
+//     v.s = x;
+//     return v;
+// }
+
+// pub Value V_sym(string x) {
+//     Value v = new Value();
+//     v.tag = 4;
+//     v.s = x;
+//     return v;
+// }
+
+// pub Value V_cons(Value a, Value d) {
+//     Value v = new Value();
+//     v.tag = 5;
+//     v.car = a;
+//     v.cdr = d;
+//     return v;
+// }
+
+// pub Value V_closure(Value params, Value body, Env env) {
+//     Value v = new Value();
+//     v.tag = 6;
+//     v.params = params;
+//     v.body = body;
+//     v.env = env;
+//     return v;
+// }
+
+// pub Value V_builtin(string name) {
+//     Value v = new Value();
+//     v.tag = 7;
+//     v.builtin_name = name;
+//     return v;
+// }
+
+// // ------------------------------------------------------------
+// // S-表达式解析器
+// // ------------------------------------------------------------
+// pub class Parser {
+//     pub string src;
+//     pub int pos;
+//     pub int len;
+
+//     pub Parser(string s) {
+//         src = s;
+//         pos = 0;
+//         len = String.len(s);
+//     }
+
+//     pub void skipWs() {
+//         while pos < len {
+//             int c = String.charAt(src, pos);
+//             if c == 32 || c == 9 || c == 10 || c == 13 {
+//                 pos = pos + 1;
+//             } else if c == 59 {
+//                 while pos < len {
+//                     int cc = String.charAt(src, pos);
+//                     if cc == 10 { break; }
+//                     pos = pos + 1;
+//                 }
+//             } else {
+//                 break;
+//             }
+//         }
+//     }
+
+//     pub Value parse() {
+//         skipWs();
+//         if pos >= len {
+//             throw new LispError("unexpected end of input");
+//         }
+//         int c = String.charAt(src, pos);
+//         if c == 40 {
+//             pos = pos + 1;
+//             Value head = V_nil();
+//             Value tail = head;
+//             while true {
+//                 skipWs();
+//                 if pos >= len {
+//                     throw new LispError("unbalanced parentheses");
+//                 }
+//                 if String.charAt(src, pos) == 41 {
+//                     pos = pos + 1;
+//                     return head;
+//                 }
+//                 Value item = parse();
+//                 Value cell = V_cons(item, V_nil());
+//                 if head.tag == 0 {
+//                     head = cell;
+//                     tail = cell;
+//                 } else {
+//                     tail.cdr = cell;
+//                     tail = cell;
+//                 }
+//             }
+//         }
+//         if c == 41 {
+//             throw new LispError("unexpected ')'");
+//         }
+//         int start = pos;
+//         while pos < len {
+//             int cc = String.charAt(src, pos);
+//             if cc == 32 || cc == 9 || cc == 10 || cc == 13
+//                || cc == 40 || cc == 41 || cc == 59 {
+//                 break;
+//             }
+//             pos = pos + 1;
+//         }
+//         string tok = _str_to_string(String.sub(src, start, pos - start));
+//         return atom(tok);
+//     }
+
+//     pub Value atom(string s) {
+//         int n = String.len(s);
+//         if n == 0 {
+//             throw new LispError("empty atom");
+//         }
+//         int c0 = String.charAt(s, 0);
+//         if c0 == 34 {
+//             if n < 2 || String.charAt(s, n - 1) != 34 {
+//                 throw new LispError("unterminated string literal");
+//             }
+//             return V_str(_str_to_string(String.sub(s, 1, n - 2)));
+//         }
+//         if s == "#t" { return V_bool(true); }
+//         if s == "#f" { return V_bool(false); }
+//         int i = 0;
+//         if c0 == 45 { i = 1; }
+//         if i < n {
+//             bool numeric = true;
+//             int j = i;
+//             while j < n {
+//                 int cc = String.charAt(s, j);
+//                 if cc < 48 || cc > 57 { numeric = false; break; }
+//                 j = j + 1;
+//             }
+//             if numeric {
+//                 return V_int(Convert.parseInt(s));
+//             }
+//         }
+//         return V_sym(s);
+//     }
+// }
+
+// // ------------------------------------------------------------
+// // 求值器
+// // ------------------------------------------------------------
+// pub class Eval {
+//     pub static bool truthy(Value v) {
+//         if v.tag == 1 { return v.b; }
+//         return true;
+//     }
+
+//     pub static Value cadr(Value v) {
+//         return v.cdr.car;
+//     }
+
+//     pub static Value caddr(Value v) {
+//         return v.cdr.cdr.car;
+//     }
+
+//     pub static Value cddr(Value v) {
+//         return v.cdr.cdr;
+//     }
+
+//     pub static int asInt(Value v, string ctx) {
+//         if v.tag != 2 {
+//             throw new LispError(ctx + ": expected integer");
+//         }
+//         return v.i;
+//     }
+
+//     pub static Value evalBody(Value body, Env env) {
+//         Value r = V_nil();
+//         while body.tag == 5 {
+//             r = ev(body.car, env);
+//             body = body.cdr;
+//         }
+//         return r;
+//     }
+
+//     pub static Value ev(Value expr, Env env) {
+//         if expr.tag == 4 {
+//             return env.lookup(expr.s);
+//         }
+//         if expr.tag != 5 {
+//             return expr;
+//         }
+//         Value head = expr.car;
+//         if head.tag == 4 {
+//             string name = head.s;
+//             if name == "quote" {
+//                 return cadr(expr);
+//             }
+//             if name == "if" {
+//                 Value cond = ev(cadr(expr), env);
+//                 if truthy(cond) {
+//                     return ev(caddr(expr), env);
+//                 }
+//                 Value elseBr = cddr(expr).cdr;
+//                 if elseBr.tag == 5 {
+//                     return ev(elseBr.car, env);
+//                 }
+//                 return V_nil();
+//             }
+//             if name == "define" {
+//                 Value target = cadr(expr);
+//                 if target.tag == 5 {
+//                     Value fname = target.car;
+//                     Value params = target.cdr;
+//                     Value lam = V_cons(V_sym("lambda"),
+//                                        V_cons(params, cddr(expr)));
+//                     Value fn = ev(lam, env);
+//                     env.define(fname.s, fn);
+//                     return fn;
+//                 }
+//                 Value val = ev(caddr(expr), env);
+//                 env.define(target.s, val);
+//                 return val;
+//             }
+//             if name == "set!" {
+//                 Value sym = cadr(expr);
+//                 Value val = ev(caddr(expr), env);
+//                 env.set(sym.s, val);
+//                 return val;
+//             }
+//             if name == "lambda" {
+//                 Value params = cadr(expr);
+//                 Value body = cddr(expr);
+//                 return V_closure(params, body, env);
+//             }
+//             if name == "let" {
+//                 Value bindings = cadr(expr);
+//                 Value body = cddr(expr);
+//                 Env child = new Env(env);
+//                 Value p = bindings;
+//                 while p.tag == 5 {
+//                     Value b = p.car;
+//                     Value sym = b.car;
+//                     Value val = ev(b.cdr.car, env);
+//                     child.define(sym.s, val);
+//                     p = p.cdr;
+//                 }
+//                 return evalBody(body, child);
+//             }
+//             if name == "begin" {
+//                 return evalBody(expr.cdr, env);
+//             }
+//             if name == "cond" {
+//                 Value p = expr.cdr;
+//                 while p.tag == 5 {
+//                     Value clause = p.car;
+//                     Value test = clause.car;
+//                     if test.tag == 4 && test.s == "else" {
+//                         return evalBody(clause.cdr, env);
+//                     }
+//                     Value tv = ev(test, env);
+//                     if truthy(tv) {
+//                         return evalBody(clause.cdr, env);
+//                     }
+//                     p = p.cdr;
+//                 }
+//                 return V_nil();
+//             }
+//             if name == "and" {
+//                 Value p = expr.cdr;
+//                 Value r = V_bool(true);
+//                 while p.tag == 5 {
+//                     r = ev(p.car, env);
+//                     if !truthy(r) { return r; }
+//                     p = p.cdr;
+//                 }
+//                 return r;
+//             }
+//             if name == "or" {
+//                 Value p = expr.cdr;
+//                 Value r = V_bool(false);
+//                 while p.tag == 5 {
+//                     r = ev(p.car, env);
+//                     if truthy(r) { return r; }
+//                     p = p.cdr;
+//                 }
+//                 return r;
+//             }
+//         }
+//         Value fn = ev(head, env);
+//         ArgsBox box = new ArgsBox();
+//         Value p = expr.cdr;
+//         while p.tag == 5 {
+//             box.add(ev(p.car, env));
+//             p = p.cdr;
+//         }
+//         if fn.tag == 7 {
+//             return applyBuiltin(fn.builtin_name, box);
+//         }
+//         if fn.tag == 6 {
+//             Env child = new Env(fn.env);
+//             Value pp = fn.params;
+//             int i = 0;
+//             while pp.tag == 5 {
+//                 Value sym = pp.car;
+//                 child.define(sym.s, box.at(i));
+//                 pp = pp.cdr;
+//                 i = i + 1;
+//             }
+//             return evalBody(fn.body, child);
+//         }
+//         throw new LispError("not a callable value");
+//     }
+
+//     pub static Value applyBuiltin(string name, ArgsBox box) {
+//         int n = box.count;
+
+//         if name == "+" {
+//             int s = 0;
+//             int i = 0;
+//             while i < n {
+//                 s = s + asInt(box.at(i), "+");
+//                 i = i + 1;
+//             }
+//             return V_int(s);
+//         }
+//         if name == "-" {
+//             if n == 0 { return V_int(0); }
+//             if n == 1 { return V_int(0 - box.at(0).i); }
+//             int s = box.at(0).i;
+//             int i = 1;
+//             while i < n {
+//                 s = s - asInt(box.at(i), "-");
+//                 i = i + 1;
+//             }
+//             return V_int(s);
+//         }
+//         if name == "*" {
+//             int s = 1;
+//             int i = 0;
+//             while i < n {
+//                 s = s * asInt(box.at(i), "*");
+//                 i = i + 1;
+//             }
+//             return V_int(s);
+//         }
+//         if name == "/" {
+//             if n < 2 { throw new LispError("/: need 2 args"); }
+//             int s = asInt(box.at(0), "/");
+//             int i = 1;
+//             while i < n {
+//                 int d = asInt(box.at(i), "/");
+//                 if d == 0 { throw new LispError("/: division by zero"); }
+//                 s = s / d;
+//                 i = i + 1;
+//             }
+//             return V_int(s);
+//         }
+//         if name == "%" {
+//             if n != 2 { throw new LispError("%: need 2 args"); }
+//             int a = asInt(box.at(0), "%");
+//             int b = asInt(box.at(1), "%");
+//             if b == 0 { throw new LispError("%: division by zero"); }
+//             return V_int(a % b);
+//         }
+//         if name == "=" {
+//             if n != 2 { throw new LispError("=: need 2 args"); }
+//             return V_bool(eq(box.at(0), box.at(1)));
+//         }
+//         if name == "<" {
+//             return V_bool(asInt(box.at(0), "<") < asInt(box.at(1), "<"));
+//         }
+//         if name == ">" {
+//             return V_bool(asInt(box.at(0), ">") > asInt(box.at(1), ">"));
+//         }
+//         if name == "<=" {
+//             return V_bool(asInt(box.at(0), "<=") <= asInt(box.at(1), "<="));
+//         }
+//         if name == ">=" {
+//             return V_bool(asInt(box.at(0), ">=") >= asInt(box.at(1), ">="));
+//         }
+//         if name == "not" {
+//             if n != 1 { throw new LispError("not: need 1 arg"); }
+//             return V_bool(!truthy(box.at(0)));
+//         }
+//         if name == "list" {
+//             Value r = V_nil();
+//             Value tail = r;
+//             int i = 0;
+//             while i < n {
+//                 Value cell = V_cons(box.at(i), V_nil());
+//                 if r.tag == 0 {
+//                     r = cell;
+//                     tail = cell;
+//                 } else {
+//                     tail.cdr = cell;
+//                     tail = cell;
+//                 }
+//                 i = i + 1;
+//             }
+//             return r;
+//         }
+//         if name == "car" {
+//             if n != 1 { throw new LispError("car: need 1 arg"); }
+//             Value v = box.at(0);
+//             if v.tag != 5 { throw new LispError("car: not a pair"); }
+//             return v.car;
+//         }
+//         if name == "cdr" {
+//             if n != 1 { throw new LispError("cdr: need 1 arg"); }
+//             Value v = box.at(0);
+//             if v.tag != 5 { throw new LispError("cdr: not a pair"); }
+//             return v.cdr;
+//         }
+//         if name == "cons" {
+//             if n != 2 { throw new LispError("cons: need 2 args"); }
+//             return V_cons(box.at(0), box.at(1));
+//         }
+//         if name == "null?" {
+//             if n != 1 { throw new LispError("null?: need 1 arg"); }
+//             return V_bool(box.at(0).tag == 0);
+//         }
+//         if name == "number?" {
+//             return V_bool(box.at(0).tag == 2);
+//         }
+//         if name == "string?" {
+//             return V_bool(box.at(0).tag == 3);
+//         }
+//         if name == "symbol?" {
+//             return V_bool(box.at(0).tag == 4);
+//         }
+//         if name == "pair?" {
+//             return V_bool(box.at(0).tag == 5);
+//         }
+//         if name == "length" {
+//             if n != 1 { throw new LispError("length: need 1 arg"); }
+//             Value v = box.at(0);
+//             if v.tag == 3 {
+//                 return V_int(String.len(v.s));
+//             }
+//             if v.tag == 5 {
+//                 int cnt = 0;
+//                 while v.tag == 5 {
+//                     cnt = cnt + 1;
+//                     v = v.cdr;
+//                 }
+//                 return V_int(cnt);
+//             }
+//             if v.tag == 0 { return V_int(0); }
+//             throw new LispError("length: unsupported type");
+//         }
+//         if name == "append" {
+//             if n == 0 { return V_nil(); }
+//             Value head = V_nil();
+//             Value tail = head;
+//             int k = 0;
+//             while k < n {
+//                 Value v = box.at(k);
+//                 while v.tag == 5 {
+//                     Value cell = V_cons(v.car, V_nil());
+//                     if head.tag == 0 {
+//                         head = cell;
+//                         tail = cell;
+//                     } else {
+//                         tail.cdr = cell;
+//                         tail = cell;
+//                     }
+//                     v = v.cdr;
+//                 }
+//                 k = k + 1;
+//             }
+//             return head;
+//         }
+//         if name == "print" {
+//             int i = 0;
+//             while i < n {
+//                 print LispWriter.write(box.at(i));
+//                 i = i + 1;
+//             }
+//             print "\n";
+//             return V_nil();
+//         }
+//         if name == "error" {
+//             string msg = "error";
+//             if n > 0 && box.at(0).tag == 3 {
+//                 msg = box.at(0).s;
+//             }
+//             throw new LispError(msg);
+//         }
+//         throw new LispError("unknown builtin: " + name);
+//     }
+
+//     pub static bool eq(Value a, Value b) {
+//         if a.tag != b.tag { return false; }
+//         if a.tag == 0 { return true; }
+//         if a.tag == 1 { return a.b == b.b; }
+//         if a.tag == 2 { return a.i == b.i; }
+//         if a.tag == 3 { return a.s == b.s; }
+//         if a.tag == 4 { return a.s == b.s; }
+//         return a == b;
+//     }
+// }
+
+// // ------------------------------------------------------------
+// // 打印器
+// // ------------------------------------------------------------
+// pub class LispWriter {
+//     pub static string write(Value v) {
+//         if v.tag == 0 { return "()"; }
+//         if v.tag == 1 {
+//             if v.b { return "#t"; }
+//             return "#f";
+//         }
+//         if v.tag == 2 { return Convert.formatInt(v.i); }
+//         if v.tag == 3 { return "\"" + v.s + "\""; }
+//         if v.tag == 4 { return v.s; }
+//         if v.tag == 5 {
+//             string out = "(";
+//             bool first = true;
+//             Value p = v;
+//             while p.tag == 5 {
+//                 if !first { out = out + " "; }
+//                 out = out + write(p.car);
+//                 first = false;
+//                 p = p.cdr;
+//             }
+//             if p.tag != 0 {
+//                 out = out + " . " + write(p);
+//             }
+//             out = out + ")";
+//             return out;
+//         }
+//         if v.tag == 6 { return "#<closure>"; }
+//         if v.tag == 7 { return "#<builtin " + v.builtin_name + ">"; }
+//         return "#<?>";
+//     }
+// }
+
+// // ------------------------------------------------------------
+// // 全局环境
+// // ------------------------------------------------------------
+// pub Env makeGlobal() {
+//     Env g = new Env(null);
+//     g.define("+", V_builtin("+"));
+//     g.define("-", V_builtin("-"));
+//     g.define("*", V_builtin("*"));
+//     g.define("/", V_builtin("/"));
+//     g.define("%", V_builtin("%"));
+//     g.define("=", V_builtin("="));
+//     g.define("<", V_builtin("<"));
+//     g.define(">", V_builtin(">"));
+//     g.define("<=", V_builtin("<="));
+//     g.define(">=", V_builtin(">="));
+//     g.define("not", V_builtin("not"));
+//     g.define("list", V_builtin("list"));
+//     g.define("car", V_builtin("car"));
+//     g.define("cdr", V_builtin("cdr"));
+//     g.define("cons", V_builtin("cons"));
+//     g.define("null?", V_builtin("null?"));
+//     g.define("number?", V_builtin("number?"));
+//     g.define("string?", V_builtin("string?"));
+//     g.define("symbol?", V_builtin("symbol?"));
+//     g.define("pair?", V_builtin("pair?"));
+//     g.define("length", V_builtin("length"));
+//     g.define("append", V_builtin("append"));
+//     g.define("print", V_builtin("print"));
+//     g.define("error", V_builtin("error"));
+//     return g;
+// }
+
+// // ------------------------------------------------------------
+// // 内嵌 demo 脚本
+// // ------------------------------------------------------------
+// pub string demoSrc() {
+//     string s = "";
+//     s = s + "(define (fact n) (if (< n 2) 1 (* n (fact (- n 1)))))\n";
+//     s = s + "(print (fact 10))\n";
+//     s = s + "(define (make-adder n) (lambda (x) (+ x n)))\n";
+//     s = s + "(define add5 (make-adder 5))\n";
+//     s = s + "(print (add5 10))\n";
+//     s = s + "(print (add5 20))\n";
+//     s = s + "(define (fib n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))\n";
+//     s = s + "(print (fib 15))\n";
+//     s = s + "(print (list 1 2 3))\n";
+//     s = s + "(print (length (list 1 2 3 4 5)))\n";
+//     s = s + "(print (let ((a 10) (b 20)) (+ a b)))\n";
+//     s = s + "(print (cond ((> 1 2) 100) ((< 1 2) 200) (else 300)))\n";
+//     s = s + "(print (and 1 2 3))\n";
+//     s = s + "(print (or #f #f 42))\n";
+//     s = s + "(print (cons 1 (cons 2 (cons 3 (quote ())))))\n";
+//     return s;
+// }
+
+// // ------------------------------------------------------------
+// // 主程序
+// // ------------------------------------------------------------
+// pub void main() {
+//     string script = demoSrc();
+//     Env g = makeGlobal();
+//     Parser p = new Parser(script);
+//     int form_count = 0;
+//     while true {
+//         p.skipWs();
+//         if p.pos >= p.len { break; }
+//         try {
+//             Value form = p.parse();
+//             Value r = Eval.ev(form, g);
+//             form_count = form_count + 1;
+//             print "=> ", LispWriter.write(r), "\n";
+//         } catch (LispError e) {
+//             print "error: ", e.info, "\n";
+//             break;
+//         }
+//     }
+//     print "[evaluated ", form_count, " forms]\n";
+// }
+// import util;
+// import route;
+// import yxg.Utils;
+
+// class HelloHandler : HttpHandler {
+//     pub override void handle(HttpRequest req, HttpResponse res) {
+//         string name = req.queryOf("name");
+//         if String.len(name) == 0 { name = "world"; }
+//         res.text("Hello, " + name + "!");
+//     }
+// }
+
+// class UserHandler : HttpHandler {
+//     pub override void handle(HttpRequest req, HttpResponse res) {
+//         string id = req.param("id");
+//         res.json("{\"user_id\":" + id + "}");
+//     }
+// }
+
+// class PostHandler : HttpHandler {
+//     pub override void handle(HttpRequest req, HttpResponse res) {
+//         string uid = req.param("uid");
+//         string pid = req.param("pid");
+//         res.text("user=" + uid + " post=" + pid);
+//     }
+// }
+
+// class LoginHandler : HttpHandler {
+//     pub override void handle(HttpRequest req, HttpResponse res) {
+//         string user = req.queryOf("user");
+//         res.text("logged in as " + user);
+//         res.setCookie("session", "tok_" + user);
+//     }
+// }
+
+// class MeHandler : HttpHandler {
+//     pub override void handle(HttpRequest req, HttpResponse res) {
+//         string tok = req.cookieOf("session");
+//         if String.len(tok) == 0 {
+//             res.redirect("/login?user=guest");
+//             return;
+//         }
+//         res.text("session=" + tok);
+//     }
+// }
+
+// class SlowHandler : HttpHandler {
+//     pub override void handle(HttpRequest req, HttpResponse res) {
+//         string tag = req.queryOf("tag");
+//         _thread_sleep(2000);
+//         res.text("slow done: " + tag);
+//     }
+// }
+
+// class EchoHandler : HttpHandler {
+//     pub override void handle(HttpRequest req, HttpResponse res) {
+//         res.text("body=[" + req.body + "] len=" + Convert.formatInt(String.len(req.body)));
+//     }
+// }
+
+// pub void main() {
+//     Router r = new Router();
+//     r.get("/hello", new HelloHandler());
+//     r.get("/users/:id", new UserHandler());
+//     r.get("/users/:uid/posts/:pid", new PostHandler());
+//     r.get("/login", new LoginHandler());
+//     r.get("/me",    new MeHandler());
+//     r.get("/slow",  new SlowHandler());
+//     r.post("/echo", new EchoHandler());
+//     r.mount("/static", "./public");
+//     HttpServer server = new HttpServer(8080);
+//     print "listening on :8080\n";
+//     server.run(r);
+// }
+
+// import yxg.Socket;
+// import yxg.Utils;
+// import yxg.String;
+
+// int g_listen_fd = 0;
+
+// pub void on_accept(int ov, int bytes, int status) {
+//     print "[on_accept] status=", Convert.formatInt(status), " bytes=", Convert.formatInt(bytes), "\n";
+//     print "[on_accept] g_listen_fd=", Convert.formatInt(g_listen_fd), "\n";
+//     print "[on_accept] iocp_handle=", Convert.formatInt(Iocp.get_handle()), "\n";
+//     if status != 0 {
+//         print "[on_accept] error, re-accept\n";
+//         int rr = Iocp.accept_async(g_listen_fd, &on_accept);
+//         print "[on_accept] re-accept ret=", Convert.formatInt(rr), "\n";
+//         return;
+//     }
+//     int peer_fd = Iocp.ov_get_fd(ov);
+//     print "[on_accept] peer_fd=", Convert.formatInt(peer_fd), "\n";
+//     int ra = Iocp.recv_async(peer_fd, 4096, &on_recv);
+//     print "[on_accept] recv_async_ret=", Convert.formatInt(ra), "\n";
+//     int aa = Iocp.accept_async(g_listen_fd, &on_accept);
+//     print "[on_accept] next_accept_ret=", Convert.formatInt(aa), "\n";
+//     if aa != 1 {
+//         print "[on_accept] next_accept FAILED code=", Convert.formatInt(aa), "\n";
+//         int err = 0 - aa - 1000;
+//         print "[on_accept] GetLastError=", Convert.formatInt(err), "\n";
+//     }
+// }
+
+// pub int on_recv(int ov, int bytes, int status) {
+//     int peer_fd = Iocp.ov_get_fd(ov);
+//     int buf = Iocp.ov_get_buffer(ov);
+//     print "[on_recv] fd=", Convert.formatInt(peer_fd), " bytes=", Convert.formatInt(bytes), " status=", Convert.formatInt(status), "\n";
+//     if status != 0 || bytes == 0 {
+//         _socket_close(peer_fd);
+//         print "[on_recv] close fd=", Convert.formatInt(peer_fd), "\n";
+//         return 0;
+//     }
+//     string body = "hello from IOCP";
+//     string resp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "
+//                 + Convert.formatInt(String.len(body))
+//                 + "\r\nConnection: close\r\n\r\n" + body;
+//     str out;
+//     unsafe int* p = &out as int*;
+//     p[0] = resp as int;
+//     p[1] = String.len(resp);
+//     int sr = _socket_send_str(peer_fd, out);
+//     print "[on_recv] send_ret=", Convert.formatInt(sr), "\n";
+//     _socket_close(peer_fd);
+//     return 1;
+// }
+
+// pub void main() {
+//     if Iocp.init() == 0 {
+//         print "IOCP init failed\n";
+//         return;
+//     }
+//     int lfd = _socket_create(2, 1, 6);
+//     print "[main] lfd=", Convert.formatInt(lfd), "\n";
+//     if lfd < 0 {
+//         print "socket failed\n";
+//         return;
+//     }
+//     _socket_set_reuseaddr(lfd, 1);
+//     if _socket_bind(lfd, 9999) < 0 {
+//         print "bind failed\n";
+//         return;
+//     }
+//     _socket_listen(lfd, 128);
+//     g_listen_fd = lfd;
+//     print "[main] g_listen_fd after assign=", Convert.formatInt(g_listen_fd), "\n";
+//     int assoc = Iocp.associate(lfd, 0);
+//     print "[main] associate ret=", Convert.formatInt(assoc), "\n";
+//     print "[main] before start_worker\n";
+//     int wr = Iocp.start_worker(&on_dispatch);
+//     print "[main] start_worker ret=", Convert.formatInt(wr), "\n";
+//     print "[main] before accept_async\n";
+//     int first = Iocp.accept_async(lfd, &on_accept);
+//     print "[main] first accept_async ret=", Convert.formatInt(first), "\n";
+//     print "IOCP listening on :9999\n";
+//     while 1 == 1 {
+//         _thread_sleep(1000);
+//     }
+// }
+
+// pub void on_dispatch(int ov, int bytes, int status) {
+//     print "[on_dispatch] ov=", Convert.formatInt(ov), " bytes=", Convert.formatInt(bytes), " status=", Convert.formatInt(status), "\n";
+// }
+
+// import yxg.Utils;
+// import yxg.Math;
+// import Session;
+// import yxg.String;
+
+// pub void main() {
+//     Math.srand(_system_time());
+
+//     print "=== init ===\n";
+//     SessionStore ss = new SessionStore(3600, 1000);
+//     print "size_init=", Convert.formatInt(ss.size()), "\n";
+//     print "isValid=", Convert.formatInt(ss.isValid() as int), "\n";
+
+//     print "=== create ===\n";
+//     Session s1 = ss.create();
+//     Session s2 = ss.create();
+//     Session s3 = ss.create();
+//     print "size_after_3=", Convert.formatInt(ss.size()), "\n";
+//     print "s1_sid_len=", Convert.formatInt(String.len(s1.sid)), "\n";
+//     print "s1_sid_ne_s2=", Convert.formatInt((s1.sid != s2.sid) as int), "\n";
+//     print "s2_sid_ne_s3=", Convert.formatInt((s2.sid != s3.sid) as int), "\n";
+
+//     print "=== get by sid ===\n";
+//     Session g1 = ss.get(s1.sid);
+//     print "get_s1_nonnull=", Convert.formatInt((g1 != null) as int), "\n";
+//     print "get_s1_same_sid=", Convert.formatInt((g1.sid == s1.sid) as int), "\n";
+//     Session gz = ss.get("nonexistent_sid");
+//     print "get_unknown_null=", Convert.formatInt((gz == null) as int), "\n";
+
+//     print "=== session data ===\n";
+//     s1.set("user", "alice");
+//     s1.set("role", "admin");
+//     print "s1_get_user=", s1.get("user"), "\n";
+//     print "s1_get_role=", s1.get("role"), "\n";
+//     s1.set("user", "bob");
+//     print "s1_get_user_after_overwrite=", s1.get("user"), "\n";
+//     s1.remove("role");
+//     print "s1_data_size=", Convert.formatInt(s1.data.size()), "\n";
+
+//     print "=== destroy_sid ===\n";
+//     ss.destroy_sid(s2.sid);
+//     print "size_after_destroy_s2=", Convert.formatInt(ss.size()), "\n";
+//     Session g2 = ss.get(s2.sid);
+//     print "get_s2_after_destroy_null=", Convert.formatInt((g2 == null) as int), "\n";
+//     Session g1b = ss.get(s1.sid);
+//     print "get_s1_still_alive=", Convert.formatInt((g1b != null) as int), "\n";
+//     print "s1_data_preserved=", g1b.get("user"), "\n";
+
+//     print "=== expiry (ttl=2s, separate store) ===\n";
+//     SessionStore ss_short = new SessionStore(2, 100);
+//     Session s_exp = ss_short.create();
+//     string exp_sid = s_exp.sid;
+//     print "short_size_before_sleep=", Convert.formatInt(ss_short.size()), "\n";
+//     print "sleeping 3s...\n";
+//     _system_sleep(3000);
+//     Session g_exp = ss_short.get(exp_sid);
+//     print "get_expired_null=", Convert.formatInt((g_exp == null) as int), "\n";
+//     print "short_size_after_expiry=", Convert.formatInt(ss_short.size()), "\n";
+//     ss_short.destroy();
+
+//     print "=== gc ===\n";
+//     ss.gc();
+//     print "size_after_gc=", Convert.formatInt(ss.size()), "\n";
+//     Session g1c = ss.get(s1.sid);
+//     print "s1_still_alive_after_gc=", Convert.formatInt((g1c != null) as int), "\n";
+
+//     print "=== loop 500 create/get ===\n";
+//     int i = 0;
+//     while i < 500 {
+//         Session tmp = ss.create();
+//         Session tmp2 = ss.get(tmp.sid);
+//         if tmp2 == null {
+//             print "unexpected_null_at_i=", Convert.formatInt(i), "\n";
+//             return;
+//         }
+//         i = i + 1;
+//     }
+//     print "size_after_500=", Convert.formatInt(ss.size()), "\n";
+
+//     print "=== destroy all ===\n";
+//     ss.destroy();
+//     print "done\n";
+// }
+
+// import yxg.Socket;
+import yxg.Utils;
+import yxg.String;
+import yxg.Math;
+import yxg.Socket;
+import Session;
+import Http;
+
+int g_listen_fd = 0;
+SessionStore g_store;
+
+pub string buffer_to_string(int buf, int len) {
+    str s;
+    unsafe int* p = &s as int*;
+    p[0] = buf;
+    p[1] = len;
+    return _str_to_string(s);
+}
+
+pub void session_middleware(HttpRequest req, HttpResponse resp, SessionStore store) {
+    string sid = req.getCookie("sid");
+    Session sess = null;
+    if String.len(sid) > 0 {
+        sess = store.get(sid);
+    }
+    if sess == null {
+        sess = store.create();
+        resp.setCookieEx("sid", sess.sid, 3600);
+    }
+    req.session = sess;
+    req.has_session = true;
+}
+
+pub void handle_request(HttpRequest req, HttpResponse resp) {
+    string p = req.path;
+
+    if p == "/hello" {
+        string name = req.getQuery("name");
+        if String.len(name) == 0 {
+            name = "world";
+        }
+        resp.write("hello, " + name);
+        return;
+    }
+
+    if p == "/test1" || p == "/test2" || p == "/a" || p == "/b" {
+        resp.write("hello, session " + req.session.sid);
+        return;
+    }
+
+    if p == "/login" {
+        string user = req.getQuery("user");
+        if String.len(user) == 0 {
+            user = "anonymous";
+        }
+        req.session.set("user", user);
+        resp.write("logged in as " + user);
+        return;
+    }
+
+    if p == "/whoami" {
+        if req.session.data.has("user") {
+            resp.write("user=" + req.session.get("user"));
+        } else {
+            resp.write("not logged in");
+        }
+        return;
+    }
+
+    if p == "/logout" {
+        req.session.remove("user");
+        resp.write("logged out");
+        return;
+    }
+
+    resp.status = 404;
+    resp.write("not found: " + p);
+}
+
+pub int on_accept(int ov, int bytes, int status) {
+    if status != 0 {
+        Iocp.accept_async(g_listen_fd, &on_accept);
+        return 0;
+    }
+    int peer_fd = Iocp.ov_get_fd(ov);
+    Iocp.recv_async(peer_fd, 4096, &on_recv);
+    Iocp.accept_async(g_listen_fd, &on_accept);
+    return 1;
+}
+
+pub int on_recv(int ov, int bytes, int status) {
+    int peer_fd = Iocp.ov_get_fd(ov);
+    int buf = Iocp.ov_get_buffer(ov);
+    if status != 0 || bytes == 0 {
+        _socket_close(peer_fd);
+        return 0;
+    }
+
+    string raw = buffer_to_string(buf, bytes);
+    HttpRequest req = HttpRequest.parse(raw);
+    HttpResponse resp = new HttpResponse();
+
+    session_middleware(req, resp, g_store);
+    handle_request(req, resp);
+
+    string wire = resp.build();
+    _socket_send(peer_fd, wire, String.len(wire));
+    _socket_close(peer_fd);
+    return 1;
+}
+
+pub int on_dispatch(int ov, int bytes, int status) {
+    return 1;
+}
+
+pub void main() {
+    Math.srand(_system_time());
+
+    g_store = new SessionStore(3600, 10000);
+
+    if Iocp.init() == 0 {
+        print "IOCP init failed\n";
+        return;
+    }
+    int lfd = _socket_create(2, 1, 6);
+    if lfd < 0 {
+        print "socket failed\n";
+        return;
+    }
+    _socket_set_reuseaddr(lfd, 1);
+    if _socket_bind(lfd, 9999) < 0 {
+        print "bind failed\n";
+        return;
+    }
+    _socket_listen(lfd, 128);
+    g_listen_fd = lfd;
+    Iocp.associate(lfd, 0);
+    Iocp.start_worker(&on_dispatch);
+    Iocp.accept_async(lfd, &on_accept);
+    print "IOCP listening on :9999\n";
+
+    int gc_tick = 0;
+    while 1 == 1 {
+        _thread_sleep(1000);
+        gc_tick = gc_tick + 1;
+        if gc_tick >= 60 {
+            g_store.gc();
+            gc_tick = 0;
+        }
+    }
+}

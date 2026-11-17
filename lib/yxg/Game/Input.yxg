@@ -1,0 +1,102 @@
+import yxg.Window;
+
+pub class Input {
+    pub int[256] curr;      // 这一帧的按键状态
+    pub int[256] prev;      // 上一帧的按键状态
+
+    // 鼠标
+    pub int mx;
+    pub int my;
+    pub int mouseCurr;
+    pub int mousePrev;
+}
+
+pub Input g_input;
+
+pub void input_init() {
+    g_input = new Input();
+    int i = 0;
+    while i < 256 {
+        g_input.curr[i] = 0;
+        g_input.prev[i] = 0;
+        i = i + 1;
+    }
+    g_input.mx = 0;
+    g_input.my = 0;
+    g_input.mouseCurr = 0;
+    g_input.mousePrev = 0;
+}
+
+// 每帧末尾调用：把 curr 存进 prev
+pub void input_end_frame() {
+    int i = 0;
+    while i < 256 {
+        g_input.prev[i] = g_input.curr[i];
+        i = i + 1;
+    }
+    g_input.mousePrev = g_input.mouseCurr;
+}
+
+// 每帧开头调用：把窗口按键状态同步进来
+pub void input_begin_frame(Window win) {
+    // 常见按键列表——只同步用到的
+    int[16] keys;
+    keys[0]  = 37;   // LEFT
+    keys[1]  = 38;   // UP
+    keys[2]  = 39;   // RIGHT
+    keys[3]  = 40;   // DOWN
+    keys[4]  = 90;   // Z
+    keys[5]  = 88;   // X
+    keys[6]  = 67;   // C
+    keys[7]  = 16;   // SHIFT
+    keys[8]  = 32;   // SPACE
+    keys[9]  = 13;   // ENTER
+    keys[10] = 27;   // ESC
+    keys[11] = 65;   // A
+    keys[12] = 83;   // S
+    keys[13] = 68;   // D
+    keys[14] = 87;   // W
+    keys[15] = 17;   // CTRL
+
+    int i = 0;
+    while i < 16 {
+        int k = keys[i];
+        if win.is_key_down(k) == 1 {
+            g_input.curr[k] = 1;
+        } else {
+            g_input.curr[k] = 0;
+        }
+        i = i + 1;
+    }
+
+    g_input.mx = win.get_mouse_x();
+    g_input.my = win.get_mouse_y();
+    if win.is_mouse_down(0) == 1 {
+        g_input.mouseCurr = 1;
+    } else {
+        g_input.mouseCurr = 0;
+    }
+}
+
+pub bool key_down(int k) {
+    return g_input.curr[k] == 1;
+}
+
+pub bool key_pressed(int k) {
+    return g_input.curr[k] == 1 && g_input.prev[k] == 0;
+}
+
+pub bool key_released(int k) {
+    return g_input.curr[k] == 0 && g_input.prev[k] == 1;
+}
+
+pub bool mouse_down() {
+    return g_input.mouseCurr == 1;
+}
+
+pub bool mouse_pressed() {
+    return g_input.mouseCurr == 1 && g_input.mousePrev == 0;
+}
+
+pub int mouse_x() { return g_input.mx; }
+pub int mouse_y() { return g_input.my; }

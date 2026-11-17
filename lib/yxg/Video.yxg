@@ -1,0 +1,53 @@
+// ============================================================
+// video.yxg — YXG 视频播放库 (pl_mpeg: MPEG-1/MPEG-2, .mpg)
+//
+// 用法:
+//     import yxg.Video;
+//     Video v = new Video();
+//     if v.load("test.mpg") == 1 {
+//         v.set_loop(1);
+//         Canvas c = new Canvas();
+//         c.create(v.width(), v.height());
+//         ...
+//     }
+// ============================================================
+
+import yxg.Window;
+
+class Video {
+    int handle;
+
+    pub Video() {
+        handle = 0;
+    }
+
+    // 加载视频文件(.mpg), 成功返回 1
+    pub native int  load(string path);
+    pub native void unload();
+
+    // 解码下一帧: 1=有新帧, 0=播放结束, -1=错误
+    pub native int  next();
+
+    pub native int   width();
+    pub native int   height();
+    pub native float fps();
+    pub native float duration();
+    pub native float time();
+
+    pub native void seek(float sec);
+    pub native void rewind();
+    pub native void set_loop(int loop);
+
+    // 把当前帧拷贝到 Canvas(画布尺寸必须等于视频尺寸), 成功返回 1
+    pub native int  blit_to(Canvas c);
+
+    pub native int  last_error();
+
+    // 开始播放(音视频同步从头开始), loop 传 1 循环
+    pub native void play(int loop);
+    pub native void stop();
+
+    // 协商出的输出格式 FOURCC / 上次失败的 HRESULT
+    pub native int  dbg_subtype();
+    pub native int  last_hresult();
+}
