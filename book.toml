@@ -1,0 +1,8 @@
+[book]
+title = "yxg-2.0"
+authors = ["yxg"]
+language = "zh-CN"
+src = "docs/src"
+
+[build]
+build-dir = "book"
