@@ -176,13 +176,13 @@ Output / 输出：
     pub class Animal {
         pub string name;
 
-        pub void speak() {
+        pub virtual void speak() {
             print this.name, " makes a sound\n";
         }
     }
 
     pub class Dog : Animal {
-        pub void speak() {
+        pub override void speak() {
             print this.name, " barks!\n";
         }
     }
@@ -190,8 +190,15 @@ Output / 输出：
     pub void main() {
         Dog dog = new Dog();
         dog.name = "Rex";
-        dog.speak();          // Rex barks!
+        dog.speak();               // Rex barks!
+
+        Animal a = new Dog();
+        a.name = "Spot";
+        a.speak();                 // Spot barks!
     }
+
+> Polymorphism requires `virtual` on the base method and `override` on the derived one. Without them, calls bind statically to the base version.
+> 多态需要基类方法加 `virtual`、子类方法加 `override`。不加就是静态绑定，会走基类版本。
 
 > Objects must be created with `new`. A plain declaration `Dog d;` initializes `d` to **null**; accessing its members reports `Error: null pointer dereference`.
 > 对象必须用 `new` 创建。声明 `Dog d;` 后 `d` 是 **null**，访问成员会报 `Error: null pointer dereference`。
@@ -280,13 +287,13 @@ Output / 输出：
 
 | Option / 选项 | Description / 说明 |
 |---|---|
-| `-o <path>` | Output executable path / 指定输出路径 |
+| `-o <path>` | Output executable path / 指定输出路径（default: `output.exe` in cwd / 默认当前目录的 `output.exe`） |
 | `-r` | Compile and run (same as `run`) / 编译后立即运行 |
 | `-a` | Emit assembly only / 只生成汇编 |
 | `-w` | Windowed program (no console) / 窗口程序（无控制台） |
 | `-noassert` | Disable assert checks / 关闭 assert 检查 |
 | `--force` | Force rebuild / 强制重新编译 |
-| `-d` | Debug mode / 调试模式 |
+| `-d` | Reserved, no effect in current version / 预留参数，当前无效果 |
 | `-version` | Show version / 显示版本 |
 | `-help` | Show help / 显示帮助 |
 
@@ -383,8 +390,8 @@ These are current, verified limitations — plan around them / 以下是实测�
   `print` 逗号分隔的参数之间不自动加空格，也不自动换行。
 - **Array literals** can only initialize a declaration (`int[] a = {1,2,3};`), not appear in assignment or `return`.
   数组字面量只能用于变量初始化，不能用于赋值或 `return`。
-- **Generic class extending generic parent with primitive type arg** (`class Mine<T> : List<T>` used as `Mine<int>`) fails with `E3015`. Use `class IntList : List<int>` instead.
-  泛型类继承泛型父类且实参为基本类型时失败，改用直接继承已实例化的父类。
+- **Generic class extending a generic parent with a primitive type arg** (`class Mine<T> : List<T>` then `Mine<int>`) does not inherit the parent's methods — calling `m.add(...)` reports `E3015: no matching method`. Use `class IntList : List<int>` instead.
+  泛型类继承泛型父类且实参为基本类型时，父类方法没有继承下来（调用时报 `E3015`）。改用直接继承已实例化的父类。
 - **`for` does not accept parentheses**: write `for int i = 0; i < 5; i++`, not `for (int i = 0; ...)`. `if`/`switch` do accept parentheses.
   `for` 不支持括号；`if`/`switch` 支持。
 - **`for` init must be a declaration** and accepts one variable: `for i = 0` (already declared) and `for int i = 0, j = 10` are rejected.
@@ -393,8 +400,14 @@ These are current, verified limitations — plan around them / 以下是实测�
   `foreach` 只支持数组，不支持字符串，元素类型不能是数组。
 - **`print(...)` with parentheses** accepts only one argument.
   括号形式的 `print(...)` 只接受 1 个参数。
-- **No method dispatch (virtual calls)** — calling an overridden method through a base-class reference invokes the base version.
-  方法调用是静态绑定，通过基类引用调用不会走子类重写。
+- **`-d` flag is reserved** and produces no debug output in the current version.
+  `-d` 是预留参数，当前版本不输出任何调试信息。想看中间结果用 `-a` 生成 `output.asm`。
+- **`int128` / `uint128` / `float128` cannot be printed** — declaring and assigning works, but `print` reports `fatal error[E5001]`. Use `int64` / `float64` instead.
+  `int128` 等 128 位类型能声明赋值，但 `print` 会报 `E5001`。改用 `int64` / `float64`。
+- **No tuples or destructuring** — multi-return values can only be read via `getReturn(i)`; there is no way to store the whole result in a variable.
+  没有元组和解构赋值，多返回值只能用 `getReturn(i)` 即时取值。
+- **Variadic arguments require brackets** — call `f([1,2,3])`, not `f(arr)`. Passing an array variable reports `E3009`.
+  变参调用必须写中括号，传数组变量会报 `E3009`。
 
 ## Contributing / 贡献
 
