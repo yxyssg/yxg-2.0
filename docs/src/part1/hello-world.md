@@ -1,4 +1,4 @@
-﻿# 第一个程序：Hello World
+# 第一个程序：Hello World
 
 ## 最小的 YXG 程序
 
@@ -149,7 +149,25 @@ The answer is 42
 | `\\` | 反斜杠 |
 | `\"` | 双引号 |
 
-> **常见坑**：不要用反引号 `` ` `` 做转义（那是 Windows 命令行习惯）。`print "a`nb"` 会生成非法汇编，报 `expression syntax error`。**必须用 `\n`。**
+> **常见坑**：不要用反引号做转义（那是 Windows 命令行习惯）。字符串里用反引号加 n 不会换行，而是生成非法汇编。**必须用 `\n`。**
+
+反引号指的是键盘上数字 1 左边那个键，英文输入法下打出来就是那个符号。它在 YXG 字符串里不是合法转义符，会被原样写进字符串，生成汇编时出现非法字符，NASM 报：
+
+```
+output.asm:157: error: comma expected after operand, got `nb'
+```
+
+正确写法：
+
+```
+print "line1\nline2\n";
+```
+
+错误写法（下面注释里那个符号换成了反引号）：
+
+```
+print "line1`nline2`n";     // 反引号 → NASM 解析失败
+```
 
 ## 注释
 
@@ -341,6 +359,8 @@ pub void main() {
 
 ### 用反引号做转义
 
+有些人习惯用 Windows 命令行的反引号做转义，在 YXG 里这是错的：
+
 ```
 pub void main() {
     print "a`nb";         // 错误
@@ -350,7 +370,18 @@ pub void main() {
 汇编阶段报错：
 
 ```
-output.asm: error: expression syntax error
+output.asm:157: error: comma expected after operand, got `nb'
+Build Failed
+```
+
+反引号不是合法转义符，会被原样写进字符串，生成非法汇编指令，NASM 解析不了。
+
+正确写法：
+
+```
+pub void main() {
+    print "a\nb";         // 正确
+}
 ```
 
 改用 `\n`。
