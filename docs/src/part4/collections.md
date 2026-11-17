@@ -408,4 +408,4 @@ List<int> nums = ...;          // ❌ 没 import yxg.Collections.List
 
 ## 继续阅读
 
-下一篇进入到第五部分：图像与多媒体库
+下一章为图形与多媒体库详解

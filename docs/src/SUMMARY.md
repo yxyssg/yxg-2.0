@@ -7,6 +7,7 @@
 - [安装与构建](part1/installation.md)
 - [第一个程序：Hello World](part1/hello-world.md)
 - [命令行参数说明](part1/cli-options.md)
+- [项目配置文件 yxg.toml](part1/project-config.md)
 
 # 第二部分：YXG 语言参考
 - [基本类型](part2/basic-types.md)
@@ -51,6 +52,6 @@
 - [网络与文件库](part5/network-file.md)
 
 # 附录
-- [编译错误码速查](appendix/error-codes.md)
-- [术语表](appendix/glossary.md)
-- [参考资料](appendix/references.md)
+- [附录 A：编译错误码速查](appendix/error-codes.md)
+- [附录 B：术语表](appendix/glossary.md)
+- [附录 C：参考资料](appendix/references.md)

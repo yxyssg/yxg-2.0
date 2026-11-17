@@ -2287,7 +2287,7 @@ int main(int argc, char** argv)
         return 0;
     }
     if (strcmp(argv[1], "-version") == 0) {
-        printf("version: 1.0.0-alpha.1\n");
+        printf("version: 2.0.0\n");
         return 0;
     }
     if (strcmp(argv[1], "-time") == 0) {
