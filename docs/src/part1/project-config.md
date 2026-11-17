@@ -62,8 +62,8 @@ entry = "src/Main.yxg"
 path = "bin/demo.exe"
 
 [build]
-# 编译时附加参数，等同命令行效果，命令行优先级更高
-# 支持: -a -w -r -noassert --force -o <path>
+# Additional parameters at compile time, equivalent to the command line effect, with the command line taking higher priority
+# support : -a -w -r -noassert --force -o <path>
 flags = ""
 ```
 
