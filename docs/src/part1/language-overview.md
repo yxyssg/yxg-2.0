@@ -1,4 +1,4 @@
-﻿# YXG 语言简介
+# YXG 语言简介
 
 ## 设计初衷
 
@@ -244,6 +244,104 @@ pub void main() {
     print pick("x", "y", true), "\n";     // x
 }
 ```
+
+### 多返回值与可变参数
+
+返回类型可以写成一串类型，用 `getReturn(i)` 取值：
+
+```yxg
+pub (int, string) pair() {
+    return (123, "aaa");
+}
+
+pub void main() {
+    print pair().getReturn(0), "\n";      // 123
+    print pair().getReturn(1), "\n";      // aaa
+}
+```
+
+类型后面加 `...` 表示可变数量的返回值，返回时用 `[...]` 包：
+
+```yxg
+pub (int...) many() {
+    return ([5, 6, 7]);
+}
+
+pub void main() {
+    print many().getReturn(0).length, "\n";     // 3
+    print many().getReturn(0, 1), "\n";         // 6
+}
+```
+
+参数同理，`...` 紧跟参数名，调用时用 `[...]` 分组：
+
+```yxg
+pub int sum(int a, ...) {
+    int s = 0;
+    int i = 0;
+    while i < a.length {
+        s = s + a[i];
+        i = i + 1;
+    }
+    return s;
+}
+
+pub void main() {
+    print sum([1, 2, 3, 4]), "\n";     // 10
+}
+```
+
+多个变参组也支持：
+
+```yxg
+pub int mul(int a, ..., int b, ..., char op) { ... }
+mul([1, 2, 3], [4, 5, 6], '+');
+```
+
+详见[多返回值与可变参数](../part2/variadic.md)。
+
+### 指针
+
+指针存的是地址。`&` 取地址，`*` 解引用：
+
+```yxg
+pub unsafe void increment(int* p) {
+    *p = *p + 1;
+}
+
+pub void main() {
+    int a = 10;
+    increment(&a);
+    print a, "\n";        // 11
+}
+```
+
+| 能力 | 示例 |
+|---|---|
+| 多级指针 | `int** pp = &p;` |
+| 指针运算 | `p + 1` 按元素缩放 |
+| 类指针 | `pn->val = 99;` |
+| 函数指针 | `int (*fp)(int, int) = &add;` |
+| 函数指针数组 | `int (*ops[2])(int, int);` |
+| 返回函数指针 | `int (*)(int) pick() { return &f; }` |
+| 嵌套函数指针参数 | `int b(int (*p)(int (*r)(int)))` |
+
+详见[指针](../part2/pointers.md)。
+
+### 窄类型
+
+`int8`、`int16`、`uint8`、`uint16`、`int64`、`float64` 都能用：
+
+```yxg
+pub void main() {
+    int8 a = 12;
+    int16 b = 1234;
+    float64 c = 2.718281828;
+    print a, " ", b, " ", c, "\n";
+}
+```
+
+`int128` / `float128` 能声明但不能打印。详见[基本类型](../part2/basic-types.md)。
 
 ### 类与面向对象
 

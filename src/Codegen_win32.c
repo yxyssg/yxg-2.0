@@ -1122,6 +1122,12 @@ static DataType cg_load(FILE* out, const char* name, DataType hint_type) {
             fprintf(out, "  lea eax, %s\n", addr);
             return DATA_INT;
         }
+        if (original_hint == DATA_INT
+            && (normalize_type(type) == DATA_FLOAT || normalize_type(type) == DATA_UFLOAT)) {
+            /* float pointer param: IR says int, declared float -> read as address */
+            fprintf(out, "  mov eax, dword %s\n", addr);
+            return DATA_INT;
+        }
         if (normalize_type(type) == DATA_FLOAT || normalize_type(type) == DATA_UFLOAT) {
             int sz = get_type_size(type);
             if (sz == 1) {
@@ -3516,6 +3522,35 @@ void codegen_win32(FILE* output,IR* ir)
                 }
                 DataType print_type = ir_temp->call_func_args_type[0];
 
+                if (print_type == DATA_INT128 || print_type == DATA_UINT128) {
+                    FATAL(ERR_CG_UNKNOWN_VAR, LOC_NONE,
+                          "printing int128/uint128 is not supported yet (use int64)");
+                    break;
+                }
+                if (print_type == DATA_FLOAT128 || print_type == DATA_UFLOAT128) {
+                    FATAL(ERR_CG_UNKNOWN_VAR, LOC_NONE,
+                          "printing float128/ufloat128 is not supported yet (use float64)");
+                    break;
+                }
+                if (print_type == DATA_FLOAT128 || print_type == DATA_UFLOAT128) {
+                    char ab128f[128] = {0};
+                    if (is_temp(print_operand)) {
+                        int toff2 = temp_map_get_offset(print_operand);
+                        fprintf(output, "  mov eax, dword [ebp-%d]\n", toff2);
+                        fprintf(output, "  fld qword [eax]\n");
+                    } else if (cg_address(output, print_operand, ab128f, sizeof(ab128f))) {
+                        fprintf(output, "  fld qword %s\n", ab128f);
+                    } else {
+                        fprintf(output, "  fldz\n");
+                    }
+                    fprintf(output, "  push 1\n");
+                    fprintf(output, "  sub esp, 4\n");
+                    fprintf(output, "  fstp dword [esp]\n");
+                    fprintf(output, "  call %s\n", print_fn);
+                    fprintf(output, "  add esp, 8\n");
+                    has_print = true;
+                    break;
+                }
                 if (print_type == DATA_INT64 || print_type == DATA_UINT64) {
                     cg_load(output, print_operand, print_type);
                     fprintf(output, "  push edx\n");
@@ -3999,11 +4034,11 @@ void codegen_win32(FILE* output,IR* ir)
                         consts->offset[idx] = current_local_offset;
                         consts->is_array[idx] = false;
                         consts->array_size[idx] = 0;
-                        consts->is_dynamic_array[idx] = false;
-                        if (ir_temp->is_dynamic_array) {
-                            consts->is_dynamic_array[idx] = true;
-                        } else if (var_stack_sz > 4 &&
-                                   ir_temp->data_type != DATA_INT64 &&
+                      consts->is_dynamic_array[idx] = false;
+                       if (ir_temp->is_dynamic_array) {
+                           consts->is_dynamic_array[idx] = true;
+                       } else if ((var_stack_sz > 4 || ir_temp->dim_count > 0) &&
+                                  ir_temp->data_type != DATA_INT64 &&
                                    ir_temp->data_type != DATA_UINT64 &&
                                    ir_temp->data_type != DATA_FLOAT64 &&
                                    ir_temp->data_type != DATA_UFLOAT64 &&
@@ -5011,6 +5046,36 @@ void codegen_win32(FILE* output,IR* ir)
                 }
             }
 
+            if (byte_count >= 16 && src_ptr != NULL && is_number(src_ptr)
+                && strchr(src_ptr, '.') == NULL) {
+                fprintf(output, "  mov eax, %s\n", src_ptr);
+                fprintf(output, "  mov dword [edi], eax\n");
+                fprintf(output, "  xor eax, eax\n");
+                fprintf(output, "  mov dword [edi+4], eax\n");
+                fprintf(output, "  mov dword [edi+8], eax\n");
+                fprintf(output, "  mov dword [edi+12], eax\n");
+                break;
+            }
+            if (byte_count >= 8 && src_ptr != NULL && is_number(src_ptr)
+                && strchr(src_ptr, '.') != NULL) {
+                char* flabel = add_const(DATA_FLOAT, src_ptr, 0, DATA_FLOAT);
+                fprintf(output, "  fld dword [%s]\n", flabel);
+                if (byte_count >= 16) {
+                    fprintf(output, "  sub esp, 8\n");
+                    fprintf(output, "  fstp qword [esp]\n");
+                    fprintf(output, "  mov eax, dword [esp]\n");
+                    fprintf(output, "  mov dword [edi], eax\n");
+                    fprintf(output, "  mov eax, dword [esp+4]\n");
+                    fprintf(output, "  mov dword [edi+4], eax\n");
+                    fprintf(output, "  add esp, 8\n");
+                    fprintf(output, "  xor eax, eax\n");
+                    fprintf(output, "  mov dword [edi+8], eax\n");
+                    fprintf(output, "  mov dword [edi+12], eax\n");
+                } else {
+                    fprintf(output, "  fstp qword [edi]\n");
+                }
+                break;
+            }
             if (byte_count == 8) {
                 int src_idx = is_temp(src_ptr) ? -1 : get_const(src_ptr);
                 if (is_temp(src_ptr)) {
@@ -5218,7 +5283,7 @@ void codegen_win32(FILE* output,IR* ir)
                 int db = get_type_size(dst);
                 if (sb == 1) fprintf(output, "  movsx eax, al\n");
                 else if (sb == 2) fprintf(output, "  movsx eax, ax\n");
-                else if (sb == 4 && db == 8) fprintf(output, "  cdq\n");
+                if (db == 8) fprintf(output, "  cdq\n");
                 cg_store(output, ir_temp->result, dst, false);
                 break;
             }
@@ -5228,7 +5293,7 @@ void codegen_win32(FILE* output,IR* ir)
                 int db = get_type_size(dst);
                 if (sb == 1) fprintf(output, "  movzx eax, al\n");
                 else if (sb == 2) fprintf(output, "  movzx eax, ax\n");
-                else if (sb == 4 && db == 8) fprintf(output, "  xor edx, edx\n");
+                if (db == 8) fprintf(output, "  xor edx, edx\n");
                 cg_store(output, ir_temp->result, dst, false);
                 break;
             }

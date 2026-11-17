@@ -99,6 +99,106 @@ void 函数没有返回值，return 语句可选：
         print "x is non-negative: ", x, "\n";
     }
 
+### 返回多个值
+
+返回类型可以写成括号里的类型列表，用 `getReturn(i)` 取值：
+
+```yxg
+pub (int, string) pair() {
+    return (123, "aaa");
+}
+
+pub void main() {
+    print pair().getReturn(0), "\n";    // 123
+    print pair().getReturn(1), "\n";    // aaa
+}
+```
+
+可变数量的返回值用 `(int...)`，返回时用 `[...]` 包：
+
+```yxg
+pub (int...) many() {
+    return ([5, 6, 7]);
+}
+
+pub void main() {
+    print many().getReturn(0).length, "\n";     // 3
+}
+```
+
+完整语法、混合写法、函数指针组合见[多返回值与可变参数](variadic.md)。
+
+> 注意：YXG 没有元组类型，也不能解构赋值。多返回值只能即时用 `getReturn` 取，不能存进变量。
+
+## 参数进阶
+
+### 可变参数
+
+参数名后面加 `...`，调用时用 `[...]` 传一组实参：
+
+```yxg
+pub int sum(int a, ...) {
+    int s = 0;
+    int i = 0;
+    while i < a.length {
+        s = s + a[i];
+        i = i + 1;
+    }
+    return s;
+}
+
+pub void main() {
+    print sum([1, 2, 3, 4]), "\n";     // 10
+}
+```
+
+变参位置收到的是一个**数组**，用 `a.length` 和 `a[i]` 访问。
+
+支持多个可变参数：
+
+```yxg
+pub int mul(int a, ..., int b, ..., char op) { ... }
+mul([1, 2, 3], [4, 5, 6], '+');
+```
+
+详见[多返回值与可变参数](variadic.md)。
+
+### 指针参数
+
+要让函数修改调用方的变量，传指针：
+
+```yxg
+pub unsafe void increment(int* p) {
+    *p = *p + 1;
+}
+
+pub void main() {
+    int a = 10;
+    increment(&a);
+    print a, "\n";     // 11
+}
+```
+
+详见[指针](pointers.md)。
+
+### 函数指针
+
+函数可以作为参数传递：
+
+```yxg
+pub int add(int a, int b) { return a + b; }
+
+pub unsafe int apply(int (*f)(int, int), int x, int y) {
+    return f(x, y);
+}
+
+pub void main() {
+    print apply(&add, 4, 5), "\n";     // 9
+}
+```
+
+函数指针支持返回、数组、嵌套、多返回值，完整说明见[指针](pointers.md)的「函数指针」一节。
+
 ## 数组参数与返回值
 
 函数可以接收和返回数组：
@@ -499,4 +599,6 @@ System 库还提供了其他系统功能：
 
 ## 继续阅读
 
-掌握了函数后，下一章将学习数组的详细用法。
+- [指针](pointers.md)：用指针修改调用方的变量、函数指针回调
+- [多返回值与可变参数](variadic.md)：返回多个值、`...` 变参
+- [数组](arrays.md)：数组参数与返回值

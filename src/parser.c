@@ -570,6 +570,54 @@ static ASTNode* parse_dim_expression(Parser* parser, int* out_size) {
     return expr;
 }
 
+/* Detect and consume a nested function-pointer parameter declarator such as
+   "int (*f)(int)", "int (*)(int)" or "int (*g)(int (*)(int), int)".
+   The whole declarator (return type included) is consumed and the recursive
+   signature is returned through out_sig.  Returns false without consuming
+   anything when the tokens at the cursor are not such a declarator. */
+static bool parser_try_nested_func_ptr_param(Parser* parser,
+                                             DataType* out_base,
+                                             FuncSignature** out_sig) {
+    *out_base = DATA_ERROR;
+    *out_sig = NULL;
+
+    TokenType t = parser->current.type;
+    if (!is_var_type(t) && t != TOKEN_IDENTIFIER && t != TOKEN_VOID)
+        return false;
+
+    int scan = parser->index + 1;
+    while (parser->tokens[scan].type == TOKEN_DOT
+           && parser->tokens[scan + 1].type == TOKEN_IDENTIFIER)
+        scan += 2;
+    if (parser->tokens[scan].type == TOKEN_LT) {
+        int depth = 1;
+        scan++;
+        while (parser->tokens[scan].type != TOKEN_EOF && depth > 0) {
+            if (parser->tokens[scan].type == TOKEN_LT) depth++;
+            else if (parser->tokens[scan].type == TOKEN_GT) depth--;
+            else if (parser->tokens[scan].type == TOKEN_SHIFT_RIGHT) {
+                depth -= 2;
+                if (depth < 0) depth = 0;
+            }
+            scan++;
+        }
+    }
+    if (parser->tokens[scan].type != TOKEN_PAREN_LEFT
+        || parser->tokens[scan + 1].type != TOKEN_MUL)
+        return false;
+
+    int saved = parser->index;
+    FuncSignature* sig = parse_func_ptr_type_signature(parser);
+    if (!sig) {
+        parser->index = saved;
+        parser->current = parser->tokens[parser->index];
+        return false;
+    }
+    *out_base = DATA_INT;
+    *out_sig = sig;
+    return true;
+}
+
 static bool parse_return_type_func_ptr(Parser* parser, AST_Function* func,
                                         DataType base_return_type,
                                         int base_ptr_depth) {
@@ -1451,7 +1499,18 @@ ASTNode* parser_Sentence(Parser* parser, bool is_block)
             parser->tokens[look + 1].type == TOKEN_MUL &&
             parser->tokens[look + 2].type == TOKEN_IDENTIFIER &&
             parser->tokens[look + 3].type == TOKEN_PAREN_RIGHT) {
-            if (parser->tokens[look + 4].type == TOKEN_PAREN_LEFT) {
+            int after_params = look + 4;
+            int pdepth = 0;
+            while (parser->tokens[after_params].type != TOKEN_EOF) {
+                if (parser->tokens[after_params].type == TOKEN_PAREN_LEFT) pdepth++;
+                if (parser->tokens[after_params].type == TOKEN_PAREN_RIGHT) {
+                    pdepth--;
+                    if (pdepth == 0) break;
+                }
+                after_params++;
+            }
+            if (parser->tokens[look + 4].type == TOKEN_PAREN_LEFT
+                && parser->tokens[after_params + 1].type == TOKEN_BRACKET_LEFT) {
                 parser->index = saved;
                 parser->current = parser->tokens[parser->index];
                 temp = parser_def_function(parser);
@@ -1461,6 +1520,13 @@ ASTNode* parser_Sentence(Parser* parser, bool is_block)
                 temp = parser_multi_return_func_ptr_var(parser);
                 parser_eat(parser, TOKEN_SEMICOLON);
             }
+        } else if (parser->tokens[look].type != TOKEN_PAREN_LEFT) {
+            /* leading (*expr) not followed by ( : expression statement */
+            parser->index = saved;
+            parser->current = parser->tokens[parser->index];
+            ASTNode* lv_stmt = parser_Unary(parser);
+            temp = parser_finish_lvalue_stmt(parser, lv_stmt);
+            parser_eat(parser, TOKEN_SEMICOLON);
         } else {
             parser->index = saved;
             parser->current = parser->tokens[parser->index];
@@ -2058,12 +2124,6 @@ static FuncSignature* parse_func_ptr_type_signature(Parser* parser) {
         bool followed_by_fptr = (parser->tokens[look].type == TOKEN_PAREN_LEFT
                                  && parser->tokens[look + 1].type == TOKEN_MUL);
 
-        if (has_comma_or_va && followed_by_fptr) {
-            parser->index = saved;
-            parser->current = parser->tokens[parser->index];
-            return sig;
-        }
-
         if (has_comma_or_va) {
             parser->index = saved;
             parser->current = parser->tokens[parser->index];
@@ -2076,7 +2136,8 @@ static FuncSignature* parse_func_ptr_type_signature(Parser* parser) {
     }
 
     if (!sig->multi_return && sig->return_type == DATA_VOID) {
-        if (parser_current_is_type(parser, TOKEN_PAREN_LEFT)) {
+        if (parser_current_is_type(parser, TOKEN_PAREN_LEFT)
+            && parser->tokens[parser->index + 1].type != TOKEN_MUL) {
             sig->multi_return = parse_multi_return_type(parser);
             sig->return_type = DATA_VOID;
         } else if (is_var_type(parser->current.type)
@@ -2136,17 +2197,45 @@ static FuncSignature* parse_func_ptr_type_signature(Parser* parser) {
         if (parser_current_is_type(parser, TOKEN_PAREN_LEFT)) {
             FuncSignature* inner_sig = parse_func_ptr_type_signature(parser);
             if (inner_sig) {
-                if (param_cnt >= param_cap) {
-                    param_cap *= 2;
-                    param_types = realloc(param_types, sizeof(DataType) * param_cap);
-                    param_type_param_indices = realloc(param_type_param_indices, sizeof(int) * param_cap);
-                    param_pointee_const = realloc(param_pointee_const, sizeof(bool) * param_cap);
-                    param_func_sigs = realloc(param_func_sigs, sizeof(FuncSignature*) * param_cap);
-                }
-                param_types[param_cnt] = DATA_INT;
+               if (param_cnt >= param_cap) {
+                   int old_param_cap = param_cap;
+                   param_cap *= 2;
+                   param_types = realloc(param_types, sizeof(DataType) * param_cap);
+                   param_type_param_indices = realloc(param_type_param_indices, sizeof(int) * param_cap);
+                   param_pointee_const = realloc(param_pointee_const, sizeof(bool) * param_cap);
+                   param_func_sigs = realloc(param_func_sigs, sizeof(FuncSignature*) * param_cap);
+                   memset(param_func_sigs + old_param_cap, 0,
+                          sizeof(FuncSignature*) * (size_t)(param_cap - old_param_cap));
+               }
+               param_types[param_cnt] = DATA_INT;
                 param_type_param_indices[param_cnt] = -1;
                 param_pointee_const[param_cnt] = false;
                 param_func_sigs[param_cnt] = inner_sig;
+                param_cnt++;
+                if (parser_current_is_type(parser, TOKEN_COMMA))
+                    parser_advance(parser);
+                continue;
+            }
+        }
+
+        {
+            DataType nested_base = DATA_ERROR;
+            FuncSignature* nested_sig = NULL;
+            if (parser_try_nested_func_ptr_param(parser, &nested_base, &nested_sig)) {
+               if (param_cnt >= param_cap) {
+                   int old_param_cap = param_cap;
+                   param_cap *= 2;
+                   param_types = realloc(param_types, sizeof(DataType) * param_cap);
+                   param_type_param_indices = realloc(param_type_param_indices, sizeof(int) * param_cap);
+                   param_pointee_const = realloc(param_pointee_const, sizeof(bool) * param_cap);
+                   param_func_sigs = realloc(param_func_sigs, sizeof(FuncSignature*) * param_cap);
+                   memset(param_func_sigs + old_param_cap, 0,
+                          sizeof(FuncSignature*) * (size_t)(param_cap - old_param_cap));
+               }
+               param_types[param_cnt] = nested_base;
+                param_type_param_indices[param_cnt] = -1;
+                param_pointee_const[param_cnt] = false;
+                param_func_sigs[param_cnt] = nested_sig;
                 param_cnt++;
                 if (parser_current_is_type(parser, TOKEN_COMMA))
                     parser_advance(parser);
@@ -3098,6 +3187,24 @@ ASTNode* parser_def_function_with_modifier(Parser* parser, int modifier) {
                         parser_advance(parser);
                     continue;
                 }
+                {
+                    DataType nested_base = DATA_ERROR;
+                    FuncSignature* nested_sig = NULL;
+                    if (parser_try_nested_func_ptr_param(parser, &nested_base, &nested_sig)) {
+                        if (param_count >= param_cap) {
+                            param_cap *= 2;
+                            param_types = realloc(param_types, sizeof(DataType) * param_cap);
+                        }
+                        param_types[param_count] = nested_base;
+                        param_count++;
+                        if (parser_current_is_type(parser, TOKEN_COMMA)) {
+                            parser_eat(parser, TOKEN_COMMA);
+                        } else {
+                            break;
+                        }
+                        continue;
+                    }
+                }
                 if (!is_var_type(parser->current.type) && parser->current.type != TOKEN_IDENTIFIER) {
                     ERROR(ERR_PARSE_EXPECTED_TOKEN,
                           LOC(parser->filename, parser->current.line,
@@ -3894,6 +4001,24 @@ ASTNode* parser_def_function(Parser* parser) {
                     if (parser_current_is_type(parser, TOKEN_COMMA))
                         parser_advance(parser);
                     continue;
+                }
+                {
+                    DataType nested_base = DATA_ERROR;
+                    FuncSignature* nested_sig = NULL;
+                    if (parser_try_nested_func_ptr_param(parser, &nested_base, &nested_sig)) {
+                        if (param_count >= param_cap) {
+                            param_cap *= 2;
+                            param_types = realloc(param_types, sizeof(DataType) * param_cap);
+                        }
+                        param_types[param_count] = nested_base;
+                        param_count++;
+                        if (parser_current_is_type(parser, TOKEN_COMMA)) {
+                            parser_eat(parser, TOKEN_COMMA);
+                        } else {
+                            break;
+                        }
+                        continue;
+                    }
                 }
                 if (!is_var_type(parser->current.type) && parser->current.type != TOKEN_IDENTIFIER) {
                     ERROR(ERR_PARSE_EXPECTED_TOKEN,
@@ -5280,6 +5405,8 @@ static ASTNode* parser_multi_return_func_ptr_var(Parser* parser) {
     }
 
     int total_ptr_depth = 0;
+    int final_dim_count = 0;
+    int* final_dim_sizes = NULL;
     char* final_name = NULL;
     Token final_name_token = {0};
     FuncSignature* outermost_sig = NULL;
@@ -5386,14 +5513,42 @@ static ASTNode* parser_multi_return_func_ptr_var(Parser* parser) {
             parser_advance(parser);
         }
 
+        /* array of function pointers: "(*name[expr])(params)" */
+        int layer_dim_count = 0;
+        int layer_dim_cap = 4;
+        int* layer_dim_sizes = malloc(sizeof(int) * (size_t)layer_dim_cap);
+        if (!layer_dim_sizes) OUT_OF_MEMORY();
+        while (parser_current_is_type(parser, TOKEN_SQUARE_BRACKET_LEFT)) {
+            parser_eat(parser, TOKEN_SQUARE_BRACKET_LEFT);
+            int layer_dim_size = -1;
+            if (parser_current_is_type(parser, TOKEN_NUMBER)) {
+                layer_dim_size = atoi(parser->current.value);
+                parser_advance(parser);
+            } else if (!parser_current_is_type(parser, TOKEN_SQUARE_BRACKET_RIGHT)) {
+                ASTNode* layer_dim_expr = parser_Binary(parser);
+                if (layer_dim_expr) AST_Free(layer_dim_expr);
+                layer_dim_size = -2;
+            }
+            parser_eat(parser, TOKEN_SQUARE_BRACKET_RIGHT);
+            if (layer_dim_count >= layer_dim_cap) {
+                layer_dim_cap *= 2;
+                layer_dim_sizes = realloc(layer_dim_sizes,
+                    sizeof(int) * (size_t)layer_dim_cap);
+                if (!layer_dim_sizes) OUT_OF_MEMORY();
+            }
+            layer_dim_sizes[layer_dim_count++] = layer_dim_size;
+        }
+
         parser_eat(parser, TOKEN_PAREN_RIGHT);
         parser_eat(parser, TOKEN_PAREN_LEFT);
 
         int pcnt = 0, pcap = 4;
         DataType* ptypes = malloc(sizeof(DataType) * (size_t)pcap);
         bool* ppointer_const = malloc(sizeof(bool) * (size_t)pcap);
+        FuncSignature** psigs = calloc((size_t)pcap, sizeof(FuncSignature*));
         if (!ptypes) OUT_OF_MEMORY();
         if (!ppointer_const) OUT_OF_MEMORY();
+        if (!psigs) OUT_OF_MEMORY();
         bool has_va = false;
         int vacnt = 0, vacap = 4;
         int* vai = malloc(sizeof(int) * (size_t)vacap);
@@ -5418,15 +5573,21 @@ static ASTNode* parser_multi_return_func_ptr_var(Parser* parser) {
             if (parser_current_is_type(parser, TOKEN_PAREN_LEFT)) {
                 FuncSignature *inner_sig = parse_func_ptr_type_signature(parser);
                 if (inner_sig) {
-                    if (pcnt >= pcap) {
-                        pcap *= 2;
-                        ptypes = realloc(ptypes, sizeof(DataType) * (size_t)pcap);
-                        ppointer_const = realloc(ppointer_const, sizeof(bool) * (size_t)pcap);
-                        if (!ptypes) OUT_OF_MEMORY();
-                        if (!ppointer_const) OUT_OF_MEMORY();
-                    }
-                    ptypes[pcnt] = DATA_INT;
+                   if (pcnt >= pcap) {
+                       int old_pcap = pcap;
+                       pcap *= 2;
+                       ptypes = realloc(ptypes, sizeof(DataType) * (size_t)pcap);
+                       ppointer_const = realloc(ppointer_const, sizeof(bool) * (size_t)pcap);
+                       psigs = realloc(psigs, sizeof(FuncSignature*) * (size_t)pcap);
+                       if (!ptypes) OUT_OF_MEMORY();
+                       if (!ppointer_const) OUT_OF_MEMORY();
+                       if (!psigs) OUT_OF_MEMORY();
+                       memset(psigs + old_pcap, 0,
+                              sizeof(FuncSignature*) * (size_t)(pcap - old_pcap));
+                   }
+                   ptypes[pcnt] = DATA_INT;
                     ppointer_const[pcnt] = false;
+                    psigs[pcnt] = NULL;
                     pcnt++;
                     free(inner_sig->param_types);
                     free(inner_sig->param_pointee_const);
@@ -5449,6 +5610,32 @@ static ASTNode* parser_multi_return_func_ptr_var(Parser* parser) {
                         free(mrt);
                     }
                     free(inner_sig);
+                    if (parser_current_is_type(parser, TOKEN_COMMA))
+                        parser_advance(parser);
+                    continue;
+                }
+            }
+
+            {
+                DataType nested_base = DATA_ERROR;
+                FuncSignature* nested_sig = NULL;
+                if (parser_try_nested_func_ptr_param(parser, &nested_base, &nested_sig)) {
+                   if (pcnt >= pcap) {
+                       int old_pcap = pcap;
+                       pcap *= 2;
+                       ptypes = realloc(ptypes, sizeof(DataType) * (size_t)pcap);
+                       ppointer_const = realloc(ppointer_const, sizeof(bool) * (size_t)pcap);
+                       psigs = realloc(psigs, sizeof(FuncSignature*) * (size_t)pcap);
+                       if (!ptypes) OUT_OF_MEMORY();
+                       if (!ppointer_const) OUT_OF_MEMORY();
+                       if (!psigs) OUT_OF_MEMORY();
+                       memset(psigs + old_pcap, 0,
+                              sizeof(FuncSignature*) * (size_t)(pcap - old_pcap));
+                   }
+                   ptypes[pcnt] = nested_base;
+                    ppointer_const[pcnt] = false;
+                    psigs[pcnt] = nested_sig;
+                    pcnt++;
                     if (parser_current_is_type(parser, TOKEN_COMMA))
                         parser_advance(parser);
                     continue;
@@ -5486,15 +5673,21 @@ static ASTNode* parser_multi_return_func_ptr_var(Parser* parser) {
 
             if (star_count == 0) param_pointee_const_val = false;
 
-            if (pcnt >= pcap) {
-                pcap *= 2;
-                ptypes = realloc(ptypes, sizeof(DataType) * (size_t)pcap);
-                ppointer_const = realloc(ppointer_const, sizeof(bool) * (size_t)pcap);
-                if (!ptypes) OUT_OF_MEMORY();
-                if (!ppointer_const) OUT_OF_MEMORY();
-            }
-            ptypes[pcnt] = pt;
+           if (pcnt >= pcap) {
+               int old_pcap = pcap;
+               pcap *= 2;
+               ptypes = realloc(ptypes, sizeof(DataType) * (size_t)pcap);
+               ppointer_const = realloc(ppointer_const, sizeof(bool) * (size_t)pcap);
+               psigs = realloc(psigs, sizeof(FuncSignature*) * (size_t)pcap);
+               if (!ptypes) OUT_OF_MEMORY();
+               if (!ppointer_const) OUT_OF_MEMORY();
+               if (!psigs) OUT_OF_MEMORY();
+               memset(psigs + old_pcap, 0,
+                      sizeof(FuncSignature*) * (size_t)(pcap - old_pcap));
+           }
+           ptypes[pcnt] = pt;
             ppointer_const[pcnt] = param_pointee_const_val;
+            psigs[pcnt] = NULL;
             pcnt++;
 
             if (parser_current_is_type(parser, TOKEN_COMMA))
@@ -5509,6 +5702,7 @@ static ASTNode* parser_multi_return_func_ptr_var(Parser* parser) {
         layer_sig->param_count = pcnt;
         layer_sig->param_types = ptypes;
         layer_sig->param_pointee_const = ppointer_const;
+        layer_sig->param_func_sigs = psigs;
         layer_sig->has_varargs = has_va;
         layer_sig->vararg_param_count = vacnt;
         layer_sig->vararg_param_indices = (vacnt > 0) ? vai : NULL;
@@ -5529,7 +5723,15 @@ static ASTNode* parser_multi_return_func_ptr_var(Parser* parser) {
             if (final_name) free(final_name);
             final_name = layer_name;
             final_name_token = layer_name_token;
+            if (layer_dim_count > 0) {
+                free(final_dim_sizes);
+                final_dim_sizes = layer_dim_sizes;
+                final_dim_count = layer_dim_count;
+                layer_dim_sizes = NULL;
+                layer_dim_count = 0;
+            }
         }
+        free(layer_dim_sizes);
     }
 
     if (!has_any_layer) {
@@ -5558,7 +5760,11 @@ static ASTNode* parser_multi_return_func_ptr_var(Parser* parser) {
     ASTNode* init = NULL;
     if (parser_current_is_type(parser, TOKEN_ASSIGN)) {
         parser_eat(parser, TOKEN_ASSIGN);
-        init = parser_Binary(parser);
+        if (parser_current_is_type(parser, TOKEN_BRACKET_LEFT)) {
+            init = parser_init_list(parser);
+        } else {
+            init = parser_Binary(parser);
+        }
     }
 
     AST_Var* var = calloc(1, sizeof(AST_Var));
@@ -5570,12 +5776,19 @@ static ASTNode* parser_multi_return_func_ptr_var(Parser* parser) {
     var->Value = init;
     var->dataType = DATA_INT;
     var->internal_name = NULL;
-    var->dim_count = 0;
-    var->dim_sizes = NULL;
+    var->dim_count = final_dim_count;
+    var->dim_sizes = final_dim_sizes;
     var->modifier = 0;
     var->ptr_depth = total_ptr_depth;
     var->func_ptr_sig = outermost_sig;
     var->type_param_index = -1;
+    if (final_dim_count > 0) {
+        int fp_total_bytes = 4;
+        for (int fdi = 0; fdi < final_dim_count; fdi++) {
+            if (final_dim_sizes[fdi] > 0) fp_total_bytes *= final_dim_sizes[fdi];
+        }
+        var->total_bytes = fp_total_bytes;
+    }
 
     free(final_name);
     return (ASTNode*)var;
@@ -5686,8 +5899,25 @@ ASTNode* parser_var(Parser* parser, bool allow_multi_decl)
         parser_advance(parser);
     }
 
+    if (parser_current_is_type(parser, TOKEN_PAREN_LEFT)) {
+        int mr_saved = parser->index;
+        ASTNode* mr_node = parser_multi_return_func_ptr_var(parser);
+        if (mr_node) {
+            ASTNode* mrn = mr_node;
+            while (mrn) {
+                if (mrn->type == AST_VAR || mrn->type == AST_UNINIT_VAR) {
+                    ((AST_Var*)mrn)->is_unsafe = is_unsafe;
+                    ((AST_Var*)mrn)->is_const = is_const;
+                }
+                mrn = mrn->next;
+            }
+            return mr_node;
+        }
+        parser->index = mr_saved;
+        parser->current = parser->tokens[parser->index];
+    }
+
     ParsedTypeInfo pti;
-    memset(&pti, 0, sizeof(pti));
 
     bool has_complex = parser_parse_complex_type(parser, &pti);
 
@@ -7790,6 +8020,24 @@ ASTNode* parser_def_function_with_generics(Parser* parser,
                     if (parser_current_is_type(parser, TOKEN_COMMA))
                         parser_advance(parser);
                     continue;
+                }
+                {
+                    DataType nested_base = DATA_ERROR;
+                    FuncSignature* nested_sig = NULL;
+                    if (parser_try_nested_func_ptr_param(parser, &nested_base, &nested_sig)) {
+                        if (param_count >= param_cap) {
+                            param_cap *= 2;
+                            param_types = realloc(param_types, sizeof(DataType) * param_cap);
+                        }
+                        param_types[param_count] = nested_base;
+                        param_count++;
+                        if (parser_current_is_type(parser, TOKEN_COMMA)) {
+                            parser_eat(parser, TOKEN_COMMA);
+                        } else {
+                            break;
+                        }
+                        continue;
+                    }
                 }
                 if (!is_var_type(parser->current.type) && parser->current.type != TOKEN_IDENTIFIER) {
                     break;

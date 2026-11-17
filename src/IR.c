@@ -946,7 +946,9 @@ static IR* gen_array_access_ir(AST_ArrayAccess* acc, bool gen_load, char** addr_
         chain = connect_IR(chain, mul);
         chain = connect_IR(chain, add);
         chain = connect_IR(chain, load);
-        if (addr_out) *addr_out = strdup(load->result);
+        /* When the caller wants the element address (assignment target) the
+           address is base + i*4, not the loaded function pointer value. */
+        if (addr_out) *addr_out = strdup(gen_load ? load->result : add->result);
         return chain;
     }
 
@@ -975,6 +977,7 @@ static IR* gen_array_access_ir(AST_ArrayAccess* acc, bool gen_load, char** addr_
         AST_Var* v = (AST_Var*)arr;
         var_ptr_depth = v->ptr_depth;
     }
+
     if (internal && acc->dim_count == 0 && acc->full_dim_count == 0
         && var_ptr_depth == 0 && !acc->is_heap_array) {
         IR* addr_ir = create_IR(IR_ADDRESS_OF);
@@ -4524,8 +4527,9 @@ IR* generate_IR(ASTNode* ast_node)
                     char* src_addr = NULL;
                     IR* extra_chain = NULL;
 
-                    if (arr->init_list->type == AST_LITERAL
-                        && ((AST_Literal*)arr->init_list)->is_call_function) {
+                    if ((arr->init_list->type == AST_LITERAL
+                         && ((AST_Literal*)arr->init_list)->is_call_function)
+                        || arr->init_list->type == AST_RETURN_EXTRACT) {
                         IR* store_ptr = create_IR(IR_PTR_STORE);
                         store_ptr->args1 = strdup(dst_addr->result);
                         store_ptr->args1_type = DATA_INT;
@@ -5080,6 +5084,36 @@ IR* generate_IR(ASTNode* ast_node)
                 }
             }
 
+            if (len->array->type == AST_RETURN_EXTRACT) {
+                /* expr.length 其中 expr 是可变返回值的 getReturn(i)：
+                   先取出数组指针，再读 [ptr-4] 的长度头 */
+                IR* base_ir = generate_IR(len->array);
+                IR* base_last = base_ir;
+                while (base_last->next) base_last = base_last->next;
+                char* base_temp = base_last->result;
+
+                IR* sub4 = create_IR(IR_BINARY);
+                sub4->op = IR_SUB;
+                sub4->args1 = strdup(base_temp);
+                sub4->args1_type = DATA_INT;
+                sub4->args2 = strdup("4");
+                sub4->args2_type = DATA_INT;
+                sub4->result = create_temp();
+                assign_def_id(sub4);
+                sub4->data_type = DATA_INT;
+
+                IR* len_load = create_IR(IR_DEREF);
+                len_load->result = create_temp();
+                assign_def_id(len_load);
+                len_load->args1 = strdup(sub4->result);
+                len_load->args1_type = DATA_INT;
+                len_load->data_type = DATA_INT;
+                len_load->ptr_depth = 0;
+
+                IR* chain2 = connect_IR(base_ir, sub4);
+                chain2 = connect_IR(chain2, len_load);
+                return chain2;
+            }
             DataType array_type = DATA_ERROR;
             const char* internal_name = NULL;
 
@@ -5902,8 +5936,11 @@ IR* generate_IR(ASTNode* ast_node)
         }
         Var_ir->data_type = (ast_var->ptr_depth > 0)
                             ? DATA_INT : ast_var->dataType;
-        Var_ir->ptr_depth = ast_var->ptr_depth;
-        Var_ir->result = strdup(ast_var->internal_name);
+       Var_ir->ptr_depth = ast_var->ptr_depth;
+       if (ast_var->dim_count > 0) {
+           Var_ir->dim_count = ast_var->dim_count;
+       }
+       Var_ir->result = strdup(ast_var->internal_name);
         if (ast_var->Value && ast_var->Value->type == AST_NEW_ARRAY) {
             Var_ir->is_dynamic_array = true;
         } else if (ast_var->dim_count > 0) {
@@ -6433,8 +6470,17 @@ IR* generate_IR(ASTNode* ast_node)
             ir_var_uninit->data_type = ast_var_uninit->dataType;
         }
         if (ast_var_uninit->dim_count > 0) {
-            ir_var_uninit->is_dynamic_array = true;
-        }
+            bool uninit_is_dyn = false;
+            if (ast_var_uninit->dim_sizes) {
+                for (int udi = 0; udi < ast_var_uninit->dim_count; udi++) {
+                    if (ast_var_uninit->dim_sizes[udi] <= 0) { uninit_is_dyn = true; break; }
+                }
+           } else {
+               uninit_is_dyn = true;
+           }
+           ir_var_uninit->is_dynamic_array = uninit_is_dyn;
+           ir_var_uninit->dim_count = ast_var_uninit->dim_count;
+       }
         if (ast_var_uninit->total_bytes > 4) {
             ir_var_uninit->stack_bytes = ast_var_uninit->total_bytes;
         }
@@ -8076,12 +8122,26 @@ IR* generate_IR(ASTNode* ast_node)
             return lit;
         }
         ASTNode* real_object = access->object;
+        bool obj_was_deref = false;
         if (real_object && real_object->type == AST_DEREF) {
             real_object = ((AST_Deref*)real_object)->operand;
+            obj_was_deref = true;
         }
         IR* obj_chain = generate_IR(real_object);
         IR* obj_last = obj_chain;
         while (obj_last->next) obj_last = obj_last->next;
+        if (obj_was_deref) {
+            /* (*p).field: 先取出 p 里存的指针作为对象基址 */
+            IR* deref_obj = create_IR(IR_DEREF);
+            deref_obj->result = create_temp();
+            assign_def_id(deref_obj);
+            deref_obj->args1 = strdup(obj_last->result);
+            deref_obj->args1_type = DATA_INT;
+            deref_obj->data_type = DATA_INT;
+            deref_obj->ptr_depth = 0;
+            connect_IR(obj_chain, deref_obj);
+            obj_last = deref_obj;
+        }
 
         if (access->is_field_array) {
             IR* off_lit = create_IR(IR_LITERAL);
@@ -8165,12 +8225,25 @@ IR* generate_IR(ASTNode* ast_node)
         }
 
         ASTNode* real_object = ass->object;
+        bool ass_was_deref = false;
         if (real_object && real_object->type == AST_DEREF) {
             real_object = ((AST_Deref*)real_object)->operand;
+            ass_was_deref = true;
         }
         IR* obj_ir = generate_IR(real_object);
         IR* obj_last = obj_ir;
         while (obj_last->next) obj_last = obj_last->next;
+        if (ass_was_deref) {
+            IR* deref_ass = create_IR(IR_DEREF);
+            deref_ass->result = create_temp();
+            assign_def_id(deref_ass);
+            deref_ass->args1 = strdup(obj_last->result);
+            deref_ass->args1_type = DATA_INT;
+            deref_ass->data_type = DATA_INT;
+            deref_ass->ptr_depth = 0;
+            connect_IR(obj_ir, deref_ass);
+            obj_last = deref_ass;
+        }
         char* obj_temp = obj_last->result;
 
         int offset = ass->member_offset;
@@ -8707,7 +8780,7 @@ IR* generate_IR(ASTNode* ast_node)
                 scan = call_chain;
                 IR* last_alloc = NULL;
                 while (scan && scan != call_node) {
-                    if (scan->type == IR_ALLOC_ARRAY && scan->stack_bytes > 0
+                    if (scan->type == IR_ALLOC_ARRAY
                         && scan->result && scan->result[0])
                         last_alloc = scan;
                     scan = scan->next;
@@ -8762,47 +8835,57 @@ IR* generate_IR(ASTNode* ast_node)
                 load_val->elem_size = extract_elem_sz;
             }
             tail->next = addr;
-            addr->next = load_val;
-            tail = load_val;
-            if (e->is_variadic_src) {
-                IR* deref_var = create_IR(IR_DEREF);
-                deref_var->result = create_temp();
-                assign_def_id(deref_var);
-                deref_var->args1 = strdup(load_val->result);
-                deref_var->args1_type = DATA_INT;
-                DataType dt = extract_dt;
-                if (dt == DATA_INT && call_lit->is_indirect_call
-                    && call_lit->indirect_callee != NULL
-                    && call_lit->indirect_callee->type == AST_LITERAL) {
-                    AST_Literal* cal = (AST_Literal*)call_lit->indirect_callee;
-                    if (cal->returned_func_sig
-                        && cal->returned_func_sig->multi_return
-                        && e->index >= 0
-                        && e->index < cal->returned_func_sig->multi_return->count) {
-                        dt = cal->returned_func_sig->multi_return->types[e->index];
-                    }
-                }
-                if (dt == DATA_INT && call_lit->returned_func_sig != NULL
-                    && call_lit->returned_func_sig->multi_return != NULL
-                    && e->index >= 0
-                    && e->index < call_lit->returned_func_sig->multi_return->count) {
-                    dt = call_lit->returned_func_sig->multi_return->types[e->index];
-                }
-                if (dt == DATA_INT && call_lit->is_indirect_call
-                    && call_lit->indirect_callee != NULL
-                    && call_lit->indirect_callee->type == AST_RETURN_EXTRACT) {
-                    AST_ReturnExtract* inner = (AST_ReturnExtract*)call_lit->indirect_callee;
-                    if (inner->extracted_func_sig != NULL
-                        && inner->extracted_func_sig->multi_return != NULL
-                        && e->index >= 0
-                        && e->index < inner->extracted_func_sig->multi_return->count) {
-                        dt = inner->extracted_func_sig->multi_return->types[e->index];
-                    }
-                }
-                deref_var->data_type = dt;
-                deref_var->ptr_depth = 0;
-                tail->next = deref_var;
-                tail = deref_var;
+            if (e->is_variadic_src && e->sub_index >= 0) {
+                /* 子索引分支自己从 addr 取指针，这里先不接 load_val */
+                tail = addr;
+            } else {
+                addr->next = load_val;
+                tail = load_val;
+            }
+            if (e->is_variadic_src && e->sub_index >= 0) {
+                IR* ptrload = create_IR(IR_ARRAY_LOAD);
+                ptrload->result = create_temp();
+                assign_def_id(ptrload);
+                ptrload->args1 = strdup(addr->result);
+                ptrload->args1_type = DATA_INT;
+                ptrload->data_type = DATA_INT;
+                ptrload->elem_size = 4;
+                tail->next = ptrload;
+                tail = ptrload;
+
+                int esz2 = 4;
+                if (extract_dt == DATA_CHAR || extract_dt == DATA_BOOL
+                    || extract_dt == DATA_INT8 || extract_dt == DATA_UINT8) esz2 = 1;
+                else if (extract_dt == DATA_INT16 || extract_dt == DATA_UINT16) esz2 = 2;
+                char sbuf2[24];
+                snprintf(sbuf2, sizeof(sbuf2), "%d", e->sub_index * esz2);
+                IR* sidx2 = create_IR(IR_LITERAL);
+                sidx2->result = create_temp();
+                assign_def_id(sidx2);
+                sidx2->args1 = strdup(sbuf2);
+                sidx2->args1_type = DATA_INT;
+                sidx2->data_type = DATA_INT;
+                tail->next = sidx2; tail = sidx2;
+
+                IR* sadd2 = create_IR(IR_BINARY);
+                sadd2->op = IR_ADD;
+                sadd2->args1 = strdup(ptrload->result);
+                sadd2->args1_type = DATA_INT;
+                sadd2->args2 = strdup(sidx2->result);
+                sadd2->args2_type = DATA_INT;
+                sadd2->result = create_temp();
+                assign_def_id(sadd2);
+                sadd2->data_type = DATA_INT;
+                tail->next = sadd2; tail = sadd2;
+
+                IR* sld2 = create_IR(IR_ARRAY_LOAD);
+                sld2->result = create_temp();
+                assign_def_id(sld2);
+                sld2->args1 = strdup(sadd2->result);
+                sld2->args1_type = DATA_INT;
+                sld2->data_type = extract_dt;
+                sld2->elem_size = esz2;
+                tail->next = sld2; tail = sld2;
             } else {
                 DataType dt = extract_dt;
                 if (dt == DATA_INT && call_lit->returned_func_sig != NULL

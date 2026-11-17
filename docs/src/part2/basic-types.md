@@ -258,6 +258,135 @@ String 的成员方法全是 static，必须用 `String.方法名(参数)` 调�
 
 字符串在底层以 null 结尾，存储了长度信息。字符串是不可变的，每次拼接创建新对象，旧对象由 GC 回收。
 
+## 窄整型与扩展类型
+
+除了前面 7 种常用类型，YXG 还支持一组不同宽度的数值类型。
+
+### 完整类型表
+
+| 类别 | 类型名 | 状态 |
+|---|---|---|
+| 有符号整数 | `int8` `int16` `int32` `int64` | ✅ 可用 |
+| 无符号整数 | `uint8` `uint16` `uint32` `uint64` | ✅ 可用 |
+| 浮点 | `float8` `float16` `float32` `float64` | ✅ 可用 |
+| 无符号浮点 | `ufloat8` `ufloat16` `ufloat32` `ufloat64` | ✅ 可用 |
+| 128 位 | `int128` `uint128` `float128` `ufloat128` | ⚠️ 能声明，**不能打印** |
+
+等价关系：
+
+| 别名 | 实际类型 |
+|---|---|
+| `int32` | `int` |
+| `uint32` | `uint` |
+| `float32` | `float` |
+| `ufloat32` | `ufloat` |
+
+### 用法示例
+
+```yxg
+pub void main() {
+    int8   a = 12;
+    int16  b = 1234;
+    uint8  c = 200;
+    uint16 d = 60000;
+    float32 e = 3.14;
+    float64 f = 2.718281828;
+
+    print "int8=", a, " int16=", b, "\n";
+    print "uint8=", c, " uint16=", d, "\n";
+    print "float32=", e, " float64=", f, "\n";
+}
+```
+
+输出：
+
+```
+int8=12 int16=1234
+uint8=200 uint16=60000
+float32=3.14 float64=2.718282
+```
+
+### 转成 int64
+
+窄类型转 `int64` 会正确做符号扩展：
+
+```yxg
+pub void main() {
+    int16 a = 1000;
+    int64 b = a as int64;
+    print "扩展: ", b, "\n";       // 1000
+
+    int16 n = -5;
+    int64 c = n as int64;
+    print "负数扩展: ", c, "\n";   // -5
+}
+```
+
+### 运算时的溢出
+
+窄类型参与运算时按声明宽度回绕：
+
+```yxg
+pub void main() {
+    int16 a = 32767;
+    a = a + 1;
+    print a, "\n";        // -32768，回绕
+
+    uint8 b = 255;
+    b = b + 1;
+    print b, "\n";        // 0，回绕
+}
+```
+
+### 赋值时的行为
+
+赋值**不做截断**，超出范围的值原样保存：
+
+```yxg
+pub void main() {
+    int16 b = 40000;
+    print b, "\n";        // 40000，超出 16 位范围也照存
+}
+```
+
+这是当前实现的特性：写入用 16 位指令，但读回时不做高位清理。**运算会回绕、赋值不回绕**，两者不一致。
+
+需要严格的宽度语义时，赋值后手动转换：
+
+```yxg
+int16 b = 40000 as int16;    // 明确要 16 位语义
+```
+
+### 128 位类型不能打印
+
+```yxg
+pub void main() {
+    int128 a = 1;
+    print a, "\n";
+}
+```
+
+报错：
+
+```
+fatal error[E5001]: printing int128/uint128 is not supported yet (use int64)
+```
+
+`float128` / `ufloat128` 同理。能声明、能赋值、能参与运算，但**不能打印**。需要时用 `int64` / `float64` 代替。
+
+### 选择建议
+
+| 场景 | 建议 |
+|---|---|
+| 普通整数 | `int` |
+| 需要更大范围 | `int64` |
+| 普通浮点 | `float`（等价 `float32`） |
+| 高精度浮点 | `float64` |
+| 省内存的窄整型 | 可用，但注意赋值的宽度不一致 |
+| 128 位 | 不要用于需要打印的场景 |
+
+**日常编码记住这几个就够**：`int`、`int64`、`float`、`float64`、`uint`、`char`、`bool`、`string`。
+
 ## 类型转换
 
 ### 隐式转换
@@ -289,6 +418,97 @@ String 的成员方法全是 static，必须用 `String.方法名(参数)` 调�
 输出：
 
     value: 42
+
+### 显式转换（as）
+
+用 `as` 把一个值转成指定类型：
+
+```yxg
+pub void main() {
+    int a = 10;
+    float f = a as float;
+    print "int->float: ", f, "\n";        // 10.0
+
+    float g = 3.99;
+    int b = g as int;
+    print "float->int: ", b, "\n";        // 3，截断不是四舍五入
+
+    int c = 65;
+    char ch = c as char;
+    print "int->char: ", ch, "\n";        // A
+
+    char d = 'Z';
+    int e = d as int;
+    print "char->int: ", e, "\n";         // 90
+}
+```
+
+小数转整数是**截断**，不是四舍五入：
+
+```yxg
+print 3.99 as int, "\n";     // 3
+print (-3.99) as int, "\n";  // -3
+print 3.5 as int, "\n";      // 3
+```
+
+### 窄类型转换
+
+转窄类型时按目标宽度截断：
+
+```yxg
+pub void main() {
+    int big = 300;
+    int8 small = big as int8;
+    print "300 as int8 = ", small, "\n";     // 44（300 的低 8 位）
+
+    int16 mid = 100000 as int16;
+    print "100000 as int16 = ", mid, "\n";   // 34464
+}
+```
+
+窄转宽会正确做符号扩展：
+
+```yxg
+pub void main() {
+    int16 a = 1000;
+    print a as int64, "\n";      // 1000
+
+    int16 n = -5;
+    print n as int64, "\n";      // -5，负数正确
+}
+```
+
+### 指针与整数互转
+
+```yxg
+pub void main() {
+    int a = 11;
+    unsafe int* p = &a;
+
+    int addr = p as int;
+    print "地址 = ", addr, "\n";
+
+    unsafe int* q = addr as int*;
+    print "解回 = ", *q, "\n";     // 11
+}
+```
+
+详见[指针](pointers.md)。
+
+### 字符串转数字
+
+语言没有内置的字符串转数字转换。用 `Utils` 库：
+
+```yxg
+import yxg.Utils;
+
+pub void main() {
+    print Convert.parseInt("123"), "\n";       // 123
+    print Convert.parseFloat("3.5"), "\n";     // 3.5
+}
+```
+
+或者手写扫描（见[标准库](stdlib.md)）。
 
 ### 类型提升规则
 

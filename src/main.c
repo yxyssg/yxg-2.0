@@ -2004,8 +2004,8 @@ static int proj_write_common(const char* name)
         "path = \"bin/%s.exe\"\n"
         "\n"
         "[build]\n"
-        "# Additional parameters at compile time, equivalent to the command line effect, with the command line taking higher priority\n"
-        "# support : -a -w -r -noassert --force -o <path>\n"
+        "# 编译时附加参数，等同命令行效果，命令行优先级更高\n"
+        "# 支持: -a -w -r -noassert --force -o <path>\n"
         "flags = \"\"\n", name, name);
     if (proj_write(path, body) != 0) return -1;
 

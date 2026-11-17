@@ -10725,18 +10725,20 @@ static void analyze_node(ASTNode* temp) {
                                 }
                             }
                             if (is_vararg_param) {
+                            if (is_vararg_param) {
                                 if (a->type == AST_VARARG_GROUP) {
                                     a = a->next;
                                     p_idx++;
                                     continue;
                                 }
-                                if (p_idx + 1 < func_def->parameterCount) {
-                                    p_idx++;
-                                    continue;
-                                }
+                                ERROR(ERR_SEM_ARG_COUNT_MISMATCH,
+                                      SEMLOC(a->value),
+                                      "variadic parameter of \"%s\" requires bracketed groups like [1,2,3]",
+                                      func_def->name.value ? func_def->name.value : "?");
                                 a = a->next;
                                 p_idx++;
                                 continue;
+                            }
                             }
                             if (!is_vararg_param && a->type == AST_VARARG_GROUP) {
                                 a = a->next;
@@ -11381,6 +11383,7 @@ static void analyze_node(ASTNode* temp) {
                 if (sym) {
                     literal->ptr_depth = sym->ptr_depth;
                     literal->is_dynamic_array = sym->is_dynamic_array;
+
                     if (sym->class_name != NULL && sym->key != NULL
                         && strcmp(sym->key, sym->class_name) == 0) {
                         literal->is_class_name = true;
@@ -13280,6 +13283,11 @@ static void analyze_node(ASTNode* temp) {
             var->total_bytes = elem_size * total;
             sym->total_bytes = var->total_bytes;
             sym->is_value_type = (var->total_bytes > 4);
+            /* an array of function pointers is always a value blob on the
+               stack, even when it holds a single 4-byte slot */
+            if (var->func_ptr_sig != NULL && var->dim_count > 0) {
+                sym->is_value_type = true;
+            }
         } else if (sym->class_name != NULL) {
             var->total_bytes = 4;
             sym->total_bytes = 4;
@@ -14115,6 +14123,9 @@ static void analyze_node(ASTNode* temp) {
                 var->total_bytes = elem_size * total;
                 sym->total_bytes = var->total_bytes;
                 sym->is_value_type = (var->total_bytes > 4);
+                if (var->func_ptr_sig != NULL && var->dim_count > 0) {
+                    sym->is_value_type = true;
+                }
             }
         } else if (sym->class_name != NULL) {
             var->total_bytes = 4;
@@ -14143,7 +14154,7 @@ static void analyze_node(ASTNode* temp) {
             free(internal);
         }
 
-        if (var->dim_count > 0 && !in_param_list) {
+        if (var->dim_count > 0 && !in_param_list && var->func_ptr_sig == NULL) {
             ERROR(ERR_SEM_TYPE_MISMATCH,
                   SEMLOC(var->name),
                   "dynamic array must be initialized at declaration");

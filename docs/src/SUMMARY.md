@@ -20,6 +20,8 @@
     - [for 循环](part2/for-loop.md)
     - [foreach 循环](part2/foreach-loop.md)
 - [函数](part2/functions.md)
+- [指针](part2/pointers.md)
+- [多返回值与可变参数](part2/variadic.md)
 - [数组](part2/arrays.md)
 - [字符串](part2/strings.md)
 - [类与面向对象](part2/classes.md)

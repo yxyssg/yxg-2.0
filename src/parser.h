@@ -89,6 +89,10 @@ ASTNode* parser_generic_function_body(Parser* parser,
 void module_system_cleanup(void);
 static void free_func_sig_recursive(FuncSignature* sig);
 static void free_func_sig(FuncSignature* sig);
+static FuncSignature* parse_func_ptr_type_signature(Parser* parser);
+static bool parser_try_nested_func_ptr_param(Parser* parser,
+                                             DataType* out_base,
+                                             FuncSignature** out_sig);
 void AST_Free(ASTNode* node);
 static void free_func_sig_recursive(FuncSignature* sig);
 
