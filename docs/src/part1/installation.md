@@ -13,8 +13,11 @@ YXG 编译器目前**仅支持 Windows 平台**，生成 32 位（x86）可执�
 
 > 注意：GCC 必须是能生成 **32 位**代码的版本（`-m32`）。UCRT64/MINGW64 环境需要额外安装 32 位支持包。
 若没有LLD，则将main.c中的这行代码：
+
 char* command = "gcc -m32 -g -fuse-ld=lld";
+
 改为
+
 char* command = "gcc -m32 -g";
 
 ### 安装 MinGW 与 NASM
