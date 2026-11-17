@@ -2,7 +2,7 @@
 
 ## 设计初衷
 
-YXG 是一门为教学而生的编译型语言。它有四个设计目标：
+YXG 是一门编译型语言。它有四个设计目标：
 
 1. **足够简单** —— 能在有限时间内手写出完整编译器
 2. **足够丰富** —— 涵盖静态类型、面向对象、泛型、异常、模块系统
@@ -464,37 +464,6 @@ Map<string, int> map = new Map<string, int>();
 ```
 
 完整清单见[标准库](../part2/stdlib.md)与[图形与多媒体库](../part5/graphics.md)。
-
-## 与其他语言的关系
-
-| 特性 | 灵感来源 |
-|---|---|
-| 基本语法（分号、花括号） | C |
-| 类型声明（`int x`） | C / Java |
-| 类和继承 | Java / C# |
-| foreach 循环 | C# / JavaScript |
-| `this` 关键字 | Java / C++ |
-| `new` 操作符 | Java / C++ |
-| 字符串拼接（`"a" + ch`） | JavaScript |
-| 访问控制（`pub`/`pro`/`pri`） | C++ |
-| 枚举 | C / Java |
-| `import` 模块系统 | Python / Go |
-| `.length` 属性 | C# / JavaScript |
-| 泛型 | Java / C# |
-| `try`/`catch`/`end` | Python / Ruby |
-
-## 限制与取舍
-
-为了保持编译器可实现性，YXG 有意回避：
-
-- **仅 Win32 x86** —— 代码生成面向 Windows + NASM + MinGW
-- **没有 lambda 表达式** —— 函数作为值要用 `Function` 对象
-- **没有操作符重载**
-- **没有 `super`** —— 不能在子类里用父类名调用被重写的方法
-- **没有自动类型提升的字符串拼接** —— `string + int` 会报类型不匹配
-- **方法派发需显式声明** —— 不写 `virtual` / `override` 就是静态绑定
-
-这些取舍让整个编译器保持在可手写的规模内，适合作为教学项目。
 
 ## 继续阅读
 
