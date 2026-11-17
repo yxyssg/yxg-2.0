@@ -9,8 +9,13 @@ YXG 编译器目前**仅支持 Windows 平台**，生成 32 位（x86）可执�
 | GCC (MinGW-w64，需支持 `-m32`) | 8.0+ | 编译 C 源码、链接目标文件 |
 | NASM | 2.15+ | 汇编生成的 `.asm` 文件 |
 | Git | 任意版本 | 获取源码 |
+| LLD(非必须) | 任意版本 | 链接 |
 
 > 注意：GCC 必须是能生成 **32 位**代码的版本（`-m32`）。UCRT64/MINGW64 环境需要额外安装 32 位支持包。
+若没有LLD，则将main.c中的这行代码：
+char* command = "gcc -m32 -g -fuse-ld=lld";
+改为
+char* command = "gcc -m32 -g";
 
 ### 安装 MinGW 与 NASM
 
