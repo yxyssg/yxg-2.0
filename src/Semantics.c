@@ -12203,6 +12203,12 @@ static void analyze_node(ASTNode* temp) {
         }
         bool is_heap_arr = (arr->init_list != NULL
                             && arr->init_list->type == AST_NEW_ARRAY);
+        if (!is_heap_arr && arr->init_list != NULL
+            && arr->init_list->type == AST_LITERAL
+            && ((AST_Literal*)arr->init_list)->is_call_function
+            && ((AST_Literal*)arr->init_list)->returns_array) {
+            is_heap_arr = true;
+        }
         if (arr->is_view) {
             arr->total_bytes = 4;
         } else if (is_heap_arr) {
@@ -12270,6 +12276,12 @@ static void analyze_node(ASTNode* temp) {
             sym->is_value_type = false;
             sym->is_dynamic_array = false;
             sym->alignment = 4;
+        } else if (is_heap_arr) {
+            sym->total_bytes = 8;
+            sym->is_value_type = true;
+            sym->is_dynamic_array = true;
+            sym->alignment = 4;
+            arr->is_dynamic_array = true;
         } else if (all_known && total_elements_ > 0) {
             if (is_heap_arr) {
                 sym->total_bytes = 8;

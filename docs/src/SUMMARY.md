@@ -39,9 +39,12 @@
 - [错误处理系统](part3/error-system.md)
 
 # 第四部分：实战教程
-- [实现一个排序程序](part4/example-sort.md)
-- [实现一个简单链表](part4/example-linkedlist.md)
-- [实现一个命令行计算器](part4/example-calculator.md)
+- [实战一：成绩统计](part4/stats.md)
+- [实战二：文本分析工具](part4/text-analysis.md)
+- [实战三：库存管理](part4/inventory.md)
+- [实战四：JSON 数据处理](part4/json-data.md)
+- [实战五：带异常处理的配置读写](part4/config-app.md)
+- [实战六：用泛型容器做数据聚合](part4/collections.md)
 
 # 第五部分：图形与多媒体库
 - [图形与多媒体库](part5/graphics.md)

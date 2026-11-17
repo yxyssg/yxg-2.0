@@ -190,6 +190,7 @@ typedef struct AST_ARRAY_DECL {
     bool is_unsafe;
     bool is_const;
     bool is_view;
+    bool is_dynamic_array;
 } AST_ArrayDecl;
 
 typedef struct AST_ARRAY_ACCESS {
@@ -362,6 +363,7 @@ typedef struct AST_VAR
 
     int copy_bytes;
     int total_bytes;
+    bool is_dynamic_array;
 
     DataType* generic_type_args;
     int generic_type_arg_count;

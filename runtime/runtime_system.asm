@@ -1174,8 +1174,10 @@ _itoa_base:
     cmp  dl, 10
     jb   .digit
     add  dl, 'a'-10
+    jmp  .store
 .digit:
     add  dl, '0'
+.store:
     mov  [edi], dl
     dec  edi
     test eax, eax

@@ -2157,6 +2157,22 @@ IR* generate_IR(ASTNode* ast_node)
                             if (av->Value && av->Value->type == AST_NEW_ARRAY) {
                                 is_dyn = true;
                             }
+                            if (av->is_dynamic_array) {
+                                is_dyn = true;
+                            }
+                        }
+                        if (addr_name && !is_dyn && pb >= 8) {
+                            if (a->type == AST_LITERAL) {
+                                AST_Literal* dl = (AST_Literal*)a;
+                                if (dl->dataType == DATA_INT && dl->is_dynamic_array) {
+                                    is_dyn = true;
+                                }
+                            } else if (a->type == AST_VAR || a->type == AST_VAR_ASS) {
+                                if (((AST_Var*)a)->is_dynamic_array) is_dyn = true;
+                            }
+                        }
+                        if (addr_name && !is_dyn && pb >= 8) {
+                            is_dyn = true;
                         }
                         if (addr_name) {
                             if (is_dyn) {
