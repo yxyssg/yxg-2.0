@@ -1,4 +1,4 @@
-﻿# 函数
+# 函数
 
 ## 定义函数
 
@@ -151,17 +151,105 @@ void 函数没有返回值，return 语句可选：
         }
     }
 
-## 函数同名
+## 函数重载
 
-YXG 不支持函数重载。同一作用域内函数名必须唯一，重复定义报 `error[E3002]: duplicate function 'add'`：
+**YXG 支持函数重载**：同名函数只要参数类型或参数个数不同，就是不同的函数。
 
-    // int add(int a, int b) { return a + b; }
-    // float add(float a, float b) { return a + b; }   // 错误！重复定义
+按参数类型重载：
 
-如果需要处理不同类型，使用不同的函数名：
+    pub int add(int a, int b) {
+        return a + b;
+    }
 
-    int addInt(int a, int b) { return a + b; }
-    float addFloat(float a, float b) { return a + b; }
+    pub float add(float a, float b) {
+        return a + b;
+    }
+
+    pub void main() {
+        print add(1, 2), "\n";         // 3
+        print add(1.5, 2.5), "\n";     // 4.0
+    }
+
+按参数个数重载：
+
+    pub int add(int a) {
+        return a + 1;
+    }
+
+    pub int add(int a, int b) {
+        return a + b;
+    }
+
+    pub void main() {
+        print add(5), "\n";        // 6
+        print add(5, 6), "\n";     // 11
+    }
+
+多个类型都可以重载：
+
+    pub int val(int a) { return 1; }
+    pub int val(float a) { return 2; }
+    pub int val(string a) { return 3; }
+
+    pub void main() {
+        print val(1), " ", val(1.5), " ", val("x"), "\n";   // 1 2 3
+    }
+
+### 匹配规则
+
+调用时按**参数个数 + 参数类型**精确匹配：
+
+    pub int show(int a) { return 100; }
+    pub int show(float a) { return 200; }
+
+    pub void main() {
+        int i = 5;
+        float f = 5.0;
+        print show(i), "\n";       // 100（int 版本）
+        print show(f), "\n";       // 200（float 版本）
+        print show(5), "\n";       // 100（整数字面量匹配 int）
+        print show(5.5), "\n";     // 200（浮点字面量匹配 float）
+    }
+
+`char` 和 `int` 也能区分：
+
+    pub int pick(int a) { return 1; }
+    pub int pick(char a) { return 2; }
+
+    pub void main() {
+        char c = 'A';
+        print pick(c), "\n";       // 2（char 版本）
+        print pick(65), "\n";      // 1（int 版本）
+    }
+
+### 什么情况会报错
+
+**参数类型和个数完全相同**才算重复定义：
+
+    pub int add(int a, int b) { return a + b; }
+    pub int add(int a, int b) { return a * b; }     // 错误
+
+报错：
+
+    error[E3002]: duplicate function 'add'
+
+**只有返回类型不同**也不行：
+
+    pub int f(int a) { return a; }
+    pub float f(int a) { return a as float; }       // 错误
+
+报错：
+
+    error[E3002]: function 'f' redeclared with different return type
+
+因为调用点无法从返回值推断该用哪个版本。
+
+### 建议
+
+虽然支持重载，但参数类型相近时（比如 `int` 和 `uint`）容易写错调用。类型差异明显时用重载可读性好；差异细微时，用不同函数名更清楚：
+
+    pub int addInt(int a, int b) { return a + b; }
+    pub float addFloat(float a, float b) { return a + b; }
 
 ## 递归
 
