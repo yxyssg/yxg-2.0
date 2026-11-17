@@ -5,8 +5,7 @@
 
 Want to read the document? Click here / 想阅读文档？点击这里：
 
-(https://yxyssg.github.io/yxg-2.0/)
- (注: 文档还有一些问题)
+https://yxyssg.github.io/yxg-2.0/
  
 **YXG** is a statically-typed C-like language that compiles to native Windows x86 executables. The compiler is entirely hand-written in C without Flex/Bison/LLVM, making it ideal for learning the full compilation pipeline.
 **YXG** 是一门静态类型的类 C 语言，编译到原生 Windows x86 可执行文件。
