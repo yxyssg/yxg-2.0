@@ -1786,11 +1786,7 @@ void codegen_win32(FILE* output,IR* ir)
                                                || consts->is_dynamic_array[sidx]))
                                                src_is_array_addr = true;
                                        }
-                                       if (dst_type == DATA_IDENTIFIER) {
-                                           fprintf(output, "  test eax, eax\n");
-                                           fprintf(output, "  jz _null_ptr_error\n");
-                                           has_bounds_check = true;
-                                       }
+                                       /* copy of class ref needs no null check; deref points check it */
                                        if (!src_is_array_addr && (dst_type == DATA_FLOAT || dst_type == DATA_UFLOAT)
                                            && !(loaded_type == DATA_FLOAT || loaded_type == DATA_UFLOAT || loaded_type == DATA_FLOAT32 || loaded_type == DATA_UFLOAT32)) {
                                            fprintf(output, "  fld dword [eax]\n");
