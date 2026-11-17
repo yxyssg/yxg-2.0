@@ -1,7 +1,7 @@
 # YXG Compiler / YXG 编译器
 
 [![License](https://img.shields.io/badge/license-Apache-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/yxyssg/yxg_language/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/yxyssg/yxg-2.0/releases)
 
 Want to read the document? Click here / 想阅读文档？点击这里：
 
@@ -75,7 +75,7 @@ Make sure both `gcc` and `nasm` are in your `PATH`:
 
 ### Building the Compiler / 编译编译器
 
-    git clone https://github.com/yxyssg/yxg_language.git
+    git clone https://github.com/yxyssg/yxg-2.0.git
     cd yxg
 
     gcc -m32 -std=c23 -O2 -o yxg.exe main.c Token.c Lexer.c parser.c Semantics.c Error.c IR.c Codegen_win32.c regmap.c CFG.c SSA.c YString.c -I.

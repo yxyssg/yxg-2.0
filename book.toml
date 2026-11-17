@@ -1,8 +1,21 @@
 [book]
-title = "yxg-2.0"
-authors = ["yxg"]
+title = "YXG 语言教程"
+authors = ["yxyssg"]
+description = "YXG 编程语言完整教程：语言参考、编译器架构、实战项目、标准库 API"
 language = "zh-CN"
 src = "docs/src"
 
 [build]
 build-dir = "book"
+
+[output.html]
+mathjax-support = false
+copy-fonts = true
+site-url = "/yxg-2.0/"
+git-repository-url = "https://github.com/yxyssg/yxg-2.0"
+edit-url-template = "https://github.com/yxyssg/yxg-2.0/edit/main/docs/src/{path}"
+default-theme = "light"
+preferred-dark-theme = "navy"
+
+[output.html.print]
+enable = true

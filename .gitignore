@@ -1,77 +1,53 @@
-<<<<<<< HEAD
-*.exe 
-*.obj 
-*.o 
-*.out 
-*.asm 
-output.asm 
-docs/book/ 
-.vscode/ 
-.idea/ 
-*.swp 
-*.swo 
-*~ 
-Thumbs.db 
-Desktop.ini 
-.DS_Store 
-*.tmp 
-*.bak 
-!runtime_*.asm 
-!lib/**/*.yxg 
-=======
-# Prerequisites
-*.d
-
-# Object files
-*.o
-*.ko
+# ===== YXG 构建产物 =====
+*.exe
 *.obj
-*.elf
+*.o
+*.out
+output.asm
 
-# Linker output
+# 生成的汇编文件（运行时汇编源码在 runtime/，用下面的规则例外保留）
+*.asm
+!runtime/*.asm
+
+# 链接器中间产物
 *.ilk
 *.map
 *.exp
+*.pdb
 
-# Precompiled Headers
+# ===== 文档与编辑器 =====
+docs/book/
+book/
+docs-preview/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.tmp
+*.bak
+
+# ===== 保留源码 =====
+!*.c
+!*.h
+!*.yxg
+!lib/**/*.yxg
+!*.asm
+
+# ===== C/C++ 通用 =====
+*.d
 *.gch
 *.pch
-
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
 *.dSYM/
 *.su
 *.idb
-*.pdb
-
-# Kernel Module Compile Results
+*.dwo
 *.mod*
-*.cmd
 .tmp_versions/
 modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
-
-# debug information files
-*.dwo
->>>>>>> 1dd95fbd1839a8f66ec13069eadbf9419488bacb
