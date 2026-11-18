@@ -3114,6 +3114,20 @@ ASTNode* parser_def_function_with_modifier(Parser* parser, int modifier) {
                 parser_advance(parser);
                    }
             ast_function->return_class_name = tn;
+            if (parser_current_is_type(parser, TOKEN_LT)) {
+                parser_advance(parser);
+                DataType* rt_types = NULL;
+                char** rt_names = NULL;
+                int rt_count = parser_parse_generic_arg_list(parser, &rt_types,
+                                                            &rt_names);
+                if (rt_count > 0 && rt_names != NULL) {
+                    ast_function->return_generic_type_arg_names = rt_names;
+                    ast_function->return_generic_type_arg_count = rt_count;
+                } else if (rt_names != NULL) {
+                    free(rt_names);
+                }
+                if (rt_types != NULL) free(rt_types);
+            }
         } else {
             parser_advance(parser);
         }
@@ -6181,6 +6195,7 @@ ASTNode* parser_var(Parser* parser, bool allow_multi_decl)
 
             if (pti.base_type == DATA_IDENTIFIER && pti.type_name != NULL) {
                 var->internal_name = strdup(pti.type_name);
+                var->decl_class_name = strdup(pti.type_name);
             }
             node = (ASTNode*)var;
         }
@@ -7805,6 +7820,15 @@ int parser_parse_type_params(Parser* parser, TypeParam** out) {
     int count = 0;
 
     do {
+        int tp_variance = 0;
+        if (parser_current_is_type(parser, TOKEN_ADD)) {
+            tp_variance = 1;
+            parser_advance(parser);
+        } else if (parser_current_is_type(parser, TOKEN_SUB)) {
+            tp_variance = -1;
+            parser_advance(parser);
+        }
+
         if (!parser_current_is_type(parser, TOKEN_IDENTIFIER)) {
             ERROR(ERR_PARSE_EXPECTED_TOKEN,
                   LOC(parser->filename, parser->current.line,
@@ -7824,6 +7848,7 @@ int parser_parse_type_params(Parser* parser, TypeParam** out) {
         memset(tp, 0, sizeof(TypeParam));
         tp->name   = strdup(parser->current.value);
         tp->index  = count;
+        tp->variance = tp_variance;
         parser_advance(parser);
 
         int constr_cap = 2;

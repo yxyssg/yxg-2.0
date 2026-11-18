@@ -4707,16 +4707,46 @@ IR* generate_IR(ASTNode* ast_node)
                 }
 
                 if (current_ir_function == NULL) {
-                    decl_ir->init_count = total_elements;
-                    decl_ir->init_values = malloc(sizeof(int) * total_elements);
-                    for (int i = 0; i < total_elements; i++)
+                    int glob_esz = get_type_size(arr->elementType);
+                    bool glob_wide = (glob_esz == 8);
+                    /* 8-byte elements are stored as two consecutive dwords so that
+                       the emitted .data (dd word,word) forms a correct 64-bit value. */
+                    int glob_words = glob_wide ? 2 : 1;
+                    decl_ir->init_count = total_elements * glob_words;
+                    decl_ir->init_values = malloc(sizeof(int) * (size_t)decl_ir->init_count);
+                    for (int i = 0; i < decl_ir->init_count; i++)
                         decl_ir->init_values[i] = 0;
                     for (int k = 0; k < flat_count; k++) {
-                        if (flat_elems[k]->type == AST_LITERAL) {
-                            AST_Literal* lit = (AST_Literal*)flat_elems[k];
-                            if (lit->base.value.type == TOKEN_NUMBER) {
-                                decl_ir->init_values[k] = parse_integer(lit->base.value.value);
+                        if (flat_elems[k]->type != AST_LITERAL) continue;
+                        AST_Literal* lit = (AST_Literal*)flat_elems[k];
+                        if (!(lit->base.value.type == TOKEN_NUMBER
+                              || lit->base.value.type == TOKEN_FLOAT
+                              || lit->base.value.type == TOKEN_FLOAT_LITERAL)) continue;
+
+                        bool glob_dst_float =
+                            (arr->elementType == DATA_FLOAT
+                             || arr->elementType == DATA_UFLOAT
+                             || arr->elementType == DATA_FLOAT32
+                             || arr->elementType == DATA_UFLOAT32
+                             || arr->elementType == DATA_FLOAT64
+                             || arr->elementType == DATA_UFLOAT64);
+                        if (glob_wide) {
+                            unsigned long long w64 = 0;
+                            if (glob_dst_float) {
+                                double gdv = atof(lit->base.value.value);
+                                memcpy(&w64, &gdv, 8);
+                            } else {
+                                w64 = (unsigned long long)strtoll(lit->base.value.value, NULL, 10);
                             }
+                            decl_ir->init_values[k * 2] = (int)(w64 & 0xFFFFFFFFull);
+                            decl_ir->init_values[k * 2 + 1] = (int)((w64 >> 32) & 0xFFFFFFFFull);
+                        } else if (glob_dst_float) {
+                            float gfv = (float)atof(lit->base.value.value);
+                            unsigned int gbits = 0;
+                            memcpy(&gbits, &gfv, 4);
+                            decl_ir->init_values[k] = (int)gbits;
+                        } else {
+                            decl_ir->init_values[k] = parse_integer(lit->base.value.value);
                         }
                     }
                 } else {
@@ -4747,12 +4777,14 @@ IR* generate_IR(ASTNode* ast_node)
                             decl_ir->init_values[k] = parse_integer(lit->base.value.value);
                         }
                     } else {
-                        IR* base_lit = create_IR(IR_LITERAL);
+                        /* 数组初始化的基址必须"取地址"，不能用 IR_LITERAL 读变量内容 */
+                        IR* base_lit = create_IR(IR_ADDRESS_OF);
                         base_lit->result = create_temp();
                         assign_def_id(base_lit);
                         base_lit->args1 = strdup(arr->internal_name);
-                        base_lit->args1_type = DATA_IDENTIFIER;
+                        base_lit->args1_type = DATA_INT;
                         base_lit->data_type = DATA_INT;
+                        base_lit->is_function_addr = false;
                         chain = connect_IR(chain, base_lit);
                         char* base_temp = base_lit->result;
 
@@ -4790,7 +4822,45 @@ IR* generate_IR(ASTNode* ast_node)
                             assign_def_id(add);
                             add->data_type = DATA_INT;
 
-                            IR* val_ir = generate_IR(flat_elems[k]);
+                            ASTNode* elem_node = flat_elems[k];
+                            {
+                                /* 娴偣鏁扮粍鐢ㄦ暣鏁板瓧闈㈤噺鍒濆鍖栨椂锛岄渶瑕佹樉寮忚浆鎴愭诞鐐癸紝
+                                   鍚﹀垯鏁存暟浣嶄細琚綋鎴愭诞鐐逛綅瀛樿繘鍘伙紙璇诲嚭鏉ユ槸 0.0锛?*/
+                                bool dst_is_float =
+                                    (arr->elementType == DATA_FLOAT
+                                     || arr->elementType == DATA_UFLOAT
+                                     || arr->elementType == DATA_FLOAT32
+                                     || arr->elementType == DATA_UFLOAT32
+                                     || arr->elementType == DATA_FLOAT64
+                                     || arr->elementType == DATA_UFLOAT64);
+                                DataType esrc = DATA_ERROR;
+                                if (elem_node->type == AST_LITERAL) {
+                                    esrc = ((AST_Literal*)elem_node)->dataType;
+                                }
+                                bool src_is_int =
+                                    (esrc == DATA_INT || esrc == DATA_UINT
+                                     || esrc == DATA_INT8 || esrc == DATA_UINT8
+                                     || esrc == DATA_INT16 || esrc == DATA_UINT16
+                                     || esrc == DATA_INT32 || esrc == DATA_UINT32
+                                     || esrc == DATA_INT64 || esrc == DATA_UINT64
+                                     || esrc == DATA_CHAR || esrc == DATA_BOOL);
+                                if (dst_is_float && src_is_int) {
+                                    AST_Cast* cvt = calloc(1, sizeof(AST_Cast));
+                                    if (!cvt) OUT_OF_MEMORY();
+                                    cvt->base.type = AST_CAST;
+                                    cvt->base.value = elem_node->value;
+                                    cvt->operand = elem_node;
+                                    cvt->target_type = arr->elementType;
+                                    cvt->target_class_id = -1;
+                                    cvt->target_ptr_depth = 0;
+                                    cvt->source_type = esrc;
+                                    cvt->source_ptr_depth = 0;
+                                    cvt->is_reinterpret = false;
+                                    cvt->is_checked = false;
+                                    elem_node = (ASTNode*)cvt;
+                                }
+                            }
+                            IR* val_ir = generate_IR(elem_node);
                             IR* val_last = val_ir;
                             while (val_last->next) val_last = val_last->next;
 
@@ -7446,6 +7516,11 @@ IR* generate_IR(ASTNode* ast_node)
                 param_type = var->dataType;
                 elem_sz = get_type_size(var->dataType);
                 param_bytes = get_type_size(param_type);
+                /* 窄类型参数在 32 位栈上占满 4 字节（cdecl/stdcall 约定），
+                   否则后续参数的 ebp 偏移会错位 */
+                if (param_bytes < 4 && var->dim_count == 0) {
+                    param_bytes = 4;
+                }
                 for (int vj = 0; vj < ast_function->vararg_param_count; vj++) {
                     if (ast_function->vararg_param_indices[vj] == param_idx) {
                         param_bytes = 8;

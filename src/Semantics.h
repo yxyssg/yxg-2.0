@@ -125,6 +125,10 @@ typedef struct ClassEntry {
     char** vtable_method_names;
     int next_vtable_index;
     bool is_function_class;
+    /* 实例化时保存的类型实参，用于变型比较（避免从名字字符串反推） */
+    DataType* generic_type_args;
+    char** generic_type_arg_names;
+    int generic_type_arg_count;
     char** enum_names;
     int enum_count;
     int enum_capacity;

@@ -385,9 +385,212 @@ pub void main() {
 | `start()` | 启动，返回线程句柄 |
 | `join()` | 等待结束 |
 | `isRunning()` | 是否运行中 |
-| `resultInt()` / `resultFloat()` / `resultI64()` / `result()` | 取返回值 |
+| `resultInt()` / `resultFloat()` / `resultI64()` / `resultStr()` / `result()` | 取返回值 |
 | `Thread.self()` | 当前线程 ID |
 | `Thread.sleep(ms)` | 线程休眠 |
+
+### 给线程函数传参
+
+`Thread` 构造函数支持在函数名后面跟参数：
+
+```yxg
+import yxg.Thread;
+
+pub int add2(int a, int b) {
+    return a + b;
+}
+
+pub void main() {
+    Thread t = new Thread(add2, 1, 2);
+    t.start();
+    t.join();
+    print "resultInt = ", t.resultInt(), "\n";     // 3
+}
+```
+
+参数按顺序传给 `add2`，实参可以写多个：
+
+```yxg
+pub int w(int a, int b, int c) {
+    return a + b + c;
+}
+
+Thread t = new Thread(w, 1, 2, 3);     // → 6
+```
+
+支持的类型：
+
+| 参数类型 | 状态 |
+|---|---|
+| `int` | ✅ |
+| `float` | ✅ |
+| `string` | ✅ |
+| `bool` | ✅ |
+| `char` | ⚠️ 见下方限制 |
+
+```yxg
+pub int w(string s) {
+    print "收到: ", s, "\n";
+    return 1;
+}
+
+Thread t = new Thread(w, "hello");     // → 收到: hello
+```
+
+```yxg
+pub float w(float x) {
+    return x * 2.0;
+}
+
+Thread t = new Thread(w, 2.5);         // → 5.0
+```
+
+### 变参函数
+
+可变参数用**中括号分组**传入：
+
+```yxg
+pub int w(int a, ...) {
+    int s = 0;
+    int i = 0;
+    while i < a.length {
+        s = s + a[i];
+        i = i + 1;
+    }
+    return s;
+}
+
+Thread t = new Thread(w, [1, 2, 3, 4]);     // → 10
+```
+
+多个变参组也支持：
+
+```yxg
+pub int w(int a, ..., int b, ...) {
+    return a.length * 10 + b.length;
+}
+
+Thread t = new Thread(w, [1, 2], [3, 4, 5]);    // → 23
+```
+
+字符串变参同理：
+
+```yxg
+pub int w(string a, ...) {
+    return a.length;
+}
+
+Thread t = new Thread(w, ["x", "y", "z"]);      // → 3
+```
+
+### `char` 参数的位置限制
+
+`char` 占 1 字节，但 thunk 按 4 字节打包，**放在第一个位置会挤掉后面的参数**：
+
+```yxg
+pub int w(char c, int n) {
+    print "c=", c as int, " n=", n, "\n";
+    return 0;
+}
+
+Thread t = new Thread(w, 'A', 42);
+// 输出：c=65 n=0     ← n 丢了
+```
+
+`char` 放在**最后**是正常的：
+
+```yxg
+pub int w(int n, char c) {
+    print "n=", n, " c=", c as int, "\n";
+    return 0;
+}
+
+Thread t = new Thread(w, 42, 'A');
+// 输出：n=42 c=65    ← 正确
+```
+
+**建议**：传 `char` 时把它放在参数列表末尾，或者直接传 `int`。
+
+### 传数据的其它方式
+
+不需要参数时，也可以用全局状态：
+
+```yxg
+import yxg.Thread;
+
+pub int g_input = 0;
+
+pub int worker() {
+    return g_input * 2;
+}
+
+pub void main() {
+    g_input = 21;
+    Thread t = new Thread(worker);
+    t.start();
+    t.join();
+    print "结果 = ", t.resultInt(), "\n";     // 42
+}
+```
+
+需要多个值时用全局对象或容器（**必须在 main 里 new**）：
+
+```yxg
+import yxg.Thread;
+import yxg.Collections.List;
+
+pub List<int> work;               // 声明时不 new
+
+pub int worker() {
+    int sum = 0;
+    int i = 0;
+    while i < work.size() {
+        sum = sum + work.get(i);
+        i = i + 1;
+    }
+    return sum;
+}
+
+pub void main() {
+    work = new List<int>();       // 在 main 里创建
+    work.add(10);
+    work.add(20);
+    work.add(30);
+
+    Thread t = new Thread(worker);
+    t.start();
+    t.join();
+    print "总和 = ", t.resultInt(), "\n";     // 60
+}
+```
+
+> **注意**：全局对象**不能在声明处初始化**。写 `pub List<int> work = new List<int>();` 编译能过，但运行时 `work` 是 null，报 `Error: null pointer dereference`。必须在 `main` 里赋值。
+
+### 线程返回值
+
+`worker` 的返回值通过 `resultXxx()` 取：
+
+```yxg
+pub int worker() {
+    return 42;
+}
+
+pub void main() {
+    Thread t = new Thread(worker);
+    t.start();
+    t.join();
+    print "result = ", t.resultInt(), "\n";     // 42
+}
+```
+
+| 返回类型 | 取值方法 |
+|---|---|
+| `int` / `bool` / `char` | `resultInt()` |
+| `float` / `ufloat` | `resultFloat()` |
+| `int64` / `uint64` | `resultI64()` |
+| `string` / `str` | `resultStr()` |
+
+128 位返回类型不支持（编译期报 `Thread does not support 128-bit return type yet`）。
 
 详见[函数对象](function-objects.md)。
 

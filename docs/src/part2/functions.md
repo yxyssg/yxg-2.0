@@ -517,6 +517,162 @@ System 库还提供了其他系统功能：
 
 对于基本类型，传递的是值的副本。对于数组和类实例，传递的是引用的副本（但引用指向同一对象）。
 
+## 嵌套函数
+
+函数内部可以定义函数：
+
+```yxg
+pub int outer(int x) {
+    pub int inner(int y) {
+        return y * 2;
+    }
+    return inner(x) + 1;
+}
+
+pub void main() {
+    print outer(5), "\n";     // 11
+}
+```
+
+`inner(5)` 得到 10，加 1 是 11。
+
+### 内层函数能访问外层的参数
+
+```yxg
+pub int outer(int x) {
+    pub int inner() {
+        return x * 2;
+    }
+    return inner();
+}
+
+pub void main() {
+    print outer(5), "\n";     // 10
+}
+```
+
+内层函数直接读外层参数 `x`，这是闭包捕获。
+
+### 多层嵌套
+
+```yxg
+pub int a() {
+    pub int b() {
+        pub int c() {
+            return 3;
+        }
+        return c() + 1;
+    }
+    return b() + 1;
+}
+
+pub void main() {
+    print a(), "\n";     // 5
+}
+```
+
+### 内层函数可以调用外部函数
+
+```yxg
+pub int helper(int x) { return x * 10; }
+
+pub int outer() {
+    pub int inner(int y) {
+        return helper(y) + 1;
+    }
+    return inner(4);
+}
+
+pub void main() {
+    print outer(), "\n";     // 41
+}
+```
+
+### 作用域规则
+
+内层函数**实质上是全局函数**，只是语法上写在函数体内。所以外面也能调用：
+
+```yxg
+pub int outer() {
+    pub int inner() { return 1; }
+    return inner();
+}
+
+pub void main() {
+    print outer(), "\n";     // 1
+    print inner(), "\n";     // 1  ← 外面也能调
+}
+```
+
+### 内层函数名不能和外层已有的重名
+
+```yxg
+pub int foo() { return 1; }
+
+pub int outer() {
+    pub int foo() { return 2; }     // ❌ 冲突
+    return foo();
+}
+```
+
+报错：
+
+```
+output.asm:129: error: label `foo' inconsistently redefined
+```
+
+因为两个 `foo` 生成同一个汇编标签。改名即可。
+
+### 捕获外层局部变量的限制
+
+内层函数可以读外层函数的**局部变量**：
+
+```yxg
+pub int outer() {
+    int local = 100;
+    pub int inner() {
+        return local;
+    }
+    return inner();
+}
+
+pub void main() {
+    print outer(), "\n";     // 100
+}
+```
+
+但这依赖外层函数的**栈帧还在**。如果内层函数在外层已经返回之后才被调用，读到的就是被覆盖的栈内存：
+
+```yxg
+pub int saved;
+
+pub int outer() {
+    int local = 777;
+    pub int inner() {
+        return local;
+    }
+    return inner();
+}
+
+pub void main() {
+    print outer(), "\n";      // 777，栈帧还在
+    print outer(), "\n";      // 777，又调用一次，正常
+}
+```
+
+**稳定做法**：需要存活的值用参数传进去，或者用全局变量：
+
+```yxg
+pub int local = 100;
+
+pub int outer() {
+    pub int inner() {
+        return local;         // 读全局变量，永远有效
+    }
+    return inner();
+}
+```
+
 ## 数组参数的传递
 
 数组作为参数时传递的是引用，函数内修改数组会影响原数组：

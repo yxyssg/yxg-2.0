@@ -10,6 +10,7 @@
 #include "parser.h"
 
 static ClassEntry* resolve_generic_parent(const char* name);
+static ClassEntry* find_class_generic_base(const char* name);
 
 typedef struct {
     char** names;
@@ -611,6 +612,11 @@ static const char* infer_static_class_name(ASTNode* node) {
         if (s && s->class_name) return s->class_name;
         return NULL;
     }
+    if (node->type == AST_ADDRESS_OF) {
+        /* &expr：类名取 operand 的类名（指针到泛型实例的变型检查需要） */
+        return infer_static_class_name(((AST_AddressOf*)node)->operand);
+    }
+
 
     if (node->type == AST_CAST) {
         AST_Cast* c = (AST_Cast*)node;
@@ -793,6 +799,9 @@ static bool is_subclass_of(ClassEntry* class_entry, ClassEntry* parent_entry) {
 
     for (int i = 0; i < class_entry->parent_count; i++) {
         ClassEntry* p = find_class(class_entry->parent_names[i]);
+        if (p == NULL) {
+            p = find_class_generic_base(class_entry->parent_names[i]);
+        }
         if (p && is_subclass_of(p, parent_entry)) {
             recursion_depth--;
             return true;
@@ -4320,6 +4329,7 @@ static void predeclare_class_recursive(AST_ClassDef* cd, const char* outer_name,
     }
     cls->modifier = cd->modifier;
     cls->type_param_count = cd->type_param_count;
+    cls->type_params = cd->type_params;    /* 借用 AST 上的类型参数（含约束） */
     cls->is_generic = cd->is_generic;
     cls->generic_ast = cd;
     cls->class_id = next_class_id++;
@@ -4484,6 +4494,56 @@ static int get_type_size(DataType type) {
     }
 }
 
+/* 泛型变型（协变/逆变）的声明处检查。
+   协变 <+T>：T 只能出现在返回位置（生产者），不能作为方法参数（消费者）。
+   逆变 <-T>：T 只能出现在参数位置，不能作为返回类型。
+   字段允许使用（内部存储），但方法签名必须满足上述方向。 */
+static void check_variance_usage(AST_ClassDef* cd) {
+    if (cd == NULL || !cd->is_generic) return;
+    if (cd->type_param_count <= 0 || cd->type_params == NULL) return;
+
+    for (int i = 0; i < cd->type_param_count; i++) {
+        TypeParam* tp = &cd->type_params[i];
+        if (tp->variance == 0 || tp->name == NULL) continue;
+
+        for (ASTNode* m = cd->members; m != NULL; m = m->next) {
+            if (m->type != AST_FUNCTION) continue;
+            AST_Function* f = (AST_Function*)m;
+            if (f->name.value == NULL) continue;
+            /* 构造函数不受变型约束：创建具体类型时必须能接收 T */
+            if (cd->name != NULL && strcmp(f->name.value, cd->name) == 0) continue;
+
+            if (tp->variance > 0) {
+                bool used_as_param = false;
+                for (ASTNode* p = f->Parameter; p != NULL; p = p->next) {
+                    if (p->type != AST_VAR && p->type != AST_UNINIT_VAR) continue;
+                    AST_Var* pv = (AST_Var*)p;
+                    if (pv->dataType == DATA_IDENTIFIER && pv->internal_name != NULL
+                        && strcmp(pv->internal_name, tp->name) == 0) {
+                        used_as_param = true;
+                        break;
+                    }
+                }
+                if (used_as_param) {
+                    ERROR(ERR_SEM_INCOMPATIBLE_TYPES,
+                          SEMLOC(f->name),
+                          "covariant type parameter '%s' cannot be used as a parameter type of '%s' (a covariant parameter only produces values)",
+                          tp->name, f->name.value);
+                }
+            } else {
+                if (f->return_type == DATA_IDENTIFIER
+                    && f->return_class_name != NULL
+                    && strcmp(f->return_class_name, tp->name) == 0) {
+                    ERROR(ERR_SEM_INCOMPATIBLE_TYPES,
+                          SEMLOC(f->name),
+                          "contravariant type parameter '%s' cannot be the return type of '%s' (a contravariant parameter only consumes values)",
+                          tp->name, f->name.value);
+                }
+            }
+        }
+    }
+}
+
 static void resolve_class_members(AST_ClassDef* cd, ClassEntry* cls) {
     if (cls->members_resolved) return;
 
@@ -4626,8 +4686,12 @@ static void resolve_class_members(AST_ClassDef* cd, ClassEntry* cls) {
             }
         }
         if (p_deferred) {
-            parent_entries[i] = NULL;
-            all_parents_valid = false;
+            /* 鐖剁被瀹炲弬鏄瓙绫荤被鍨嬪弬鏁帮紙濡? Layer<T> : Box<T>锛夈?傜湡瀹炲疄渚嬪寲鐖剁被鍚?
+               瑕佸埌 Layer$int 鎵嶇煡閬擄紝杩欓噷鍏堟寕鍒版硾鍨嬪熀绫? Box 涓婏紝璁╂硾鍨嬬被浣撻噷鐨?
+               this.v 鑳芥煡鍒扮户鎵垮瓧娈碉紱瀛楁鍋忕Щ鎸夌埗绫诲竷灞?绠楋紙鐖剁被瀛楁鍦ㄥ墠锛夛紝
+               涓庡疄渚嬪寲鍚庝竴鑷淬?? */
+            parent_entries[i] = find_class_generic_base(cd->parent_names[i]);
+            if (!parent_entries[i]) all_parents_valid = false;
             continue;
         }
         parent_entries[i] = resolve_generic_parent(cd->parent_names[i]);
@@ -5448,6 +5512,7 @@ static void resolve_class_members(AST_ClassDef* cd, ClassEntry* cls) {
 
     cls->total_size = off;
     if (cls->total_size == 0) cls->total_size = 4;
+    check_variance_usage(cd);
     cls->members_resolved = true;
 
     exit_scope();
@@ -6098,12 +6163,235 @@ static void replace_call_target(ASTNode* node, const char* old_name, const char*
 
 static ASTNode* shallow_clone_node(ASTNode* node);
 
+/* 判断一个实际类型实参是否满足某条泛型约束。
+   dt 是实参类型；name 在 dt == DATA_IDENTIFIER 时是类名。
+   约束语义：
+     <T :  Base>   实际类型必须是 Base 或 Base 的子类
+     <T >: Base>   Base 必须是实际类型或实际类型的子类（实际类型是 Base 的父类） */
+static bool type_satisfies_constraint(DataType dt, const char* name,
+                                      const TypeConstraint* c) {
+    if (c == NULL || c->class_name == NULL) return true;
+    /* 基本类型不是类，任何类约束都不满足 */
+    if (dt != DATA_IDENTIFIER || name == NULL) return false;
+
+    ClassEntry* actual = find_class(name);
+    if (actual == NULL) actual = find_class_generic_base(name);
+    ClassEntry* want = find_class(c->class_name);
+    if (want == NULL) want = find_class_generic_base(c->class_name);
+
+    /* 约束类还没注册（前向引用），先放过，等实例化时再看 */
+    if (want == NULL) return true;
+    if (actual == NULL) return false;
+
+    if (c->kind == CONSTRAINT_SUPERTYPE) {
+        return is_subclass_of(want, actual);
+    }
+    return is_subclass_of(actual, want);
+}
+
+/* 校验一个类型参数上的所有约束，返回是否全部满足（失败时已报错） */
+/* 把 "Base$A_B" 拆成 base 和参数列表。成功返回 true。
+   参数名用 '_' 分隔（嵌套泛型用 '$'，所以 List$List$int 是单参数）。 */
+static bool split_generic_inst_name(const char* name, char* base_out,
+                                    size_t base_sz, char** args_out,
+                                    int* argc_out, int max_args) {
+    if (name == NULL) return false;
+    const char* dollar = strchr(name, '$');
+    if (dollar == NULL) return false;
+    size_t bl = (size_t)(dollar - name);
+    if (bl + 1 > base_sz) return false;
+    memcpy(base_out, name, bl);
+    base_out[bl] = '\0';
+
+    int n = 0;
+    const char* p = dollar + 1;
+    char buf[256];
+    while (*p != '\0' && n < max_args) {
+        const char* q = p;
+        while (*q != '\0' && *q != '_') q++;
+        size_t len = (size_t)(q - p);
+        if (len + 1 > sizeof(buf)) return false;
+        memcpy(buf, p, len);
+        buf[len] = '\0';
+        args_out[n++] = strdup(buf);
+        p = (*q == '_') ? q + 1 : q;
+    }
+    *argc_out = n;
+    return true;
+}
+
+/* 变型兼容性：声明类型 decl_cls 能否接收实际类型 actual_cls。
+     - 名字完全相同 → 允许
+     - 基类不同      → 放行（由其它检查负责继承关系）
+     - 基类相同      → 逐参数按变型判定：
+         不变(0)：参数名必须相同
+         协变(+1)：actual 的参数必须是 decl 参数的子类
+         逆变(-1)：decl 的参数必须是 actual 参数的子类
+     - 参数个数不同  → 拒绝 */
+static bool generic_variance_assign_ok(const char* decl_cls,
+                                       const char* actual_cls) {
+    if (decl_cls == NULL || actual_cls == NULL) return true;
+    if (strcmp(decl_cls, actual_cls) == 0) return true;
+
+    ClassEntry* dcls = find_class(decl_cls);
+    ClassEntry* acls = find_class(actual_cls);
+    if (dcls == NULL || acls == NULL) {
+        /* 实例类还没建立（例如 List<Animal> 从未被实例化）。
+           退回到名字比较：拆出基类与参数，用基类的 type_params 判定。 */
+        const char* db2 = strchr(decl_cls, '$');
+        const char* ab2 = strchr(actual_cls, '$');
+        if (db2 == NULL || ab2 == NULL) return true;
+        size_t dbl2 = (size_t)(db2 - decl_cls);
+        size_t abl2 = (size_t)(ab2 - actual_cls);
+        if (dbl2 != abl2 || strncmp(decl_cls, actual_cls, dbl2) != 0) return true;
+
+        char base2[128];
+        if (dbl2 + 1 > sizeof(base2)) return true;
+        memcpy(base2, decl_cls, dbl2);
+        base2[dbl2] = '\0';
+
+        char dargs2[8][128];
+        char aargs2[8][128];
+        int dac2 = 0, aac2 = 0;
+        /* 拆参数：按 '_' 分段 */
+        {
+            const char* p = db2 + 1;
+            while (*p && dac2 < 8) {
+                const char* q = p;
+                while (*q && *q != '_') q++;
+                size_t ln = (size_t)(q - p);
+                if (ln + 1 > sizeof(dargs2[0])) return true;
+                memcpy(dargs2[dac2], p, ln);
+                dargs2[dac2][ln] = '\0';
+                dac2++;
+                p = (*q == '_') ? q + 1 : q;
+            }
+            p = ab2 + 1;
+            while (*p && aac2 < 8) {
+                const char* q = p;
+                while (*q && *q != '_') q++;
+                size_t ln = (size_t)(q - p);
+                if (ln + 1 > sizeof(aargs2[0])) return true;
+                memcpy(aargs2[aac2], p, ln);
+                aargs2[aac2][ln] = '\0';
+                aac2++;
+                p = (*q == '_') ? q + 1 : q;
+            }
+        }
+        if (dac2 != aac2) return false;
+
+        ClassEntry* gen2 = find_class(base2);
+        if (gen2 == NULL || !gen2->is_generic || gen2->type_params == NULL
+            || gen2->type_param_count < dac2) {
+            return true;
+        }
+        for (int i = 0; i < dac2; i++) {
+            if (strcmp(dargs2[i], aargs2[i]) == 0) continue;
+            int v2 = gen2->type_params[i].variance;
+            if (v2 == 0) return false;
+            ClassEntry* dc2 = find_class(dargs2[i]);
+            if (dc2 == NULL) dc2 = find_class_generic_base(dargs2[i]);
+            ClassEntry* ac2 = find_class(aargs2[i]);
+            if (ac2 == NULL) ac2 = find_class_generic_base(aargs2[i]);
+            if (dc2 == NULL || ac2 == NULL) return false;
+            if (v2 > 0) {
+                if (!is_subclass_of(ac2, dc2)) return false;
+            } else {
+                if (!is_subclass_of(dc2, ac2)) return false;
+            }
+        }
+        return true;
+    }
+
+
+    int dac = dcls->generic_type_arg_count;
+    int aac = acls->generic_type_arg_count;
+    if (dac <= 0 || aac <= 0) return true;          /* 不是泛型实例 */
+    if (dac != aac) return false;
+
+    /* 基类必须相同，否则交给继承检查 */
+    const char* db = strrchr(dcls->name, '$');
+    const char* ab = strrchr(acls->name, '$');
+    if (db == NULL || ab == NULL) return true;
+    {
+        size_t dbl = (size_t)(db - dcls->name);
+        size_t abl = (size_t)(ab - acls->name);
+        if (dbl != abl || strncmp(dcls->name, acls->name, dbl) != 0) return true;
+    }
+
+    TypeParam* vparams = NULL;
+    int vparam_count = 0;
+    if (dcls->generic_ast != NULL && dcls->generic_ast->type_params != NULL) {
+        vparams = dcls->generic_ast->type_params;
+        vparam_count = dcls->generic_ast->type_param_count;
+    }
+
+    for (int i = 0; i < dac; i++) {
+        const char* dn = (dcls->generic_type_arg_names != NULL)
+                         ? dcls->generic_type_arg_names[i] : NULL;
+        const char* an = (acls->generic_type_arg_names != NULL)
+                         ? acls->generic_type_arg_names[i] : NULL;
+
+        if (dn == NULL || an == NULL) {
+            if (dcls->generic_type_args[i] != acls->generic_type_args[i])
+                return false;
+            continue;
+        }
+        if (strcmp(dn, an) == 0) continue;
+
+        int v = (i < vparam_count) ? vparams[i].variance : 0;
+        if (v == 0) return false;
+
+        ClassEntry* dc = find_class(dn);
+        if (dc == NULL) dc = find_class_generic_base(dn);
+        ClassEntry* ac = find_class(an);
+        if (ac == NULL) ac = find_class_generic_base(an);
+        if (dc == NULL || ac == NULL) return false;
+
+        if (v > 0) {
+            if (!is_subclass_of(ac, dc)) return false;
+        } else {
+            if (!is_subclass_of(dc, ac)) return false;
+        }
+    }
+    return true;
+}
+
+static bool check_type_param_constraints(const TypeParam* tp, DataType dt,
+                                         const char* name, Token loc_tok) {
+    if (tp == NULL || tp->constraint_count == 0) return true;
+    bool ok = true;
+    for (int j = 0; j < tp->constraint_count; j++) {
+        const TypeConstraint* c = &tp->constraints[j];
+        if (type_satisfies_constraint(dt, name, c)) continue;
+        ok = false;
+        const char* shown = (name != NULL) ? name : data_type_to_string(dt);
+        ERROR(ERR_SEM_TYPE_MISMATCH,
+              SEMLOC(loc_tok),
+              "type argument '%s' for '%s' violates constraint '%s%s'",
+              shown ? shown : "?",
+              tp->name ? tp->name : "T",
+              c->kind == CONSTRAINT_SUPERTYPE ? ">:" : ":",
+              c->class_name ? c->class_name : "?");
+    }
+    return ok;
+}
+
 static AST_Function* instantiate_generic_function(AST_Function* generic_func,
                                                    DataType* type_args,
                                                    int type_arg_count,
                                                    char** type_arg_names) {
     if (!generic_func || !generic_func->is_generic) return NULL;
     if (type_arg_count != generic_func->type_param_count) return NULL;
+
+    /* 泛型约束校验：<T : Base> / <T >: Base> */
+    for (int ci = 0; ci < generic_func->type_param_count && ci < type_arg_count; ci++) {
+        TypeParam* ctp = &generic_func->type_params[ci];
+        if (ctp->constraint_count == 0) continue;
+        const char* cname = (type_arg_names != NULL) ? type_arg_names[ci] : NULL;
+        check_type_param_constraints(ctp, type_args[ci], cname,
+                                     generic_func->name);
+    }
 
     AST_Function* inst = calloc(1, sizeof(AST_Function));
     if (!inst) OUT_OF_MEMORY();
@@ -7408,16 +7696,24 @@ static void instantiate_generic_parent_list(AST_ClassDef* cd,
             }
 
             bool changed = false;
+            DataType* piece_dt = calloc((size_t)pc, sizeof(DataType));
+            if (!piece_dt) OUT_OF_MEMORY();
             for (int k = 0; k < pc; k++) {
+                piece_dt[k] = DATA_IDENTIFIER;
                 for (int tp = 0; tp < cd->type_param_count; tp++) {
-                    if (cd->type_params[tp].name
-                        && strcmp(pieces[k], cd->type_params[tp].name) == 0
-                        && tp < type_arg_count && type_arg_names
-                        && type_arg_names[tp]) {
+                    if (!cd->type_params[tp].name
+                        || strcmp(pieces[k], cd->type_params[tp].name) != 0)
+                        continue;
+                    if (tp >= type_arg_count) continue;
+                    if (type_arg_names && type_arg_names[tp]) {
                         pieces[k] = type_arg_names[tp];
                         changed = true;
-                        break;
+                    } else if (type_args) {
+                        pieces[k] = (char*)data_type_to_string(type_args[tp]);
+                        piece_dt[k] = type_args[tp];
+                        changed = true;
                     }
+                    break;
                 }
             }
 
@@ -7444,8 +7740,9 @@ static void instantiate_generic_parent_list(AST_ClassDef* cd,
                     char** nms = calloc((size_t)pc, sizeof(char*));
                     if (!dts || !nms) OUT_OF_MEMORY();
                     for (int k = 0; k < pc; k++) {
-                        dts[k] = DATA_IDENTIFIER;
-                        nms[k] = strdup(pieces[k]);
+                        dts[k] = piece_dt[k];
+                        nms[k] = (dts[k] == DATA_IDENTIFIER)
+                                 ? strdup(pieces[k]) : NULL;
                     }
                     instantiate_generic_class(pbase, dts, nms, pc);
                     for (int k = 0; k < pc; k++) free(nms[k]);
@@ -7453,6 +7750,7 @@ static void instantiate_generic_parent_list(AST_ClassDef* cd,
                     free(dts);
                 }
             }
+            free(piece_dt);
             free(pieces);
             free(argbuf);
             free(base);
@@ -7460,6 +7758,20 @@ static void instantiate_generic_parent_list(AST_ClassDef* cd,
         names[i] = result;
     }
     *out_names = names;
+}
+
+static ClassEntry* find_class_generic_base(const char* name) {
+    if (name == NULL) return NULL;
+    const char* dollar = strchr(name, '$');
+    if (dollar == NULL) return find_class(name);
+    size_t blen = (size_t)(dollar - name);
+    char* b = malloc(blen + 1);
+    if (!b) OUT_OF_MEMORY();
+    memcpy(b, name, blen);
+    b[blen] = '\0';
+    ClassEntry* c = find_class(b);
+    free(b);
+    return (c && c->is_generic) ? c : NULL;
 }
 
 static ClassEntry* resolve_generic_parent(const char* name) {
@@ -7631,6 +7943,7 @@ static ClassEntry* instantiate_generic_class(ClassEntry* generic_cls,
                                                int type_arg_count) {
     if (!generic_cls || !generic_cls->is_generic) return NULL;
     if (!generic_cls->generic_ast) return NULL;
+
     for (int nai = 0; nai < type_arg_count; nai++) {
         if (type_args[nai] != DATA_IDENTIFIER) continue;
         if (!type_arg_names || !type_arg_names[nai]) continue;
@@ -7661,6 +7974,17 @@ static ClassEntry* instantiate_generic_class(ClassEntry* generic_cls,
     ClassEntry* existing = find_instantiated_class(
         cd->name, type_args, type_arg_names, type_arg_count);
     if (existing) return existing;
+
+    /* 泛型类约束校验：<T : Base> / <T >: Base> */
+    if (generic_cls->type_params != NULL) {
+        for (int ci = 0; ci < generic_cls->type_param_count && ci < type_arg_count; ci++) {
+            TypeParam* ctp = &generic_cls->type_params[ci];
+            if (ctp->constraint_count == 0) continue;
+            const char* cname = (type_arg_names != NULL) ? type_arg_names[ci] : NULL;
+            check_type_param_constraints(ctp, type_args[ci], cname,
+                                         generic_cls->generic_ast->base.value);
+        }
+    }
 
     int name_len = (int)strlen(cd->name) + 2;
     for (int i = 0; i < type_arg_count; i++) {
@@ -7696,6 +8020,21 @@ static ClassEntry* instantiate_generic_class(ClassEntry* generic_cls,
     }
     inst->modifier = cd->modifier;
     inst->is_generic = false;
+    inst->generic_ast = cd;   /* 供变型检查读取 type_params */
+    /* 保存类型实参，供变型比较使用（不依赖名字字符串拆分） */
+    if (type_arg_count > 0) {
+        inst->generic_type_arg_count = type_arg_count;
+        inst->generic_type_args = malloc(sizeof(DataType) * (size_t)type_arg_count);
+        inst->generic_type_arg_names = calloc((size_t)type_arg_count, sizeof(char*));
+        if (inst->generic_type_args && inst->generic_type_arg_names) {
+            for (int gi = 0; gi < type_arg_count; gi++) {
+                inst->generic_type_args[gi] = type_args[gi];
+                if (type_arg_names && type_arg_names[gi]) {
+                    inst->generic_type_arg_names[gi] = strdup(type_arg_names[gi]);
+                }
+            }
+        }
+    }
     inst->members_resolved = true;
     inst->class_id = next_class_id++;
 
@@ -8133,7 +8472,10 @@ static ClassEntry* instantiate_generic_class(ClassEntry* generic_cls,
     }
     if (!inst->constructor && cd->parent_count > 0) {
         for (int i = 0; i < cd->parent_count; i++) {
-            ClassEntry* parent = find_class(cd->parent_names[i]);
+            ClassEntry* parent = find_class(inst->parent_names
+                                             && inst->parent_names[i]
+                                             ? inst->parent_names[i]
+                                             : cd->parent_names[i]);
             if (parent && parent->constructor) {
                 inst->constructor = parent->constructor;
                 break;
@@ -10857,6 +11199,46 @@ static void analyze_node(ASTNode* temp) {
                             if (param->type == AST_VAR || param->type == AST_UNINIT_VAR
                                 || param->type == AST_VAR_ASS) {
                                 AST_Var* pv = (AST_Var*)param;
+                                /* 传参变型检查：形参声明为泛型实例时校验实参 */
+                                if (pv->decl_class_name != NULL
+                                    && arg->type != AST_VARARG_GROUP) {
+                                    char decl_inst_buf[192];
+                                    const char* pcls = pv->decl_class_name;
+                                    if (strchr(pcls, '$') == NULL
+                                        && pv->generic_type_arg_count > 0
+                                        && pv->generic_type_arg_names != NULL) {
+                                        int nb = snprintf(decl_inst_buf,
+                                                          sizeof(decl_inst_buf),
+                                                          "%s", pcls);
+                                        for (int qi = 0;
+                                             qi < pv->generic_type_arg_count
+                                                 && nb > 0
+                                                 && nb < (int)sizeof(decl_inst_buf);
+                                             qi++) {
+                                            const char* qn =
+                                                pv->generic_type_arg_names[qi];
+                                            nb += snprintf(
+                                                decl_inst_buf + nb,
+                                                sizeof(decl_inst_buf) - (size_t)nb,
+                                                "%s%s",
+                                                (qi == 0) ? "$" : "_",
+                                                qn ? qn : "int");
+                                        }
+                                        if (nb > 0) pcls = decl_inst_buf;
+                                    }
+                                    if (strchr(pcls, '$') != NULL) {
+                                        const char* av_cls =
+                                            infer_static_class_name(arg);
+                                        if (av_cls != NULL
+                                            && !generic_variance_assign_ok(
+                                                   pcls, av_cls)) {
+                                            ERROR(ERR_SEM_INCOMPATIBLE_TYPES,
+                                                  SEMLOC(arg->value),
+                                                  "cannot pass '%s' as '%s': generic arguments are not compatible under variance",
+                                                  av_cls, pcls);
+                                        }
+                                    }
+                                }
                                 if (arg->type == AST_ADDRESS_OF) {
                                     AST_AddressOf* ao = (AST_AddressOf*)arg;
                                     if (ao->target_func_sig
@@ -13730,6 +14112,21 @@ static void analyze_node(ASTNode* temp) {
                           "cannot assign address of 'const' to non-const '%s'",
                           var->name.value);
                 }
+                /* 指针到泛型实例的变型检查（这条路径会跳过下面的类型检查） */
+                if (var->dataType == DATA_IDENTIFIER) {
+                    Symbol* pdecl = lookup_symbol(var->name.value);
+                    const char* pdecl_cls = (pdecl && pdecl->class_name)
+                                            ? pdecl->class_name : NULL;
+                    const char* prhs_cls =
+                        infer_static_class_name(var->Value);
+                    if (pdecl_cls != NULL && prhs_cls != NULL
+                        && !generic_variance_assign_ok(pdecl_cls, prhs_cls)) {
+                        ERROR(ERR_SEM_INCOMPATIBLE_TYPES,
+                              SEMLOC(var->name),
+                              "cannot convert '%s' to '%s': generic arguments are not compatible under variance",
+                              prhs_cls, pdecl_cls);
+                    }
+                }
                 goto skip_type_check_var;
             }
 
@@ -13759,7 +14156,23 @@ static void analyze_node(ASTNode* temp) {
                           data_type_to_string(expr_type));
                 }
             }
-        }
+
+            /* 泛型变型检查：两边都是类类型时，按 +T/-T 判定参数兼容性 */
+            if (var->dataType == DATA_IDENTIFIER
+                && (expr_type == DATA_IDENTIFIER || var->ptr_depth > 0)) {
+                Symbol* decl_sym = lookup_symbol(var->name.value);
+                const char* decl_cls = (decl_sym && decl_sym->class_name)
+                                      ? decl_sym->class_name : NULL;
+                const char* rhs_cls = infer_static_class_name(var->Value);
+                if (decl_cls != NULL && rhs_cls != NULL
+                    && !generic_variance_assign_ok(decl_cls, rhs_cls)) {
+                    ERROR(ERR_SEM_INCOMPATIBLE_TYPES,
+                          SEMLOC(var->name),
+                          "cannot convert '%s' to '%s': generic arguments are not compatible under variance",
+                          rhs_cls, decl_cls);
+                }
+            }
+            }
 
         skip_type_check_var:
 
@@ -14519,6 +14932,19 @@ static void analyze_node(ASTNode* temp) {
                           "type mismatch: expected '%s', got '%s'",
                           data_type_to_string(sym->type),
                           data_type_to_string(expr_type));
+                }
+            }
+
+            /* 泛型变型检查（赋值语句）：x = y; */
+            if (sym->type == DATA_IDENTIFIER && expr_type == DATA_IDENTIFIER
+                && sym->class_name != NULL) {
+                const char* rhs_cls_a = infer_static_class_name(ast_var_ass->Value);
+                if (rhs_cls_a != NULL
+                    && !generic_variance_assign_ok(sym->class_name, rhs_cls_a)) {
+                    ERROR(ERR_SEM_INCOMPATIBLE_TYPES,
+                          SEMLOC(ast_var_ass->name),
+                          "cannot convert '%s' to '%s': generic arguments are not compatible under variance",
+                          rhs_cls_a, sym->class_name);
                 }
             }
             skip_type_check_assign:
@@ -17959,6 +18385,45 @@ static void analyze_node(ASTNode* temp) {
                     ret_expr_type = DATA_STRING;
                 }
 
+                if (return_node->returnType == DATA_IDENTIFIER
+                    && ret_expr_type == DATA_IDENTIFIER
+                    && current_analyzing_function != NULL
+                    && current_analyzing_function->return_class_name != NULL) {
+                    char decl_ret_buf[192];
+                    const char* dcls = current_analyzing_function->return_class_name;
+                    if (strchr(dcls, '$') == NULL
+                        && current_analyzing_function->return_generic_type_arg_count > 0
+                        && current_analyzing_function->return_generic_type_arg_names != NULL) {
+                        int nb = snprintf(decl_ret_buf, sizeof(decl_ret_buf),
+                                          "%s", dcls);
+                        for (int qi = 0;
+                             qi < current_analyzing_function->return_generic_type_arg_count
+                                 && nb > 0
+                                 && nb < (int)sizeof(decl_ret_buf);
+                             qi++) {
+                            const char* qn =
+                                current_analyzing_function
+                                    ->return_generic_type_arg_names[qi];
+                            nb += snprintf(decl_ret_buf + nb,
+                                           sizeof(decl_ret_buf) - (size_t)nb,
+                                           "%s%s",
+                                           (qi == 0) ? "$" : "_",
+                                           qn ? qn : "int");
+                        }
+                        if (nb > 0) dcls = decl_ret_buf;
+                    }
+                    if (strchr(dcls, '$') != NULL) {
+                        const char* rv_cls =
+                            infer_static_class_name(return_node->value);
+                        if (rv_cls != NULL
+                            && !generic_variance_assign_ok(dcls, rv_cls)) {
+                            ERROR(ERR_SEM_INCOMPATIBLE_TYPES,
+                                  SEMLOC(return_node->base.value),
+                                  "cannot return '%s' as '%s': generic arguments are not compatible under variance",
+                                  rv_cls, dcls);
+                        }
+                    }
+                }
                 if (!types_compatible(return_node->returnType, ret_expr_type)
                     && ret_expr_type != DATA_ERROR) {
                     ERROR(ERR_SEM_RETURN_TYPE_MISMATCH,

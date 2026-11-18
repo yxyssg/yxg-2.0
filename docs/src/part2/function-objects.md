@@ -125,6 +125,44 @@ YXG 里函数可以作为值传递——用 `Function` 类型承载：
         print "done\n";
     }
 
+### 给线程函数传参
+
+`Thread` 构造函数支持在函数名后跟参数——编译器会自动生成一个 thunk 把这些实参打包传给 worker：
+
+    import yxg.Thread;
+
+    pub int add2(int a, int b) {
+        return a + b;
+    }
+
+    pub void main() {
+        Thread t = new Thread(add2, 1, 2);
+        t.start();
+        t.join();
+        print "resultInt = ", t.resultInt(), "\n";     // 3
+    }
+
+变参用中括号分组：
+
+    pub int w(int a, ...) {
+        return a.length;
+    }
+
+    Thread t = new Thread(w, [1, 2, 3]);    // a.length == 3
+
+支持的类型、`char` 的位置限制、返回值取值方法，详见[标准库](stdlib.md)的「线程 Thread」一节。
+
+### 无参函数也照常可用
+
+    pub int worker() {
+        return 42;
+    }
+
+    Thread t = new Thread(worker);
+    t.start();
+    t.join();
+    print t.resultInt(), "\n";     // 42
+
 ## 关于 lambda / 匿名函数
 
 **YXG 不支持 lambda 表达式语法**。没有 `() => {}`、`x => x * 2` 这类写法。

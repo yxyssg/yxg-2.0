@@ -371,6 +371,7 @@ typedef struct AST_VAR
 
     bool is_closure_ptr;
     int type_param_index;
+    char* decl_class_name;   /* 声明的类名（语义分析前保存，用于变型检查） */
 }AST_Var;
 
 typedef struct AST_PRINT
@@ -478,6 +479,7 @@ typedef struct TYPECONSTRAINT {
 
 typedef struct TYPEPARAM {
     char* name;
+    int  variance;      /* 0 = 不变, +1 = 协变(+T), -1 = 逆变(-T) */
     int  index;
     int  constraint_count;
     TypeConstraint* constraints;
@@ -512,6 +514,9 @@ typedef struct AST_FUNCTION {
     bool is_static;
 
     FuncSignature* ret_func_sig;
+    /* 返回类型是泛型实例时记录其类型实参，供变型检查拼实例名 */
+    char** return_generic_type_arg_names;
+    int return_generic_type_arg_count;
 
     char* return_class_name;
     bool returns_struct;

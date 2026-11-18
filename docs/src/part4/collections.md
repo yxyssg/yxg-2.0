@@ -58,7 +58,7 @@ indexOf(20) = 2
 
 ## 遍历 List
 
-`List` 不支持 `foreach`，用 `while` + `size()`：
+`List` 支持 `foreach`，直接遍历元素：
 
 ```yxg
 import yxg.Collections.List;
@@ -70,10 +70,8 @@ pub void main() {
     nums.add(20);
 
     int sum = 0;
-    int i = 0;
-    while i < nums.size() {
-        sum = sum + nums.get(i);
-        i = i + 1;
+    for int v : nums {
+        sum = sum + v;
     }
     print "总和 = ", sum, "\n";
     print "平均 = ", sum / nums.size(), "\n";
@@ -85,6 +83,25 @@ pub void main() {
 ```
 总和 = 60
 平均 = 20
+```
+
+需要下标时用 `while` + `get(i)`：
+
+```yxg
+import yxg.Collections.List;
+
+pub void main() {
+    List<int> nums = new List<int>();
+    nums.add(30);
+    nums.add(10);
+    nums.add(20);
+
+    int i = 0;
+    while i < nums.size() {
+        print i, ": ", nums.get(i), "\n";
+        i = i + 1;
+    }
+}
 ```
 
 ### 最大值和最小值

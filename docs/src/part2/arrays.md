@@ -10,58 +10,120 @@
 
 在声明时用花括号提供初始值：
 
-    int main() {
-        int[] numbers = {10, 20, 30, 40, 50};
-        float[] scores = {95.5, 88.0, 76.5};
-        string[] names = {"Alice", "Bob", "Charlie"};
-        bool[] flags = {true, false, true};
+```yxg
+pub void main() {
+    int[] numbers = {10, 20, 30, 40, 50};
+    float[] scores = {95.5, 88.0, 76.5};
+    string[] names = {"Alice", "Bob", "Charlie"};
+    bool[] flags = {true, false, true};
+}
+```
 
-        return 0;
-    }
+方括号里可以留空（大小由初值个数决定），也可以显式写长度：
+
+```yxg
+int[] a = {1, 2, 3};        // 长度 3
+int b[3] = {1, 2, 3};       // 长度 3
+```
+
+### 混合字面量
+
+`float` / `float64` 数组里可以混写整数和浮点字面量，整数会自动转成浮点：
+
+```yxg
+float[] scores = {123, 123.5, 150, 90};
+print scores[0], " ", scores[1], " ", scores[2], " ", scores[3], "\n";
+// 123.0 123.5 150.0 90.0
+```
+
+变量也可以放进初始化列表，同样会做类型转换：
+
+```yxg
+int x = 7;
+float[] a = {x, 2.0};
+print a[0], " ", a[1], "\n";       // 7.0 2.0
+```
+
+### 64 位元素
+
+`int64` / `float64` 数组一样支持初始化列表：
+
+```yxg
+int64[] big = {1000000000000, 2000000000000};
+float64[] dbl = {1.25, 2.5};
+
+print big[0], " ", big[1], "\n";       // 1000000000000 2000000000000
+print dbl[0], " ", dbl[1], "\n";       // 1.25 2.5
+```
+
+### 全局数组
+
+全局数组同样支持初始化列表：
+
+```yxg
+pub int64   gi64[] = {1, 2};
+pub float64 gf64[] = {1.5, 2.5};
+pub float   gf[]   = {1.5, 2.5};
+pub int     gn[]   = {1, 2, 3};
+
+pub void main() {
+    print gi64[0], " ", gf64[0], " ", gf[1], " ", gn[2], "\n";
+    // 1 1.5 2.5 3
+}
+```
 
 ### 动态分配
 
 使用 new 关键字创建指定大小的数组：
 
-    int main() {
-        int[] arr = new int[10];
-        float[] floats = new float[5];
-        string[] strings = new string[3];
+```yxg
+pub void main() {
+    int[] arr = new int[10];
+    float[] floats = new float[5];
+    string[] strings = new string[3];
 
-        int size = 25;
-        int[] dynamic = new int[size];
+    int size = 25;
+    int[] dynamic = new int[size];
 
-        return 0;
-    }
+    int64[] big = new int64[2];
+    big[0] = 5;
+    big[1] = 6;
+    print big[0], " ", big[1], "\n";       // 5 6
+}
+```
 
 ### 声明与赋值分离
 
 声明数组时必须同时给出大小或初值，`int[] arr;` 这样光声明会报 `error[E3003]: array 'arr' of unknown size must be initialized`。数组字面量也只能出现在声明语句里，不能单独用来赋值：
 
-    int main() {
-        int[] arr = new int[5];
+```yxg
+pub void main() {
+    int[] arr = new int[5];
 
-        // arr = {1, 2, 3, 4, 5};   // 错误！error[E2004] illegal operand '{'
+    // arr = {1, 2, 3, 4, 5};   // 错误！error[E2004] illegal operand '{'
 
-        arr[0] = 1;
-        arr[1] = 2;
-        arr[2] = 3;
+    arr[0] = 1;
+    arr[1] = 2;
+    arr[2] = 3;
 
-        print arr[0], " ", arr[1], " ", arr[2], "\n";
-        return 0;
-    }
+    print arr[0], " ", arr[1], " ", arr[2], "\n";
+}
+```
 
 输出：
 
-    1 2 3
+```
+1 2 3
+```
 
 要一次性给出初值，就在声明的时候写：
 
-    int main() {
-        int[] arr = {1, 2, 3, 4, 5};
-        print arr.length, "\n";       // 5
-        return 0;
-    }
+```yxg
+pub void main() {
+    int[] arr = {1, 2, 3, 4, 5};
+    print arr.length, "\n";       // 5
+}
+```
 
 ## 访问元素
 

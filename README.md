@@ -17,7 +17,7 @@ https://yxyssg.github.io/yxg-2.0/
 - **Basic types / 基本类型**: `int`, `uint`, `int64`, `float`, `ufloat`, `char`, `string`/`str`, `bool`, `void`
 - **Control flow / 控制流**: `if`/`else if`/`else`, `switch`/`case`/`default`, `while`, `do-while`, `for`, `for-each` (arrays and containers)
 - **Functions / 函数**: overloading, methods, constructors, closures, generic functions `<T> T f(T x)` / 函数重载、方法、构造函数、闭包、泛型函数
-- **Generics / 泛型**: generic classes `class Box<T>`, multiple type params `class Pair<A,B>`, nested generics `List<List<X>>`, generic inheritance `class X : List<Y>` / 泛型类、多类型参数、嵌套泛型、泛型继承
+- **Generics / 泛型**: generic classes `class Box<T>`, multiple type params `class Pair<A,B>`, nested generics `List<List<X>>`, generic inheritance `class X : List<Y>`, constraints `<T : Base>` / `<T >: Base>`, variance `<+T>` / `<-T>` / 泛型类、多类型参数、嵌套泛型、泛型继承、类型约束、协变/逆变
 - **Arrays / 数组**: multi-dimensional, dynamic (`new T[n]`), stack arrays, `.length`, value semantics on assignment / 多维数组、动态数组、栈数组、`.length`、赋值时值语义复制
 - **Classes & Objects / 类与对象**: single/multiple inheritance, `pub`/`pro`/`pri` access control, methods, constructors, `this`, `new` / 单/多继承、访问控制、方法、构造函数、`this`、`new`
 - **Exceptions / 异常**: `try`/`catch`/`finally`, `throw`, `ERROR` base class / 异常处理
@@ -390,8 +390,6 @@ These are current, verified limitations — plan around them / 以下是实测�
   `print` 逗号分隔的参数之间不自动加空格，也不自动换行。
 - **Array literals** can only initialize a declaration (`int[] a = {1,2,3};`), not appear in assignment or `return`.
   数组字面量只能用于变量初始化，不能用于赋值或 `return`。
-- **Generic class extending a generic parent with a primitive type arg** (`class Mine<T> : List<T>` then `Mine<int>`) does not inherit the parent's methods — calling `m.add(...)` reports `E3015: no matching method`. Use `class IntList : List<int>` instead.
-  泛型类继承泛型父类且实参为基本类型时，父类方法没有继承下来（调用时报 `E3015`）。改用直接继承已实例化的父类。
 - **`for` does not accept parentheses**: write `for int i = 0; i < 5; i++`, not `for (int i = 0; ...)`. `if`/`switch` do accept parentheses.
   `for` 不支持括号；`if`/`switch` 支持。
 - **`for` init must be a declaration** and accepts one variable: `for i = 0` (already declared) and `for int i = 0, j = 10` are rejected.

@@ -25,6 +25,8 @@ section .bss
     out_buffer      resb 4096
     int_temp_buf    resb 32
     double_temp_int resd 1
+    fmt_width_temp  resd 1
+    fmt_prec_temp   resd 1
     cw_old          resw 1
     cw_new          resw 1
     _input_buffer   resb 1024
@@ -1003,6 +1005,90 @@ write_int_padded:
     pop  ebp
     ret
 
+write_int_spaced:
+    push ebp
+    mov  ebp, esp
+    push ebx
+    push edx
+    push esi
+    push ecx
+    mov  ebx, edi
+    cmp  eax, 0x80000000
+    jne  .not_min_wis
+    mov  esi, int_min_str
+    mov  ecx, 11
+    mov  edx, [ebp+8]
+    mov  eax, edx
+    sub  eax, ecx
+    jle  .min_nopad_wis
+    push ecx
+    mov  ecx, eax
+    mov  al, ' '
+    rep  stosb
+    pop  ecx
+.min_nopad_wis:
+    rep  movsb
+    jmp  .done_wis
+.not_min_wis:
+    xor  edx, edx
+    test eax, eax
+    jns  .nosign_wis
+    inc  edx
+    neg  eax
+.nosign_wis:
+    push edx
+    mov  esi, int_temp_buf + 30
+    mov  byte [esi], 0
+    dec  esi
+    mov  ecx, 10
+.conv_loop_wis:
+    xor  edx, edx
+    div  ecx
+    add  dl, '0'
+    mov  [esi], dl
+    dec  esi
+    test eax, eax
+    jnz  .conv_loop_wis
+    inc  esi
+    mov  eax, int_temp_buf + 30
+    sub  eax, esi
+    pop  edx
+    mov  ecx, eax
+    add  ecx, edx
+    mov  eax, [ebp+8]
+    cmp  eax, ecx
+    jae  .have_total_wis
+    mov  eax, ecx
+.have_total_wis:
+    sub  eax, ecx
+    jle  .no_pad_wis
+    push ecx
+    push edx
+    mov  ecx, eax
+    mov  al, ' '
+    rep  stosb
+    pop  edx
+    pop  ecx
+.no_pad_wis:
+    test edx, edx
+    jz   .no_sign_out_wis
+    mov  byte [edi], '-'
+    inc  edi
+.no_sign_out_wis:
+    mov  edx, int_temp_buf + 30
+    sub  edx, esi
+    mov  ecx, edx
+    rep  movsb
+.done_wis:
+    pop  ecx
+    mov  eax, edi
+    sub  eax, ebx
+    pop  esi
+    pop  edx
+    pop  ebx
+    pop  ebp
+    ret
+
 write_fraction_padded:
     push ebx
     push edx
@@ -1464,6 +1550,7 @@ _format_string:
     cmp  byte [esi], '}'
     jne  .check_format_fs
     inc  esi
+.fmt_default_fs:
     
     mov  eax, [ebp-12]
     cmp  eax, [ebp-4]
@@ -1565,7 +1652,286 @@ _format_string:
     je   .float_fmt_fs
     cmp  byte [esi], '0'
     je   .int_fmt_fs
+    cmp  byte [esi], '<'
+    je   .left_fmt_fs
+    cmp  byte [esi], 's'
+    je   .do_str_from_fmt_fs
+    cmp  byte [esi], 'c'
+    je   .do_char_from_fmt_fs
+    cmp  byte [esi], '1'
+    jb   .wsp_next_fs
+    cmp  byte [esi], '9'
+    jbe  .int_fmt_sp_fs
+.wsp_next_fs:
     jmp  .skip_braces_fs
+
+.do_str_from_fmt_fs:
+    inc  esi
+    cmp  byte [esi], '}'
+    jne  .skip_braces_fs
+    inc  esi
+    mov  eax, [ebp-12]
+    cmp  eax, [ebp-4]
+    jae  .error_fs
+    mov  ebx, [ebp-8]
+    mov  ebx, [ebx + eax*4]
+    mov  edx, [ebp-16]
+    add  edx, ebp
+    mov  eax, [edx]
+    inc  dword [ebp-12]
+    add  dword [ebp-16], 4
+    cmp  ebx, 3
+    jne  .error_fs
+    push ecx
+    push esi
+    mov  esi, [eax]
+    call write_str
+    pop  esi
+    pop  ecx
+    jc   .error_fs
+    cmp  eax, ecx
+    ja   .error_fs
+    sub  ecx, eax
+    jmp  .parse_loop_fs
+
+.do_char_from_fmt_fs:
+    inc  esi
+    cmp  byte [esi], '}'
+    jne  .skip_braces_fs
+    inc  esi
+    mov  eax, [ebp-12]
+    cmp  eax, [ebp-4]
+    jae  .error_fs
+    mov  ebx, [ebp-8]
+    mov  ebx, [ebx + eax*4]
+    mov  edx, [ebp-16]
+    add  edx, ebp
+    mov  eax, [edx]
+    inc  dword [ebp-12]
+    add  dword [ebp-16], 4
+    cmp  ebx, 2
+    jne  .error_fs
+    mov  al, [eax]
+    push ecx
+    call write_char
+    pop  ecx
+    cmp  eax, ecx
+    ja   .error_fs
+    sub  ecx, eax
+    jmp  .parse_loop_fs
+
+.wsp_try_float_fs:
+    cmp  byte [esi], '.'
+    jne  .skip_braces_fs
+    jmp  .float_width_fs
+.int_fmt_sp_fs:
+    xor  edx, edx
+.parse_wsp_fs:
+    cmp  byte [esi], '0'
+    jb   .wsp_done_fs
+    cmp  byte [esi], '9'
+    ja   .wsp_done_fs
+    movzx eax, byte [esi]
+    sub  eax, '0'
+    imul edx, 10
+    add  edx, eax
+    inc  esi
+    jmp  .parse_wsp_fs
+.wsp_done_fs:
+    cmp  byte [esi], 'd'
+    jne  .wsp_try_float_fs
+    cmp  byte [esi+1], '}'
+    jne  .skip_braces_fs
+    add  esi, 2
+    push ecx
+    push edx
+    pop  dword [double_temp_int]
+    mov  eax, [ebp-12]
+    cmp  eax, [ebp-4]
+    jae  .error_fs_cleanup_pad
+    mov  ebx, [ebp-8]
+    mov  ebx, [ebx + eax*4]
+    mov  edx, [ebp-16]
+    add  edx, ebp
+    mov  eax, [edx]
+    inc  dword [ebp-12]
+    add  dword [ebp-16], 4
+    cmp  ebx, 0
+    je   .int_ok_sp
+    cmp  ebx, 4
+    jne  .error_fs_cleanup_pad
+.int_ok_sp:
+    mov  eax, [eax]
+    mov  ecx, [double_temp_int]
+    test ecx, ecx
+    jnz  .do_pad_sp
+    mov  ecx, 1
+.do_pad_sp:
+    push ecx
+    call write_int_spaced
+    add  esp, 4
+    pop  ecx
+    cmp  eax, ecx
+    ja   .error_fs
+    sub  ecx, eax
+    jmp  .parse_loop_fs
+
+.left_fmt_fs:
+    inc  esi
+    xor  edx, edx
+.parse_lw_fs:
+    cmp  byte [esi], '0'
+    jb   .lw_done_fs
+    cmp  byte [esi], '9'
+    ja   .lw_done_fs
+    movzx eax, byte [esi]
+    sub  eax, '0'
+    imul edx, 10
+    add  edx, eax
+    inc  esi
+    jmp  .parse_lw_fs
+.lw_done_fs:
+    cmp  byte [esi], 's'
+    je   .lw_str_chk
+    cmp  byte [esi], 'd'
+    jne  .skip_braces_fs
+    jmp  .lw_int_chk
+.lw_str_chk:
+    cmp  byte [esi+1], '}'
+    jne  .skip_braces_fs
+    mov  [fmt_width_temp], edx
+    add  esi, 2
+    mov  eax, [ebp-12]
+    cmp  eax, [ebp-4]
+    jae  .skip_braces_fs
+    mov  ebx, [ebp-8]
+    mov  ebx, [ebx + eax*4]
+    mov  edx, [ebp-16]
+    add  edx, ebp
+    mov  eax, [edx]
+    inc  dword [ebp-12]
+    add  dword [ebp-16], 4
+    cmp  ebx, 3
+    jne  .skip_braces_fs
+    push ecx
+    push esi
+    mov  esi, [eax]
+    call write_str
+    jc   .lw_str_err
+    jmp  .lw_pad
+.lw_str_err:
+    pop  esi
+    pop  ecx
+    jmp  .error_fs
+.lw_int_chk:
+    cmp  byte [esi+1], '}'
+    jne  .skip_braces_fs
+    mov  [fmt_width_temp], edx
+    add  esi, 2
+    mov  eax, [ebp-12]
+    cmp  eax, [ebp-4]
+    jae  .skip_braces_fs
+    mov  ebx, [ebp-8]
+    mov  ebx, [ebx + eax*4]
+    mov  edx, [ebp-16]
+    add  edx, ebp
+    mov  eax, [edx]
+    inc  dword [ebp-12]
+    add  dword [ebp-16], 4
+    cmp  ebx, 0
+    je   .lw_int_go
+    cmp  ebx, 4
+    jne  .skip_braces_fs
+.lw_int_go:
+    push ecx
+    push esi
+    mov  eax, [eax]
+    call write_int_default
+.lw_pad:
+    mov  edx, [fmt_width_temp]
+    sub  edx, eax
+    jle  .lw_nopad
+    push eax
+    mov  ecx, edx
+    mov  al, ' '
+    rep  stosb
+    pop  eax
+    mov  eax, [fmt_width_temp]
+.lw_nopad:
+    pop  esi
+    pop  ecx
+    cmp  eax, ecx
+    ja   .error_fs
+    sub  ecx, eax
+    jmp  .parse_loop_fs
+
+.float_width_fs:
+    inc  esi
+    xor  ecx, ecx
+.parse_fwp_fs:
+    cmp  byte [esi], '0'
+    jb   .fwp_done_fs
+    cmp  byte [esi], '9'
+    ja   .fwp_done_fs
+    movzx eax, byte [esi]
+    sub  eax, '0'
+    imul ecx, 10
+    add  ecx, eax
+    inc  esi
+    jmp  .parse_fwp_fs
+.fwp_done_fs:
+    cmp  byte [esi], 'f'
+    jne  .skip_braces_fs
+    inc  esi
+    cmp  byte [esi], '}'
+    jne  .skip_braces_fs
+    inc  esi
+    mov  [fmt_width_temp], edx
+    mov  [fmt_prec_temp], ecx
+    mov  eax, [ebp-12]
+    cmp  eax, [ebp-4]
+    jae  .skip_braces_fs
+    mov  ebx, [ebp-8]
+    mov  ebx, [ebx + eax*4]
+    mov  ecx, [ebp-16]
+    add  ecx, ebp
+    mov  eax, [ecx]
+    inc  dword [ebp-12]
+    add  dword [ebp-16], 4
+    cmp  ebx, 1
+    jne  .skip_braces_fs
+    push ecx
+    push esi
+    mov  ebx, edi
+    mov  esi, [eax]
+    mov  edx, [fmt_prec_temp]
+    call write_float_single
+    mov  edx, [fmt_width_temp]
+    sub  edx, eax
+    jle  .fwp_nopad
+    mov  ecx, eax
+    mov  esi, edi
+    dec  esi
+.fwp_shift:
+    mov  al, [esi]
+    mov  [esi+edx], al
+    dec  esi
+    dec  ecx
+    jnz  .fwp_shift
+    mov  ecx, edx
+    mov  edi, ebx
+    mov  al, ' '
+    rep  stosb
+    mov  edi, ebx
+    add  edi, dword [fmt_width_temp]
+    mov  eax, [fmt_width_temp]
+.fwp_nopad:
+    pop  esi
+    pop  ecx
+    cmp  eax, ecx
+    ja   .error_fs
+    sub  ecx, eax
+    jmp  .parse_loop_fs
 
 .do_int_fs_from_fmt:
     inc  esi
@@ -1980,7 +2346,7 @@ _format_string:
     jz   .finish_fs
     cmp  al, '}'
     jne  .skip_braces_fs
-    jmp  .parse_loop_fs
+    jmp  .fmt_default_fs
 
 .copy_current_brace_fs:
     cmp  ecx, 1

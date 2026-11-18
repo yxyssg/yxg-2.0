@@ -1115,10 +1115,7 @@ static DataType cg_load(FILE* out, const char* name, DataType hint_type) {
             fprintf(out, "  mov eax, dword %s\n", addr);
             return DATA_INT;
         }
-        if (!is_ret_ptr && consts->is_array[idx]
-            && type != DATA_STR
-            && type != DATA_INT64 && type != DATA_UINT64
-            && type != DATA_FLOAT64 && type != DATA_UFLOAT64) {
+        if (!is_ret_ptr && consts->is_array[idx] && type != DATA_STR) {
             fprintf(out, "  lea eax, %s\n", addr);
             return DATA_INT;
         }

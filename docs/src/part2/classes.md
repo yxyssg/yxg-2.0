@@ -178,7 +178,37 @@ YXG 支持多继承，子类用冒号指定父类，多个父类用逗号分隔�
     Flying...
     Tweety chirps!
 
-子类继承父类所有 pub 和 pro 成员。子类可以重写父类方法，但当前版本不支持虚函数派发：只有在派生类实例上直接调用时才会执行派生类的版本，通过父类方法内部调用同名方法时仍然是静态绑定，见继承一章。
+子类继承父类所有 `pub` 和 `pro` 成员。
+
+**虚函数派发**：基类方法标 `virtual`、子类标 `override` 后，通过基类引用调用会派发到子类的版本：
+
+```yxg
+pub class Animal {
+    pub string name;
+    pub virtual void speak() {
+        print this.name, " makes a sound\n";
+    }
+    pub void intro() {
+        print "I am ";
+        this.speak();          // ← 也会派发到子类版本
+    }
+}
+
+pub class Dog : Animal {
+    pub override void speak() {
+        print this.name, " barks!\n";
+    }
+}
+
+pub void main() {
+    Animal a = new Dog();
+    a.name = "Spot";
+    a.speak();                 // Spot barks!
+    a.intro();                 // I am Spot barks!
+}
+```
+
+不加 `virtual` / `override` 时是静态绑定，走基类版本。详见[继承](inheritance.md)。
 
 ## 类与结构体
 
@@ -203,6 +233,88 @@ YXG 没有单独的 struct 关键字。没有方法的类本质上就是结构�
 输出：
 
     1.0 2.0 3.0
+
+## 嵌套类
+
+类里可以定义类，用 `Outer.Inner` 访问：
+
+```yxg
+pub class Outer {
+    pub int v;
+
+    pub class Inner {
+        pub int w;
+    }
+}
+
+pub void main() {
+    Outer o = new Outer();
+    o.v = 1;
+
+    Outer.Inner i = new Outer.Inner();
+    i.w = 7;
+    print o.v, " ", i.w, "\n";     // 1 7
+}
+```
+
+### 嵌套类可以有方法
+
+```yxg
+pub class Outer {
+    pub class Inner {
+        pub int w;
+        pub int get() { return this.w * 2; }
+    }
+
+    pub Inner make(int x) {
+        Inner i = new Inner();
+        i.w = x;
+        return i;
+    }
+}
+
+pub void main() {
+    Outer o = new Outer();
+    Outer.Inner i = o.make(5);
+    print i.get(), "\n";     // 10
+}
+```
+
+外层类的方法可以直接用 `Inner` 短名，外面要用 `Outer.Inner`。
+
+### 多层嵌套
+
+```yxg
+pub class A {
+    pub class B {
+        pub class C {
+            pub int n;
+        }
+    }
+}
+
+pub void main() {
+    A.B.C c = new A.B.C();
+    c.n = 9;
+    print c.n, "\n";     // 9
+}
+```
+
+### 注意
+
+嵌套类**和外部类没有自动关联**——`Inner` 不能直接访问 `Outer` 的实例字段，需要显式传对象：
+
+```yxg
+pub class Outer {
+    pub int v;
+
+    pub class Inner {
+        pub int copyOf(Outer o) {
+            return o.v;          // 通过参数访问
+        }
+    }
+}
+```
 
 ## 完整示例：学生管理系统
 

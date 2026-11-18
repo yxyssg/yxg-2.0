@@ -668,7 +668,7 @@ _print_err:
     mov byte [edi], '-'
 .int_done:
     mov esi, edi
-    mov ecx, _err_buf + 39
+    mov ecx, _err_buf + 38
     sub ecx, edi
     jmp .write
 .do_char:
@@ -709,14 +709,30 @@ _print_err:
     mov ecx, edx
     jmp .write
 .write:
+    mov edi, ecx
     push -12
     call _GetStdHandle@4
+    cmp eax, INVALID_HANDLE_VALUE
+    je .write_done
     push 0
     push _err_written
-    push ecx
+    push edi
     push esi
     push eax
     call _WriteConsoleA@20
+    test eax, eax
+    jnz .write_done
+    push -12
+    call _GetStdHandle@4
+    cmp eax, INVALID_HANDLE_VALUE
+    je .write_done
+    push NULL
+    push _err_written
+    push edi
+    push esi
+    push eax
+    call _WriteFile@20
+.write_done:
     pop edi
     pop esi
     pop ebx
@@ -724,4 +740,5 @@ _print_err:
     push eax
     call _LeaveCriticalSection@4
     pop ebp
+    ret
     ret
