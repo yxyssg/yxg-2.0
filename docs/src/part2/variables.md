@@ -50,12 +50,10 @@ print 不会自动插入空格，也不会自动换行，所有分隔和换行�
 
 ### 一次声明多个变量
 
-每条声明语句只能声明一个变量。不能像 C 语言那样用逗号分隔：
+每条声明语句还可以声明多个变量：
 
     int main() {
-        int a = 1;
-        int b = 2;
-        // int a = 1, b = 2;   // 错误！不支持
+        int a = 1, b = 2;
 
         print a, " ", b, "\n";
         return 0;
@@ -176,8 +174,6 @@ YXG 支持所有常见的复合赋值：
 
 变量名必须遵循以下规则：
 
-1. 只能包含字母（a-z、A-Z）、数字（0-9）和下划线（_）
-2. 不能以数字开头
 3. 区分大小写（name 和 Name 是不同的变量）
 4. 不能与关键字同名
 
@@ -188,13 +184,14 @@ YXG 支持所有常见的复合赋值：
         int player1_score;
         int _internal;
         int MAX_VALUE;
+        int 1st_place;
+        int 测试;
 
         return 0;
     }
 
 不合法示例：
 
-    // int 1st_place;     // 不能以数字开头
     // int my-var;        // 连字符不允许
     // int class;         // class 是关键字
     // int first name;    // 空格不允许
