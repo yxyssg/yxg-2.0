@@ -3822,8 +3822,22 @@ void codegen_win32(FILE* output,IR* ir)
                 if ((var_type == DATA_FLOAT || var_type == DATA_UFLOAT)
                     && !(loaded_type == DATA_FLOAT || loaded_type == DATA_UFLOAT || loaded_type == DATA_FLOAT32 || loaded_type == DATA_UFLOAT32)) {
                     if (is_temp((char*)src)) {
-                        int src_off_sav = temp_map_get_offset(src);;
-                        fprintf(output, "  fld dword [ebp-%d]\n", src_off_sav);
+                        int src_off_sav = temp_map_get_offset(src);
+                        bool st_is_int = (loaded_type == DATA_INT
+                                          || loaded_type == DATA_UINT
+                                          || loaded_type == DATA_INT8
+                                          || loaded_type == DATA_INT16
+                                          || loaded_type == DATA_INT32
+                                          || loaded_type == DATA_UINT8
+                                          || loaded_type == DATA_UINT16
+                                          || loaded_type == DATA_UINT32
+                                          || loaded_type == DATA_CHAR
+                                          || loaded_type == DATA_BOOL);
+                        if (st_is_int) {
+                            fprintf(output, "  fild dword [ebp-%d]\n", src_off_sav);
+                        } else {
+                            fprintf(output, "  fld dword [ebp-%d]\n", src_off_sav);
+                        }
                         loaded_type = var_type;
                     } else if (var_type == DATA_UFLOAT) {
                         fprintf(output, "  push 0\n");
@@ -4160,9 +4174,24 @@ void codegen_win32(FILE* output,IR* ir)
                 if (num > 0) {
                     for (int i = num - 1; i >= 0; i--) {
                         DataType t = ir_temp->call_func_args_type[i];
-                        int code = (t == DATA_FLOAT || t == DATA_UFLOAT) ? 1 :
-                                   (t == DATA_CHAR) ? 2 : (t == DATA_STRING) ? 3 :
-                                   (t == DATA_BOOL) ? 4 : 0;
+                        if (t == DATA_FLOAT128 || t == DATA_UFLOAT128) {
+                            FATAL(ERR_CG_UNKNOWN_VAR, LOC_NONE,
+                                  "format does not support float128/ufloat128 yet (use float64)");
+                        }
+                        int code;
+                        switch (t) {
+                            case DATA_FLOAT: case DATA_UFLOAT:
+                            case DATA_FLOAT8: case DATA_UFLOAT8:
+                            case DATA_FLOAT16: case DATA_UFLOAT16:
+                            case DATA_FLOAT32: case DATA_UFLOAT32:
+                                code = 1; break;
+                            case DATA_FLOAT64: case DATA_UFLOAT64:
+                                code = 7; break;
+                            case DATA_CHAR:   code = 2; break;
+                            case DATA_STRING: case DATA_STR: code = 3; break;
+                            case DATA_BOOL:   code = 4; break;
+                            default:          code = 0; break;
+                        }
                         fprintf(output, "  push %d\n", code);
                     }
                     fprintf(output, "  mov ebx, esp\n");

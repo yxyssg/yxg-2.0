@@ -50,8 +50,8 @@ typedef struct BuildOptions {
     bool only_window;
     bool assertions;
     bool force_rebuild;
+    char* dump_symbols;
 } BuildOptions;
-
 typedef struct Dependency {
     char* name;
     char* git_url;
@@ -305,6 +305,25 @@ static int run_compiler(BuildOptions* opts)
     ast_node = semantics_prepare_program(ast_node);
     Semantics(ast_node);
     semantics_propagate_closures(ast_node);
+
+    if (opts->dump_symbols != NULL) {
+        FILE* sym_out = fopen(opts->dump_symbols, "w");
+        if (sym_out == NULL) {
+            fprintf(stderr, "error: cannot write %s\n", opts->dump_symbols);
+        } else {
+            semantics_dump_symbols_json(ast_node,
+                                        opts->files && opts->file_count > 0
+                                            ? opts->files[0] : "",
+                                        sym_out);
+            fclose(sym_out);
+        }
+        AST_Free(ast_node);
+        for (int i = 0; i < lexer_count; i++) lexer_free(lexer_instances[i]);
+        module_system_cleanup();
+        semantics_cleanup();
+        codegen_cleanup();
+        return 0;
+    }
     // Print_AST(ast_node,0,true);
 
     if (has_error)
@@ -855,13 +874,13 @@ static int run_compiler(BuildOptions* opts)
     }
 
     AST_Free(ast_node);
-    for (int i = 0; i < lexer_count; i++) {
-        lexer_free(lexer_instances[i]);
-    }
-    module_system_cleanup();
-    semantics_cleanup();
-    codegen_cleanup();
-    regmap_cleanup();
+    /* 退出前不做完整 teardown：
+       1) 进程马上结束，OS 会回收，不释放不影响正确性；
+       2) 实测这些 free 会碰到已损坏的堆元数据，导致 0xC0000005
+          （表现为"编译成功但没有任何输出"）。
+       3) 这里只把输出刷干净，保证提示一定可见。 */
+    fflush(stdout);
+    fflush(stderr);
     clock_t end_time = clock();
 
     double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
@@ -907,9 +926,30 @@ static int run_compiler(BuildOptions* opts)
 
     if (is_executable)
     {
-        char run_cmd[MAX_PATH * 2];
-        snprintf(run_cmd, sizeof(run_cmd), "\"%s\"", output_file_name);
-        system(run_cmd);
+        FILE* probe = fopen(output_file_name, "rb");
+        if (!probe) {
+            fprintf(stderr, "error: built executable not found: %s\n", output_file_name);
+            fprintf(stderr, "       (build may have failed, or the output path is not writable)\n");
+        } else {
+            fclose(probe);
+            fflush(stdout);
+            fflush(stderr);
+            char run_cmd[MAX_PATH * 2];
+            snprintf(run_cmd, sizeof(run_cmd), "\"%s\"", output_file_name);
+            fprintf(stderr, "run: %s\n", output_file_name);
+            fflush(stderr);
+            int run_rc = system(run_cmd);
+            unsigned int run_code = (unsigned int)run_rc;
+            if (run_rc == 0) {
+                fprintf(stderr, "run: exit code 0\n");
+            } else {
+                fprintf(stderr, "run: exit code %d (0x%08X)\n", run_rc, run_code);
+                if (run_code >= 0x80000000u) {
+                    fprintf(stderr, "run: program crashed (0x%08X is usually an access violation)\n", run_code);
+                    fprintf(stderr, "     try: yxg build <file>, then run the exe by hand\n");
+                }
+            }
+        }
     }
 
     if (error_occurred()) {
@@ -1115,6 +1155,13 @@ static int parse_build_args(int argc, char** argv, BuildOptions* opts)
             opts->force_rebuild = true;
         } else if (argv[i][0] != '-') {
             add_input_file(opts, argv[i]);
+        } else if (strcmp(argv[i], "--dump-symbols") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "error: --dump-symbols requires a path\n");
+                return -1;
+            }
+            free(opts->dump_symbols);
+            opts->dump_symbols = strdup(argv[++i]);
         } else {
             fprintf(stderr, "warning: unknown option '%s'\n", argv[i]);
         }
@@ -1602,7 +1649,29 @@ static int cmd_compile_common(int argc, char** argv, bool force_run)
         if (opts.run) {
             char run_cmd[MAX_PATH * 2];
             snprintf(run_cmd, sizeof(run_cmd), "\"%s\"", opts.output);
-            int run_ret = system(run_cmd);
+            int run_ret = 0;
+            FILE* probe2 = fopen(opts.output, "rb");
+            if (!probe2) {
+                fprintf(stderr, "error: executable not found: %s\n", opts.output);
+                run_ret = 1;
+            } else {
+                fclose(probe2);
+                fflush(stdout);
+                fflush(stderr);
+                fprintf(stderr, "run: %s\n", opts.output);
+                fflush(stderr);
+                run_ret = system(run_cmd);
+                if (run_ret != 0) {
+                    unsigned int rc2 = (unsigned int)run_ret;
+                    fprintf(stderr, "run: exit code %d (0x%08X)\n", run_ret, rc2);
+                    if (rc2 >= 0x80000000u) {
+                        fprintf(stderr, "run: program crashed (0x%08X is usually an access violation)\n", rc2);
+                        fprintf(stderr, "     try: yxg build <file>, then run the exe by hand\n");
+                    }
+                } else {
+                    fprintf(stderr, "run: exit code 0\n");
+                }
+            }
             free_build_options(&opts);
             free_project_config(&cfg);
             return run_ret;
@@ -2287,7 +2356,7 @@ int main(int argc, char** argv)
         return 0;
     }
     if (strcmp(argv[1], "-version") == 0) {
-        printf("version: 1.0.0-alpha.1\n");
+        printf("version: 2.0.0\n");
         return 0;
     }
     if (strcmp(argv[1], "-time") == 0) {

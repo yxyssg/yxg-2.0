@@ -27,6 +27,7 @@ section .bss
     double_temp_int resd 1
     fmt_width_temp  resd 1
     fmt_prec_temp   resd 1
+    fs_dbl_temp     resd 1
     cw_old          resw 1
     cw_new          resw 1
     _input_buffer   resb 1024
@@ -1124,6 +1125,20 @@ write_fraction_padded:
     pop  ebx
     ret
 
+fs_norm_float:
+    cmp  ebx, 7
+    jne  .fnf_ret
+    push ecx
+    push edx
+    fld  qword [eax]
+    fstp dword [fs_dbl_temp]
+    mov  eax, fs_dbl_temp
+    mov  ebx, 1
+    pop  edx
+    pop  ecx
+.fnf_ret:
+    ret
+
 write_float_single:
     push ebx
     push edx
@@ -1576,6 +1591,8 @@ _format_string:
     je   .do_string_fs
     cmp  ebx, 4
     je   .do_bool_fs
+    cmp  ebx, 7
+    je   .do_float_fs
     jmp  .error_fs
 
 .do_int_fs:
@@ -1589,6 +1606,7 @@ _format_string:
     jmp  .parse_loop_fs
 
 .do_float_fs:
+    call fs_norm_float
     push ecx
     push esi
     mov  esi, [eax]
@@ -1898,6 +1916,7 @@ _format_string:
     mov  eax, [ecx]
     inc  dword [ebp-12]
     add  dword [ebp-16], 4
+    call fs_norm_float
     cmp  ebx, 1
     jne  .skip_braces_fs
     push ecx
@@ -2104,6 +2123,7 @@ _format_string:
     inc  dword [ebp-12]
     add  dword [ebp-16], 4
 
+    call fs_norm_float
     cmp  ebx, 1
     jne  .error_fs_cleanup
 

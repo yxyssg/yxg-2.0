@@ -2134,7 +2134,35 @@ static bool is_unsigned_type(DataType t) {
     default: return false;
     }
 }
+static bool expr_is_array_ref(ASTNode* node) {
+    if (node == NULL) return false;
+    if (node->type == AST_VAR || node->type == AST_VAR_ASS
+        || node->type == AST_UNINIT_VAR) {
+        AST_Var* v = (AST_Var*)node;
+        if (v->dim_count > 0) return true;
+        Symbol* s = lookup_symbol(v->name.value);
+        return (s != NULL && s->dim_count > 0);
+    }
+    if (node->type == AST_LITERAL) {
+        AST_Literal* lit = (AST_Literal*)node;
+        if (lit->is_call_function) return false;
+        if (lit->is_dynamic_array) return true;
+        if (lit->base.value.value == NULL) return false;
+        Symbol* s = lookup_symbol(lit->base.value.value);
+        return (s != NULL && s->dim_count > 0);
+    }
+    return false;
+}
+
 bool Operation_Check(AST_Binary* binary) {
+    if ((binary->op.type == TOKEN_ADD || binary->op.type == TOKEN_SUB)
+        && (expr_is_array_ref(binary->left) || expr_is_array_ref(binary->right))) {
+        ERROR(ERR_SEM_TYPE_MISMATCH, SEMLOC(binary->op),
+              "array cannot be used with '+' or '-': fixed-size arrays have no append; "
+              "declare the needed length up front, or use List<T> from yxg.Collections");
+        return false;
+    }
+
     DataType left_type = get_expression_type(binary->left);
     DataType right_type = get_expression_type(binary->right);
     binary->is_unsigned = is_unsigned_type(left_type) || is_unsigned_type(right_type);
@@ -4743,6 +4771,31 @@ static void resolve_class_members(AST_ClassDef* cd, ClassEntry* cls) {
     for (ASTNode* n = cd->members; n; n = n->next) {
         if (n->type != AST_FUNCTION) continue;
         AST_Function* f = (AST_Function*)n;
+        if (!f->is_override && !f->is_virtual && !f->is_static && !f->is_native
+            && cd->name && f->name.value
+            && strcmp(f->name.value, cd->name) != 0) {
+            for (int pi = 0; pi < cd->parent_count; pi++) {
+                if (!parent_entries[pi] || !parent_entries[pi]->generic_ast) continue;
+                AST_ClassDef* pcd = parent_entries[pi]->generic_ast;
+                bool parent_has = false;
+                for (ASTNode* pm = pcd->members; pm; pm = pm->next) {
+                    if (pm->type != AST_FUNCTION) continue;
+                    AST_Function* pf = (AST_Function*)pm;
+                    if (!pf->name.value) continue;
+                    if (pcd->name && strcmp(pf->name.value, pcd->name) == 0) continue;
+                    if (strcmp(pf->name.value, f->name.value) == 0) { parent_has = true; break; }
+                }
+                if (parent_has) {
+                    WARNING(ERR_SEM_TYPE_MISMATCH, SEMLOC(f->name),
+                            "method '%s' hides parent method '%s' but neither is marked "
+                            "'virtual'/'override'; calls through a parent-typed variable "
+                            "will use the parent version. Add 'virtual' to the parent "
+                            "method and 'override' here to enable dynamic dispatch",
+                            f->name.value, f->name.value);
+                    break;
+                }
+            }
+        }
         if (f->is_override) {
             int slot = -1;
             for (int i = 0; i < cls->vtable_size && slot < 0; i++) {
@@ -19156,6 +19209,49 @@ void set_current_semantic_file(const char* filename) {
     semantic_filename = filename;
 }
 
+/* 在任何语�?代码生成之前，把「被子类同名方法重写」的方法统一标成 virtual/override�?   只在非泛型类之间做，避免泛型实例化时 vtable 尺寸漂移�?   这样即使源码不写 virtual/override，父类类型变量也能拿到正确实现��?*/
+static void mark_implicit_virtuals(void) {
+    for (ClassEntry* base = class_table; base; base = base->next) {
+        if (!base->generic_ast || base->is_generic) continue;
+        AST_ClassDef* bcd = base->generic_ast;
+        if (!bcd->name) continue;
+
+        for (ClassEntry* sub = class_table; sub; sub = sub->next) {
+            if (sub == base || !sub->generic_ast || sub->is_generic) continue;
+            AST_ClassDef* scd = sub->generic_ast;
+
+            bool direct_child = false;
+            for (int i = 0; i < sub->parent_count; i++) {
+                if (sub->parent_names[i]
+                    && strcmp(sub->parent_names[i], bcd->name) == 0) {
+                    direct_child = true;
+                    break;
+                }
+            }
+            if (!direct_child) continue;
+
+            for (ASTNode* pm = bcd->members; pm; pm = pm->next) {
+                if (pm->type != AST_FUNCTION) continue;
+                AST_Function* pf = (AST_Function*)pm;
+                if (!pf->name.value || pf->is_static || pf->is_native) continue;
+                if (strcmp(pf->name.value, bcd->name) == 0) continue;   /* 构��器 */
+
+                for (ASTNode* cm = scd->members; cm; cm = cm->next) {
+                    if (cm->type != AST_FUNCTION) continue;
+                    AST_Function* cf = (AST_Function*)cm;
+                    if (!cf->name.value || cf->is_static || cf->is_native) continue;
+                    if (scd->name && strcmp(cf->name.value, scd->name) == 0) continue;
+                    if (strcmp(cf->name.value, pf->name.value) != 0) continue;
+
+                    if (!pf->is_virtual && !pf->is_override) pf->is_virtual = true;
+                    if (!cf->is_virtual && !cf->is_override) cf->is_override = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
 void Semantics(ASTNode* ast_node) {
     if (ast_node == NULL) {
         INTERNAL_ERROR("semantics: NULL AST node");
@@ -19170,6 +19266,9 @@ void Semantics(ASTNode* ast_node) {
     }
 
     predeclare_all_types(ast_node);
+
+    mark_implicit_virtuals();
+
 
     predeclare_global_vars(ast_node);
 
@@ -19621,7 +19720,6 @@ static void cleanup_class_table(void)
                     if (cls->members[i]->const_value_str) free(cls->members[i]->const_value_str);
                     if (cls->members[i]->field_class_name) free(cls->members[i]->field_class_name);
                     if (cls->members[i]->class_name) free(cls->members[i]->class_name);
-                    if (cls->members[i]->class_name) free(cls->members[i]->class_name);
                     if (cls->members[i]->dim_sizes) free(cls->members[i]->dim_sizes);
                     if (cls->members[i]->func_sig) free_func_sig(cls->members[i]->func_sig);
                     free(cls->members[i]);
@@ -19676,4 +19774,169 @@ void semantics_cleanup(void)
         ifn = next;
     }
     instantiated_funcs = NULL;
+}
+
+/* ==================== 符号表导出（LSP 用） ==================== */
+
+static const char* sym_dt_name(DataType t) {
+    switch (t) {
+        case DATA_INT: return "int";
+        case DATA_UINT: return "uint";
+        case DATA_FLOAT: return "float";
+        case DATA_UFLOAT: return "ufloat";
+        case DATA_STRING: return "string";
+        case DATA_STR: return "str";
+        case DATA_CHAR: return "char";
+        case DATA_BOOL: return "bool";
+        case DATA_VOID: return "void";
+        case DATA_INT8: return "int8";
+        case DATA_INT16: return "int16";
+        case DATA_INT32: return "int32";
+        case DATA_INT64: return "int64";
+        case DATA_INT128: return "int128";
+        case DATA_UINT8: return "uint8";
+        case DATA_UINT16: return "uint16";
+        case DATA_UINT32: return "uint32";
+        case DATA_UINT64: return "uint64";
+        case DATA_UINT128: return "uint128";
+        case DATA_FLOAT8: return "float8";
+        case DATA_FLOAT16: return "float16";
+        case DATA_FLOAT32: return "float32";
+        case DATA_FLOAT64: return "float64";
+        case DATA_FLOAT128: return "float128";
+        case DATA_UFLOAT8: return "ufloat8";
+        case DATA_UFLOAT16: return "ufloat16";
+        case DATA_UFLOAT32: return "ufloat32";
+        case DATA_UFLOAT64: return "ufloat64";
+        case DATA_UFLOAT128: return "ufloat128";
+        case DATA_IDENTIFIER: return "class";
+        default: return "var";
+    }
+}
+
+static void sym_json_str(FILE* out, const char* s) {
+    fputc('"', out);
+    if (s) {
+        for (const char* p = s; *p; p++) {
+            unsigned char ch = (unsigned char)*p;
+            if (ch == '"' || ch == '\\') { fputc('\\', out); fputc(ch, out); }
+            else if (ch < 0x20) fprintf(out, "\\u%04x", ch);
+            else fputc(ch, out);
+        }
+    }
+    fputc('"', out);
+}
+
+static void sym_emit(FILE* out, int* first, const char* file,
+                     const char* name, const char* kind, const char* detail,
+                     int line, int col, const char* container) {
+    if (name == NULL) return;
+    if (!*first) fputc(',', out);
+    *first = 0;
+    fputc('{', out);
+    fputs("\"name\":", out);    sym_json_str(out, name);
+    fputs(",\"kind\":", out);   sym_json_str(out, kind);
+    fputs(",\"detail\":", out); sym_json_str(out, detail ? detail : "");
+    fputs(",\"file\":", out);   sym_json_str(out, file ? file : "");
+    fprintf(out, ",\"line\":%d,\"col\":%d",
+            line > 0 ? line : 1, col > 0 ? col : 1);
+    if (container) { fputs(",\"container\":", out); sym_json_str(out, container); }
+    fputc('}', out);
+}
+
+static void sym_emit_function(FILE* out, int* first, AST_Function* f,
+                              const char* container) {
+    if (f == NULL || f->name.value == NULL) return;
+    if (f->is_generic) return;
+
+    char detail[256];
+    int n = snprintf(detail, sizeof(detail), "%s %s(",
+                     sym_dt_name(f->return_type), f->name.value);
+    for (int i = 0; i < f->parameterCount && n < (int)sizeof(detail) - 48; i++) {
+        const char* pname = NULL;
+        ASTNode* pn = f->Parameter;
+        for (int k = 0; k < i && pn; k++) pn = pn->next;
+        if (pn && pn->type == AST_VAR) pname = ((AST_Var*)pn)->name.value;
+        if (pname) {
+            n += snprintf(detail + n, sizeof(detail) - (size_t)n, "%s%s %s",
+                          i ? ", " : "", sym_dt_name(f->parameterType[i]), pname);
+        } else {
+            n += snprintf(detail + n, sizeof(detail) - (size_t)n, "%s%s",
+                          i ? ", " : "", sym_dt_name(f->parameterType[i]));
+        }
+    }
+    snprintf(detail + n, sizeof(detail) - (size_t)n, ")");
+    sym_emit(out, first, f->name.file, f->name.value, "function", detail,
+             f->name.line, f->name.column, container);
+}
+
+static void sym_emit_var(FILE* out, int* first, Token tok, const char* name,
+                         DataType dt, int dim_count, int ptr_depth,
+                         const char* kind, const char* container) {
+    if (name == NULL) return;
+    char detail[128];
+    int n = snprintf(detail, sizeof(detail), "%s", sym_dt_name(dt));
+    for (int i = 0; i < ptr_depth && n < 100; i++)
+        n += snprintf(detail + n, sizeof(detail) - (size_t)n, "*");
+    if (dim_count > 0)
+        n += snprintf(detail + n, sizeof(detail) - (size_t)n, "[]");
+    sym_emit(out, first, tok.file, name, kind ? kind : "var", detail,
+             tok.line, tok.column, container);
+}
+
+void semantics_dump_symbols_json(ASTNode* ast_node, const char* filename, FILE* out) {
+    int first = 1;
+    fputs("{\"file\":", out);
+    sym_json_str(out, filename ? filename : "");
+    fputs(",\"symbols\":[", out);
+
+    for (ASTNode* n = ast_node; n; n = n->next) {
+        if (n->type == AST_CLASS_DEF) {
+            AST_ClassDef* cd = (AST_ClassDef*)n;
+            if (cd->name && (strcmp(cd->name, "ERROR") == 0
+                            || strcmp(cd->name, "AssertError") == 0)) continue;
+            if (!cd->name) continue;
+            sym_emit(out, &first, cd->name_tok.file, cd->name, "class",
+                     cd->is_generic ? "class (generic)" : "class",
+                     cd->name_tok.line, cd->name_tok.column, NULL);
+            for (ASTNode* m = cd->members; m; m = m->next) {
+                if (m->type == AST_FUNCTION) {
+                    sym_emit_function(out, &first, (AST_Function*)m, cd->name);
+                } else if (m->type == AST_VAR) {
+                    AST_Var* v = (AST_Var*)m;
+                    sym_emit_var(out, &first, v->name, v->name.value, v->dataType,
+                                 v->dim_count, v->ptr_depth, "field", cd->name);
+                } else if (m->type == AST_ARRAY_DECL) {
+                    AST_ArrayDecl* v = (AST_ArrayDecl*)m;
+                    sym_emit_var(out, &first, v->base.value, v->name,
+                                 v->elementType,
+                                 v->dim_count > 0 ? v->dim_count : 1, 0,
+                                 "field", cd->name);
+                }
+            }
+        } else if (n->type == AST_ENUM_DEF) {
+            AST_EnumDef* ed = (AST_EnumDef*)n;
+            if (!ed->name) continue;
+            sym_emit(out, &first, ed->name_tok.file, ed->name, "enum", "enum",
+                     ed->name_tok.line, ed->name_tok.column, NULL);
+            for (int i = 0; i < ed->member_count; i++) {
+                AST_EnumMember* em = ed->members[i];
+                if (!em || !em->name) continue;
+                Token et = em->explicit_token ? *em->explicit_token : ed->name_tok;
+                sym_emit(out, &first, et.file, em->name, "enumMember", ed->name,
+                         et.line, et.column, ed->name);
+            }
+        } else if (n->type == AST_FUNCTION) {
+            sym_emit_function(out, &first, (AST_Function*)n, NULL);
+        } else if (n->type == AST_VAR) {
+            AST_Var* v = (AST_Var*)n;
+            sym_emit_var(out, &first, v->name, v->name.value, v->dataType,
+                         v->dim_count, v->ptr_depth, "var", NULL);
+        } else if (n->type == AST_ARRAY_DECL) {
+            AST_ArrayDecl* v = (AST_ArrayDecl*)n;
+            sym_emit_var(out, &first, v->base.value, v->name, v->elementType,
+                         v->dim_count > 0 ? v->dim_count : 1, 0, "var", NULL);
+        }
+    }
+    fputs("]}\n", out);
 }

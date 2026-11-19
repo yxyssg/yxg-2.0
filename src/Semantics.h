@@ -1,3 +1,4 @@
+#include <stdio.h>
 #ifndef SEMANTICS_H
 #define SEMANTICS_H
 
@@ -154,6 +155,7 @@ void semantics_register_native_symbol(const char* name);
 bool semantics_is_native_symbol(const char* name);
 
 void Semantics(ASTNode* ast_node);
+void semantics_dump_symbols_json(ASTNode* ast_node, const char* filename, FILE* out);
 void set_current_semantic_file(const char* filename);
 void main_parse(ASTNode* ast_node);
 ClassIdEntry* semantics_get_class_ids(void);

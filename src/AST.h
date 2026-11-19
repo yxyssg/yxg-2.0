@@ -559,6 +559,7 @@ typedef struct AST_VARARG {
 typedef struct AST_CLASS_DEF {
     ASTNode base;
     char* name;
+    Token name_tok;
     char* parent_name;
     char** parent_names;
     int parent_count;
@@ -641,6 +642,7 @@ typedef struct AST_ENUM_MEMBER {
 typedef struct AST_ENUM_DEF {
     ASTNode base;
     char* name;
+    Token name_tok;
     int member_count;
     int member_capacity;
     AST_EnumMember** members;

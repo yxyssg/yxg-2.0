@@ -2737,6 +2737,7 @@ ASTNode* parser_class_def(Parser* parser, int modifier)
             return NULL;
         }
     }
+    Token name_tok_saved = parser->current;
     char* name = strdup(parser->current.value);
     parser_eat(parser, TOKEN_IDENTIFIER);
     if (parser_current_is_type(parser, TOKEN_LT)) {
@@ -2839,6 +2840,7 @@ ASTNode* parser_class_def(Parser* parser, int modifier)
     AST_ClassDef* class_def = calloc(1, sizeof(AST_ClassDef));
     class_def->base.type = AST_CLASS_DEF;
     class_def->base.value = class_token;
+    class_def->name_tok = name_tok_saved;
     class_def->name = name;
     class_def->parent_names = parents;
     class_def->parent_count = parent_count;
@@ -2853,10 +2855,12 @@ ASTNode* parser_class_def(Parser* parser, int modifier)
 
 ASTNode* parser_enum_def(Parser* parser)
 {
+    Token enum_name_tok = {0};
     parser_eat(parser, TOKEN_ENUM);
 
     char* name = NULL;
     if (parser_current_is_type(parser, TOKEN_IDENTIFIER)) {
+        enum_name_tok = parser->current;
         name = strdup(parser->current.value);
         parser_advance(parser);
     }
@@ -2867,6 +2871,7 @@ ASTNode* parser_enum_def(Parser* parser)
     enum_def->base.type = AST_ENUM_DEF;
     enum_def->base.next = NULL;
     enum_def->name = name;
+    enum_def->name_tok = enum_name_tok;
     enum_def->member_count = 0;
     enum_def->member_capacity = 4;
     enum_def->members = malloc(sizeof(AST_EnumMember*) * enum_def->member_capacity);
@@ -7299,6 +7304,23 @@ ASTNode* parser_Unary(Parser* parser) {
         Token op = parser->current;
         parser_advance(parser);
         ASTNode* right = parser_Unary(parser);
+        if (op.type == TOKEN_SUB && right != NULL && right->type == AST_LITERAL) {
+            AST_Literal* neg_lit = (AST_Literal*)right;
+            if (!neg_lit->is_call_function
+                && (neg_lit->base.value.type == TOKEN_NUMBER
+                    || neg_lit->base.value.type == TOKEN_FLOAT_LITERAL)
+                && neg_lit->base.value.value != NULL
+                && neg_lit->base.value.value[0] != '-') {
+                size_t vlen = strlen(neg_lit->base.value.value);
+                char* nv = malloc(vlen + 2);
+                if (!nv) OUT_OF_MEMORY();
+                nv[0] = '-';
+                memcpy(nv + 1, neg_lit->base.value.value, vlen + 1);
+                free(neg_lit->base.value.value);
+                neg_lit->base.value.value = nv;
+                return right;
+            }
+        }
 
         AST_Unary* unary = malloc(sizeof(AST_Unary));
         unary->base.type = AST_UNARY;

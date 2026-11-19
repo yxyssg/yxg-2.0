@@ -3208,6 +3208,35 @@ IR* generate_IR(ASTNode* ast_node)
                     }
                 }
                 if (!left_len_temp) {
+                    if (left_last->data_type == DATA_STR) {
+                        IR* l_addr = create_IR(IR_ADDRESS_OF);
+                        l_addr->result = create_temp();
+                        assign_def_id(l_addr);
+                        l_addr->args1 = strdup(left_temp);
+                        l_addr->args1_type = DATA_STR;
+                        l_addr->data_type = DATA_INT;
+                        l_addr->is_function_addr = false;
+                        chain = connect_IR(chain, l_addr);
+                        IR* l_off = create_IR(IR_BINARY);
+                        l_off->op = IR_ADD;
+                        l_off->args1 = strdup(l_addr->result);
+                        l_off->args1_type = DATA_INT;
+                        l_off->args2 = strdup("4");
+                        l_off->args2_type = DATA_INT;
+                        l_off->result = create_temp();
+                        assign_def_id(l_off);
+                        l_off->data_type = DATA_INT;
+                        chain = connect_IR(chain, l_off);
+                        IR* l_len = create_IR(IR_DEREF);
+                        l_len->result = create_temp();
+                        assign_def_id(l_len);
+                        l_len->args1 = strdup(l_off->result);
+                        l_len->args1_type = DATA_INT;
+                        l_len->data_type = DATA_INT;
+                        l_len->ptr_depth = 0;
+                        chain = connect_IR(chain, l_len);
+                        left_len_temp = l_len->result;
+                    } else {
                     IR* push_left = create_IR(IR_PUSH);
                     push_left->args1 = strdup(left_temp);
                     push_left->args1_type = DATA_STRING;
@@ -3223,6 +3252,7 @@ IR* generate_IR(ASTNode* ast_node)
                     chain = connect_IR(chain, strlen_left);
                     left_len_temp = strlen_left->result;
                 }
+                    }
 
                 char* right_len_temp = NULL;
                 if (ast_binary->right->type == AST_LITERAL) {
@@ -3242,6 +3272,35 @@ IR* generate_IR(ASTNode* ast_node)
                     }
                 }
                 if (!right_len_temp) {
+                    if (right_last->data_type == DATA_STR) {
+                        IR* r_addr = create_IR(IR_ADDRESS_OF);
+                        r_addr->result = create_temp();
+                        assign_def_id(r_addr);
+                        r_addr->args1 = strdup(right_temp);
+                        r_addr->args1_type = DATA_STR;
+                        r_addr->data_type = DATA_INT;
+                        r_addr->is_function_addr = false;
+                        chain = connect_IR(chain, r_addr);
+                        IR* r_off = create_IR(IR_BINARY);
+                        r_off->op = IR_ADD;
+                        r_off->args1 = strdup(r_addr->result);
+                        r_off->args1_type = DATA_INT;
+                        r_off->args2 = strdup("4");
+                        r_off->args2_type = DATA_INT;
+                        r_off->result = create_temp();
+                        assign_def_id(r_off);
+                        r_off->data_type = DATA_INT;
+                        chain = connect_IR(chain, r_off);
+                        IR* r_len = create_IR(IR_DEREF);
+                        r_len->result = create_temp();
+                        assign_def_id(r_len);
+                        r_len->args1 = strdup(r_off->result);
+                        r_len->args1_type = DATA_INT;
+                        r_len->data_type = DATA_INT;
+                        r_len->ptr_depth = 0;
+                        chain = connect_IR(chain, r_len);
+                        right_len_temp = r_len->result;
+                    } else {
                     IR* push_right = create_IR(IR_PUSH);
                     push_right->args1 = strdup(right_temp);
                     push_right->args1_type = DATA_STRING;
@@ -3257,6 +3316,7 @@ IR* generate_IR(ASTNode* ast_node)
                     chain = connect_IR(chain, strlen_right);
                     right_len_temp = strlen_right->result;
                 }
+                    }
                 IR* push_rlen = create_IR(IR_PUSH);
                 push_rlen->args1 = strdup(right_len_temp);
                 push_rlen->args1_type = DATA_INT;
@@ -3574,8 +3634,15 @@ IR* generate_IR(ASTNode* ast_node)
                 right_last = right_last->next;
 
             DataType operand_type = right_last->data_type;
+            bool un_is_float =
+                (operand_type == DATA_FLOAT || operand_type == DATA_UFLOAT
+                 || operand_type == DATA_FLOAT8 || operand_type == DATA_UFLOAT8
+                 || operand_type == DATA_FLOAT16 || operand_type == DATA_UFLOAT16
+                 || operand_type == DATA_FLOAT32 || operand_type == DATA_UFLOAT32
+                 || operand_type == DATA_FLOAT64 || operand_type == DATA_UFLOAT64
+                 || operand_type == DATA_FLOAT128 || operand_type == DATA_UFLOAT128);
             DataType result_type = DATA_INT;
-            if (operand_type == DATA_FLOAT || operand_type == DATA_UFLOAT) {
+            if (un_is_float) {
                 result_type = operand_type;
             } else if (operand_type == DATA_INT64 || operand_type == DATA_UINT64 ||
                        operand_type == DATA_INT128 || operand_type == DATA_UINT128) {
@@ -3583,7 +3650,7 @@ IR* generate_IR(ASTNode* ast_node)
             }
 
             IR* zero_ir = create_IR(IR_LITERAL);
-            if (result_type == DATA_FLOAT || result_type == DATA_UFLOAT) {
+            if (un_is_float) {
                 zero_ir->args1 = strdup("0.0");
                 zero_ir->args1_type = result_type;
                 zero_ir->data_type = result_type;
@@ -4443,6 +4510,25 @@ IR* generate_IR(ASTNode* ast_node)
         case AST_ARRAY_DECL:
         {
             AST_ArrayDecl* arr = (AST_ArrayDecl*)ast_node;
+
+            /* ¿ÕÊý×é×ÖÃæÁ¿ {} µÈ¼ÛÓÚ new T[0] */
+            if (arr->init_list != NULL
+                && arr->init_list->type == AST_INIT_LIST
+                && ((AST_InitList*)arr->init_list)->count == 0) {
+                AST_NewArray* empty_narr = calloc(1, sizeof(AST_NewArray));
+                if (!empty_narr) OUT_OF_MEMORY();
+                empty_narr->base.type = AST_NEW_ARRAY;
+                empty_narr->base.next = NULL;
+                empty_narr->elementType = arr->elementType;
+                empty_narr->element_class_name = arr->element_class_name;
+                empty_narr->element_total_bytes = 0;
+                empty_narr->dim_count = 1;
+                empty_narr->dim_sizes = malloc(sizeof(int));
+                if (!empty_narr->dim_sizes) OUT_OF_MEMORY();
+                empty_narr->dim_sizes[0] = 0;
+                empty_narr->dim_exprs = NULL;
+                arr->init_list = (ASTNode*)empty_narr;
+            }
 
             if (arr->is_view) {
                 IR* decl = create_IR(IR_VAR_UNINIT);
@@ -5430,6 +5516,54 @@ IR* generate_IR(ASTNode* ast_node)
 
     case AST_VAR:
         AST_Var* ast_var = (AST_Var*)ast_node;
+        /* æ•´æ•°åˆå§‹åŒ–æµ®ç‚¹å˜é‡æ—¶æ’å…¥æ˜¾å¼è½¬æ¢ï¼šå¦åˆ™æ•´æ•°ä½ä¼šè¢«å½“æˆæµ®ç‚¹ä½?*/
+        if (ast_var->Value != NULL && ast_var->ptr_depth == 0
+            && ast_var->dim_count == 0 && !ast_var->is_field_ref) {
+            bool vdst_f = (ast_var->dataType == DATA_FLOAT
+                           || ast_var->dataType == DATA_UFLOAT
+                           || ast_var->dataType == DATA_FLOAT8
+                           || ast_var->dataType == DATA_FLOAT16
+                           || ast_var->dataType == DATA_FLOAT32
+                           || ast_var->dataType == DATA_FLOAT64
+                           || ast_var->dataType == DATA_FLOAT128
+                           || ast_var->dataType == DATA_UFLOAT8
+                           || ast_var->dataType == DATA_UFLOAT16
+                           || ast_var->dataType == DATA_UFLOAT32
+                           || ast_var->dataType == DATA_UFLOAT64
+                           || ast_var->dataType == DATA_UFLOAT128);
+            DataType vsrc = DATA_ERROR;
+            ASTNode* vnode = ast_var->Value;
+            if (vnode->type == AST_LITERAL) {
+                AST_Literal* vl = (AST_Literal*)vnode;
+                vsrc = vl->dataType;
+            } else if (vnode->type == AST_VAR || vnode->type == AST_VAR_ASS
+                       || vnode->type == AST_UNINIT_VAR) {
+                vsrc = ((AST_Var*)vnode)->dataType;
+            } else if (vnode->type == AST_BINARY) {
+                vsrc = ((AST_Binary*)vnode)->resultType;
+            }
+            bool vsrc_i = (vsrc == DATA_INT || vsrc == DATA_UINT
+                           || vsrc == DATA_INT8 || vsrc == DATA_INT16
+                           || vsrc == DATA_INT32 || vsrc == DATA_INT64
+                           || vsrc == DATA_UINT8 || vsrc == DATA_UINT16
+                           || vsrc == DATA_UINT32 || vsrc == DATA_UINT64
+                           || vsrc == DATA_CHAR || vsrc == DATA_BOOL);
+            if (vdst_f && vsrc_i) {
+                AST_Cast* vcvt = calloc(1, sizeof(AST_Cast));
+                if (!vcvt) OUT_OF_MEMORY();
+                vcvt->base.type = AST_CAST;
+                vcvt->base.value = vnode->value;
+                vcvt->operand = vnode;
+                vcvt->target_type = ast_var->dataType;
+                vcvt->target_class_id = -1;
+                vcvt->target_ptr_depth = 0;
+                vcvt->source_type = vsrc;
+                vcvt->source_ptr_depth = 0;
+                vcvt->is_reinterpret = false;
+                vcvt->is_checked = false;
+                ast_var->Value = (ASTNode*)vcvt;
+            }
+        }
         if (ast_var->is_const) {
             switch (ast_var->dataType) {
                 case DATA_INT: case DATA_UINT:
