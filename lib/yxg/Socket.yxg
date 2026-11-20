@@ -2,6 +2,8 @@
 // Socket.yxg — YXG 标准网络库（Winsock2 封装）
 // ============================================================
 
+import yxg.Resource;
+
 // ---------------- 协议常量 ----------------
 pub int Socket_AF_UNSPEC   = 0;
 pub int Socket_AF_INET     = 2;
@@ -84,6 +86,7 @@ pub class Socket {
             this.close();
         }
         this.fd = _socket_create(af, type, proto);
+        if (this.fd >= 0) { Resource.track(2, this.fd); }
         return this.fd;
     }
 
@@ -223,6 +226,7 @@ pub class Socket {
         if (this.fd < 0) {
             return 0;
         }
+        Resource.untrack(this.fd);
         int r = _socket_close(this.fd);
         this.fd = -1;
         return r;

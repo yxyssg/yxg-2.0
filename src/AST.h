@@ -540,6 +540,7 @@ typedef struct AST_FUNCTION {
     bool is_nested;
     bool is_closure;
     bool is_native;
+    bool is_stdcall;
     bool is_virtual;
     bool is_override;
     bool is_const_method;
@@ -628,6 +629,7 @@ typedef struct AST_MEMBER_ASS {
     Token op;
     ASTNode* value;
     DataType member_type;
+    bool value_is_array;   /* 语义阶段标记：字段是数组，RHS 存的是指针 */
     int member_offset;
 } AST_MemberAss;
 

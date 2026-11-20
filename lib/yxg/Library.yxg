@@ -1,0 +1,282 @@
+// yxg.Library —— 运行时动态加载 DLL 并调用其中的函数（2.5.1）
+//
+// 用法：
+//   import yxg.Library;
+//
+//   Library lib = Library.open("user32.dll");
+//   int addr = lib.sym("MessageBoxA");
+//   lib.callStdcall4ss(addr, 0, "hi", "title", 0);
+//   lib.close();
+//
+// 注意：这是 unsafe 区域 —— 地址错了、参数个数错了、约定选错了，
+//       都会直接 crash（0xC0000005），没有任何检查。
+
+// ---------- 顶层 native：直接用 runtime_ffi.asm 里的原始符号名 ----------
+
+pub native int  _yxg_lib_open(string path);
+pub native int  _yxg_lib_sym(int handle, string name);
+pub native void _yxg_lib_close(int handle);
+pub native int  _yxg_last_error();
+
+pub native int _yxg_callcdecl0(int addr);
+pub native int _yxg_callcdecl1(int addr, int a1);
+pub native int _yxg_callcdecl2(int addr, int a1, int a2);
+pub native int _yxg_callcdecl3(int addr, int a1, int a2, int a3);
+pub native int _yxg_callcdecl4(int addr, int a1, int a2, int a3, int a4);
+pub native int _yxg_callcdecl5(int addr, int a1, int a2, int a3, int a4, int a5);
+pub native int _yxg_callcdecl6(int addr, int a1, int a2, int a3, int a4, int a5, int a6);
+pub native int _yxg_callcdecl7(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7);
+pub native int _yxg_callcdecl8(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8);
+pub native int _yxg_callcdecl9(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9);
+pub native int _yxg_callcdecl10(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10);
+pub native int _yxg_callcdecl11(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11);
+pub native int _yxg_callcdecl12(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12);
+
+pub native int _yxg_callstdcall0(int addr);
+pub native int _yxg_callstdcall1(int addr, int a1);
+pub native int _yxg_callstdcall2(int addr, int a1, int a2);
+pub native int _yxg_callstdcall3(int addr, int a1, int a2, int a3);
+pub native int _yxg_callstdcall4(int addr, int a1, int a2, int a3, int a4);
+
+// 第 3、4 个参数是 string 的变体（栈布局相同）
+pub native int _yxg_callstdcall4_ss(int addr, int a1, string a2, string a3, int a4);
+
+// 含 string 参数的更多组合（栈布局与整型版本完全相同，只是让类型检查放行）
+pub native int _yxg_callstdcall6_s(int addr, int a1, int a2, string a3, int a4, int a5, int a6);
+pub native int _yxg_callstdcall6_s_s(int addr, int a1, int a2, string a3, int a4, string a5, int a6);
+pub native int _yxg_callstdcall8_s_s(int addr, int a1, int a2, string a3, int a4, string a5, int a6, int a7, int a8);
+pub native int _yxg_callstdcall5(int addr, int a1, int a2, int a3, int a4, int a5);
+pub native int _yxg_callstdcall6(int addr, int a1, int a2, int a3, int a4, int a5, int a6);
+pub native int _yxg_callstdcall7(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7);
+pub native int _yxg_callstdcall8(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8);
+pub native int _yxg_callstdcall9(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9);
+pub native int _yxg_callstdcall10(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10);
+pub native int _yxg_callstdcall11(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11);
+pub native int _yxg_callstdcall12(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12);
+
+pub native int _yxg_callcdecl13(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13);
+pub native int _yxg_callcdecl14(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14);
+pub native int _yxg_callcdecl15(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15);
+pub native int _yxg_callcdecl16(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16);
+
+pub native int _yxg_callstdcall13(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13);
+pub native int _yxg_callstdcall14(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14);
+pub native int _yxg_callstdcall15(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15);
+pub native int _yxg_callstdcall16(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16);
+
+// 通用调用器：任意参数个数。argptr 用 &args[0] 传入。stdcall 由被调用者清栈，cdecl 由运行时清。
+pub native int _yxg_calln_stdcall(int addr, int argptr, int count);
+pub native int _yxg_calln_cdecl(int addr, int argptr, int count);
+
+class Library {
+    // LoadLibraryA 返回的模块句柄
+    int handle;
+
+    // ---------- 打开 / 关闭 ----------
+
+    pub static Library open(string path) {
+        Library lib = new Library();
+        lib.handle = _yxg_lib_open(path);
+        if lib.handle == 0 {
+            return null;
+        }
+        return lib;
+    }
+
+    pub int sym(string name) {
+        return _yxg_lib_sym(this.handle, name);
+    }
+
+    pub void close() {
+        if this.handle != 0 {
+            _yxg_lib_close(this.handle);
+            this.handle = 0;
+        }
+    }
+
+    pub int handleValue() {
+        return this.handle;
+    }
+
+    pub int lastError() {
+        return _yxg_last_error();
+    }
+
+    pub bool isValid() {
+        return this.handle != 0;
+    }
+
+    // ---------- 调用：cdecl（调用者清栈）----------
+    pub int callCdecl0(int addr) {
+        return _yxg_callcdecl0(addr);
+    }
+    pub int callCdecl1(int addr, int a1) {
+        return _yxg_callcdecl1(addr, a1);
+    }
+    pub int callCdecl2(int addr, int a1, int a2) {
+        return _yxg_callcdecl2(addr, a1, a2);
+    }
+    pub int callCdecl3(int addr, int a1, int a2, int a3) {
+        return _yxg_callcdecl3(addr, a1, a2, a3);
+    }
+    pub int callCdecl4(int addr, int a1, int a2, int a3, int a4) {
+        return _yxg_callcdecl4(addr, a1, a2, a3, a4);
+    }
+
+    pub int callCdecl5(int addr, int a1, int a2, int a3, int a4, int a5) {
+        return _yxg_callcdecl5(addr, a1, a2, a3, a4, a5);
+    }
+
+    pub int callCdecl6(int addr, int a1, int a2, int a3, int a4, int a5, int a6) {
+        return _yxg_callcdecl6(addr, a1, a2, a3, a4, a5, a6);
+    }
+
+    pub int callCdecl7(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7) {
+        return _yxg_callcdecl7(addr, a1, a2, a3, a4, a5, a6, a7);
+    }
+
+    pub int callCdecl8(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8) {
+        return _yxg_callcdecl8(addr, a1, a2, a3, a4, a5, a6, a7, a8);
+    }
+
+    pub int callCdecl9(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9) {
+        return _yxg_callcdecl9(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9);
+    }
+
+    pub int callCdecl10(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10) {
+        return _yxg_callcdecl10(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
+    }
+
+    pub int callCdecl11(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11) {
+        return _yxg_callcdecl11(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11);
+    }
+
+    pub int callCdecl12(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12) {
+        return _yxg_callcdecl12(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
+    }
+
+    // ---------- 调用：stdcall（被调用者清栈，Win32 API）----------
+    pub int callStdcall0(int addr) {
+        return _yxg_callstdcall0(addr);
+    }
+    pub int callStdcall1(int addr, int a1) {
+        return _yxg_callstdcall1(addr, a1);
+    }
+    pub int callStdcall2(int addr, int a1, int a2) {
+        return _yxg_callstdcall2(addr, a1, a2);
+    }
+    pub int callStdcall3(int addr, int a1, int a2, int a3) {
+        return _yxg_callstdcall3(addr, a1, a2, a3);
+    }
+    pub int callStdcall4(int addr, int a1, int a2, int a3, int a4) {
+        return _yxg_callstdcall4(addr, a1, a2, a3, a4);
+    }
+
+    pub int callStdcall5(int addr, int a1, int a2, int a3, int a4, int a5) {
+        return _yxg_callstdcall5(addr, a1, a2, a3, a4, a5);
+    }
+
+    pub int callStdcall6(int addr, int a1, int a2, int a3, int a4, int a5, int a6) {
+        return _yxg_callstdcall6(addr, a1, a2, a3, a4, a5, a6);
+    }
+
+    pub int callStdcall7(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7) {
+        return _yxg_callstdcall7(addr, a1, a2, a3, a4, a5, a6, a7);
+    }
+
+    pub int callStdcall8(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8) {
+        return _yxg_callstdcall8(addr, a1, a2, a3, a4, a5, a6, a7, a8);
+    }
+
+    pub int callStdcall9(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9) {
+        return _yxg_callstdcall9(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9);
+    }
+
+    pub int callStdcall10(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10) {
+        return _yxg_callstdcall10(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
+    }
+
+    pub int callStdcall11(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11) {
+        return _yxg_callstdcall11(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11);
+    }
+
+    pub int callStdcall12(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12) {
+        return _yxg_callstdcall12(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
+    }
+    pub int callCdecl13(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13) {
+        return _yxg_callcdecl13(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+    }
+    pub int callCdecl14(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14) {
+        return _yxg_callcdecl14(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
+    }
+    pub int callCdecl15(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15) {
+        return _yxg_callcdecl15(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15);
+    }
+    pub int callCdecl16(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16) {
+        return _yxg_callcdecl16(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
+    }
+    pub int callStdcall13(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13) {
+        return _yxg_callstdcall13(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+    }
+    pub int callStdcall14(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14) {
+        return _yxg_callstdcall14(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
+    }
+    pub int callStdcall15(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15) {
+        return _yxg_callstdcall15(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15);
+    }
+    pub int callStdcall16(int addr, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16) {
+        return _yxg_callstdcall16(addr, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
+    }
+
+    // ---------- 通用调用器（任意参数个数） ----------
+    pub int callNStdcall(int addr, int argptr, int count) {
+        return _yxg_calln_stdcall(addr, argptr, count);
+    }
+    pub int callNCdecl(int addr, int argptr, int count) {
+        return _yxg_calln_cdecl(addr, argptr, count);
+    }
+    pub int callStdcall4ss(int addr, int a1, string a2, string a3, int a4) {
+        return _yxg_callstdcall4_ss(addr, a1, a2, a3, a4);
+    }
+
+    // MultiByteToWideChar(CodePage, flags, src, cbMultiByte, buf, cchWide) 查询所需长度
+    pub int callStdcall6s(int addr, int a1, int a2, string a3, int a4, int a5, int a6) {
+        return _yxg_callstdcall6_s(addr, a1, a2, a3, a4, a5, a6);
+    }
+
+    // 同上的双 string 变体
+    pub int callStdcall6ss(int addr, int a1, int a2, string a3, int a4, string a5, int a6) {
+        return _yxg_callstdcall6_s_s(addr, a1, a2, a3, a4, a5, a6);
+    }
+
+    // WideCharToMultiByte(CodePage, flags, wideStr, cchWide, outStr, cbMulti, def, used)
+    pub int callStdcall8ss(int addr, int a1, int a2, string a3, int a4, string a5, int a6, int a7, int a8) {
+        return _yxg_callstdcall8_s_s(addr, a1, a2, a3, a4, a5, a6, a7, a8);
+    }
+
+    // ---------- 常用快捷方式 ----------
+
+    // MessageBoxA：返回按钮 ID
+    pub int messageBox(int hwnd, string text, string caption, int type) {
+        return _yxg_callstdcall4_ss(this.sym("MessageBoxA"), hwnd, text, caption, type);
+    }
+
+    // 把 C 的 char*（NUL 结尾）读成 YXG 字符串。
+    // FFI 直接返回 string 会缺长度头（String.len 读到垃圾），用这个转一下。
+    pub static unsafe string cstr(int addr) {
+        if addr == 0 {
+            return "";
+        }
+        char* p = addr as char*;
+        string r = "";
+        int i = 0;
+        while i < 8192 {
+            char c = p[i];
+            if c == 0 {
+                break;
+            }
+            r = r + c;
+            i = i + 1;
+        }
+        return r;
+    }}

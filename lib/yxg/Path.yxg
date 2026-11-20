@@ -1,0 +1,186 @@
+// yxg/Path.yxg -- path helpers (2.5.2)
+//
+// Pure string operations.  All params/returns are `string`; yxg.String
+// calls take `str` but accept a `string` argument transparently.
+// Output uses '\'; input accepts both '/' and '\'.
+
+import yxg.String;
+
+class Path {
+    pub static bool isSep(int ch) {
+        return ch == 92 || ch == 47;
+    }
+
+    pub static string normalize(string p) {
+        string s = String.replace(p, "/", "\\");
+        return s;
+    }
+
+    pub static string collapse(string p) {
+        string s = p;
+        while String.containsStr(s, "\\\\") {
+            s = String.replace(s, "\\\\", "\\");
+        }
+        return s;
+    }
+
+    pub static string fileName(string p) {
+        int n = String.len(p);
+        int i = n - 1;
+        while i >= 0 {
+            if isSep(String.charAt(p, i)) {
+                string r = String.sub(p, i + 1, n - i - 1);
+                return r;
+            }
+            i = i - 1;
+        }
+        return p;
+    }
+
+    pub static string dirName(string p) {
+        int n = String.len(p);
+        int i = n - 1;
+        while i >= 0 {
+            if isSep(String.charAt(p, i)) {
+                if i == 0 {
+                    string root = String.sub(p, 0, 1);
+                    return root;
+                }
+                string r2 = String.sub(p, 0, i);
+                return r2;
+            }
+            i = i - 1;
+        }
+        return "";
+    }
+
+    pub static string ext(string p) {
+        string name = fileName(p);
+        int n = String.len(name);
+        int i = n - 1;
+        while i >= 0 {
+            if String.charAt(name, i) == 46 {
+                string r = String.sub(name, i + 1, n - i - 1);
+                return r;
+            }
+            i = i - 1;
+        }
+        return "";
+    }
+
+    pub static string stem(string p) {
+        string name = fileName(p);
+        int base = String.len(p) - String.len(name);
+        int n = String.len(name);
+        int i = n - 1;
+        while i >= 0 {
+            if String.charAt(name, i) == 46 {
+                string r = String.sub(p, 0, base + i);
+                return r;
+            }
+            i = i - 1;
+        }
+        return p;
+    }
+
+    pub static string replaceExt(string p, string newExt) {
+        string s = stem(p);
+        if String.len(newExt) == 0 { return s; }
+        return s + "." + newExt;
+    }
+
+    pub static string join(string a, string b) {
+        if String.len(a) == 0 { return b; }
+        if String.len(b) == 0 { return a; }
+        int n = String.len(a);
+        if isSep(String.charAt(a, n - 1)) { return a + b; }
+        return a + "\\" + b;
+    }
+
+    pub static bool isAbsolute(string p) {
+        if String.len(p) == 0 { return false; }
+        if isSep(String.charAt(p, 0)) { return true; }
+        if String.len(p) >= 2 && String.charAt(p, 1) == 58 { return true; }
+        return false;
+    }
+
+    pub static bool hasDrive(string p) {
+        if String.len(p) < 2 { return false; }
+        int c = String.charAt(p, 0);
+        bool alpha = (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+        return alpha && String.charAt(p, 1) == 58;
+    }
+
+    pub static int drive(string p) {
+        if !hasDrive(p) { return 0; }
+        int c = String.charAt(p, 0);
+        if c >= 97 && c <= 122 { c = c - 32; }
+        return c;
+    }
+
+    // drop the last '\'-separated segment
+    pri static string popLast(string s) {
+        int n = String.len(s);
+        int i = n - 1;
+        while i >= 0 {
+            if String.charAt(s, i) == 92 {
+                string r = String.sub(s, 0, i);
+                return r;
+            }
+            i = i - 1;
+        }
+        return "";
+    }
+
+    pub static string canonical(string p) {
+        if String.len(p) == 0 { return ""; }
+        string s = collapse(normalize(p));
+
+        string drivePart = "";
+        bool abs = isAbsolute(s);
+        if hasDrive(s) {
+            drivePart = String.sub(s, 0, 2);
+            s = String.sub(s, 2, String.len(s) - 2);
+        }
+        while String.len(s) > 0 && isSep(String.charAt(s, 0)) {
+            s = String.sub(s, 1, String.len(s) - 1);
+        }
+
+        string stack = "";
+        int start = 0;
+        int n = String.len(s);
+        int i = 0;
+        while i <= n {
+            bool atEnd = (i == n);
+            int ch = 0;
+            if !atEnd { ch = String.charAt(s, i); }
+            if atEnd || isSep(ch) {
+                if i > start {
+                    string seg = String.sub(s, start, i - start);
+                    if seg == "." {
+                        // skip
+                    } else if seg == ".." {
+                        if String.len(stack) == 0 {
+                            if !abs { stack = ".."; }
+                        } else if stack == ".." {
+                            if !abs { stack = stack + "\\.."; }
+                        } else {
+                            stack = popLast(stack);
+                        }
+                    } else {
+                        if String.len(stack) == 0 { stack = seg; }
+                        else { stack = stack + "\\" + seg; }
+                    }
+                }
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+
+        string r = drivePart;
+        if abs { r = r + "\\"; }
+        r = r + stack;
+        if String.len(r) == 0 { r = "."; }
+        return r;
+    }
+}

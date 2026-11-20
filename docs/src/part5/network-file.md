@@ -254,4 +254,7 @@ string mode = System.argv(1);
 
 ## 继续阅读
 
-下一章是附录
+- [graphics.md](graphics.md) —— 图形与多媒体库
+- [game.md](game.md) —— 游戏辅助库（Vec2 / Rect / Input / Camera / Time）
+- [web.md](web.md) —— Web 服务：Http / Route / Session / ThreadPool
+- [../part2/https.md](../part2/https.md) —— HTTPS 客户端下一章是附录

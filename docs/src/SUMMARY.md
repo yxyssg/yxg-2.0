@@ -32,9 +32,15 @@
 - [异常处理](part2/exceptions.md)
 - [泛型](part2/generics.md)
 - [函数对象](part2/function-objects.md)
+* [外部函数接口（FFI，2.6 支持任意参数个数）](part2/ffi.md)
+* [标准库约定](part2/stdlib-conventions.md)
+* [调试：断点、单步、崩溃定位](part2/debugging.md)
+* [HTTPS 客户端（2.5.3）](part2/https.md)
+* [错误处理与资源管理（2.6）](part2/error-resource.md)
 - [模块系统（import）](part2/modules.md)
 - [内置函数参考](part2/builtins.md)
 - [标准库](part2/stdlib.md)
+    - [Path / Date / Crypto / Encoding / Regex（2.5）](part2/stdlib-modules-2.5.md)
 
 # 第三部分：编译器架构概览
 - [整体流水线](part3/pipeline-overview.md)
@@ -48,12 +54,18 @@
 - [实战四：JSON 数据处理](part4/json-data.md)
 - [实战五：带异常处理的配置读写](part4/config-app.md)
 - [实战六：用泛型容器做数据聚合](part4/collections.md)
+- [实战七：调用 Windows API](part4/winapi.md)
+- [实战八：用 Regex 从日志里提取数据](part4/regex-logs.md)
+- [实战九：错误处理与资源管理](part4/error-practice.md)
 
-# 第五部分：图形与多媒体库
+# 第五部分：图形、网络与 Web 库
 - [图形与多媒体库](part5/graphics.md)
+- [游戏辅助库 Game](part5/game.md)
 - [网络与文件库](part5/network-file.md)
+- [Web 服务：Http / Route / Session / ThreadPool](part5/web.md)
 
 # 附录
 - [附录 A：编译错误码速查](appendix/error-codes.md)
 - [附录 B：术语表](appendix/glossary.md)
 - [附录 C：参考资料](appendix/references.md)
+- [附录 D：已知问题](appendix/known-issues.md)

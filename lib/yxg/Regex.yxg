@@ -1,0 +1,837 @@
+// yxg/Regex.yxg -- 正则表达式（2.5.2 / 0.7.1）
+//
+// 纯 YXG 实现的小型回溯引擎。
+//
+// 支持：
+//   字面量  .  *  +  ?  []  [^]  ^  $  \d \w \s \D \W \S \. \\ \* ...
+//   量词    *  +  ?  {n}  {n,}  {n,m}，以及惰性形式 *? +? ?? {n,m}?
+//   分组 ()   或 |   非捕获分组 (?:)   捕获组反向引用 \1..\9
+//   断言    (?=...) (?!...) 前瞻；(?<=...) (?<!...) 后向
+//   分组后面也能跟量词：(ab)+  (a|b){3}
+//
+// 匹配采用「带目标终点的回溯」：每次递归都带着"本次必须停在哪"往下走，
+// 所以量词、或、分组里的选择都会被外层需求逼着重新拆分。
+// group(n) 直接读匹配过程中记下的捕获区间（嵌套分组也支持）。
+// 分组的终点按贪婪优先枚举（与「交替顺序优先」略有差别，但都是合法匹配）。
+//
+// 按字节匹配。对 UTF-8 文本，"." 匹配单个字节而不是单个汉字。
+//
+// 错误处理约定（见 docs/src/part2/stdlib-conventions.md）：
+//   matches/contains 返回 bool；find 找不到返回 -1；
+//   firstMatch / group 找不到返回 ""。
+
+import yxg.String;
+
+// ---- 捕获组存储（供反向引用 \1..\9 使用）----
+int[10] g_capStart;
+int[10] g_capEnd;
+int g_capCount = 0;
+
+class Regex {
+    // ==================================================================
+    // 一、基础判定
+    // ==================================================================
+
+    // 清空捕获记录（每次顶层匹配开始前调用）
+    pri static void clearCaptures() {
+        int i = 0;
+        while i < 10 {
+            g_capStart[i] = -1;
+            g_capEnd[i] = -1;
+            i = i + 1;
+        }
+    }
+
+    pri static bool isDigit(int ch) {
+        return ch >= 48 && ch <= 57;
+    }
+    pri static bool isWord(int ch) {
+        if ch >= 48 && ch <= 57 { return true; }
+        if ch >= 65 && ch <= 90 { return true; }
+        if ch >= 97 && ch <= 122 { return true; }
+        if ch == 95 { return true; }
+        return false;
+    }
+    pri static bool isSpace(int ch) {
+        return ch == 32 || ch == 9 || ch == 10 || ch == 13 || ch == 11 || ch == 12;
+    }
+
+    // ---- 花括号量词解析 ----
+
+    // 从 pos 处的 { 出发，返回匹配的 } 之后的下标；不是合法量词返回 -1
+    pri static int braceEnd(string pat, int pos, int pend) {
+        int i = pos + 1;
+        bool sawDigit = false;
+        while i < pend {
+            int c = String.charAt(pat, i) & 255;
+            if c >= 48 && c <= 57 {
+                sawDigit = true;
+                i = i + 1;
+                continue;
+            }
+            if c == 44 {
+                i = i + 1;
+                continue;
+            }
+            if c == 125 {
+                if !sawDigit { return -1; }
+                return i + 1;
+            }
+            return -1;
+        }
+        return -1;
+    }
+
+    // 取 { 到 } 之间的第一个数字（下限）
+    pri static int braceMin(string pat, int pos, int bend) {
+        int i = pos + 1;
+        int n = 0;
+        bool any = false;
+        while i < bend - 1 {
+            int c = String.charAt(pat, i) & 255;
+            if c >= 48 && c <= 57 {
+                n = n * 10 + (c - 48);
+                any = true;
+            } else {
+                break;
+            }
+            i = i + 1;
+        }
+        if !any { return 0; }
+        return n;
+    }
+
+    // 取上限；{n} 返回 n，{n,} 返回 -1，{n,m} 返回 m
+    pri static int braceMax(string pat, int pos, int bend) {
+        // 找逗号
+        int i = pos + 1;
+        int comma = -1;
+        bool anyLo = false;
+        while i < bend - 1 {
+            int c = String.charAt(pat, i) & 255;
+            if c == 44 { comma = i; break; }
+            if c >= 48 && c <= 57 { anyLo = true; }
+            i = i + 1;
+        }
+        if comma < 0 {
+            // {n}：下限即上限
+            return Regex.braceMin(pat, pos, bend);
+        }
+        // 逗号后还有数字？
+        int j = comma + 1;
+        int n = 0;
+        bool any = false;
+        while j < bend - 1 {
+            int c = String.charAt(pat, j) & 255;
+            if c >= 48 && c <= 57 {
+                n = n * 10 + (c - 48);
+                any = true;
+            } else {
+                break;
+            }
+            j = j + 1;
+        }
+        if !any { return -1; }
+        return n;
+    }
+
+
+    // ==================================================================
+    // 二、结构分析：跳过分组 / 字符类
+    // ==================================================================
+
+    // 从 pi 处的 '(' 出发，返回匹配的 ')' 之后的下标；找不到返回 -1
+    pri static int skipGroup(string pat, int pi) {
+        int plen = String.len(pat);
+        int depth = 0;
+        int i = pi;
+        while i < plen {
+            int c = String.charAt(pat, i) & 255;
+            if c == 92 { i = i + 2; continue; }
+            if c == 91 {
+                // 跳过 [ ]
+                i = i + 1;
+                while i < plen {
+                    int x = String.charAt(pat, i) & 255;
+                    if x == 92 { i = i + 2; continue; }
+                    if x == 93 { i = i + 1; break; }
+                    i = i + 1;
+                }
+                continue;
+            }
+            if c == 40 { depth = depth + 1; }
+            else if c == 41 {
+                depth = depth - 1;
+                if depth == 0 { return i + 1; }
+            }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    // 在 pi 处的 '(' 对应的 ')' 位置（不含外层括号的末尾下标）
+    pri static int groupInnerEnd(string pat, int pi) {
+        int after = skipGroup(pat, pi);
+        if after < 0 { return -1; }
+        return after - 1;
+    }
+
+    // 从 pi 开始，找到当前层级的下一个 '|'；没有返回 -1
+    pri static int findAlt(string pat, int pi, int pEnd) {
+        int i = pi;
+        while i < pEnd {
+            int c = String.charAt(pat, i) & 255;
+            if c == 92 { i = i + 2; continue; }
+            if c == 91 {
+                i = i + 1;
+                while i < pEnd {
+                    int x = String.charAt(pat, i) & 255;
+                    if x == 92 { i = i + 2; continue; }
+                    if x == 93 { i = i + 1; break; }
+                    i = i + 1;
+                }
+                continue;
+            }
+            if c == 40 {
+                int after = skipGroup(pat, i);
+                if after < 0 { return -1; }
+                i = after;
+                continue;
+            }
+            if c == 124 { return i; }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    // ==================================================================
+    // 三、原子匹配
+    // ==================================================================
+
+    pri static bool classMatch(string pat, int pi, int ch) {
+        int plen = String.len(pat);
+        int j = pi + 1;
+        bool negate = false;
+        if j < plen && (String.charAt(pat, j) & 255) == 94 {
+            negate = true;
+            j = j + 1;
+        }
+        bool hit = false;
+        while j < plen {
+            int x = String.charAt(pat, j) & 255;
+            if x == 93 { break; }
+            if x == 92 && j + 1 < plen {
+                int e = String.charAt(pat, j + 1) & 255;
+                bool m = false;
+                if e == 100 { if isDigit(ch) { m = true; } }
+                else if e == 119 { if isWord(ch) { m = true; } }
+                else if e == 115 { if isSpace(ch) { m = true; } }
+                else if e == 68 { if !isDigit(ch) { m = true; } }
+                else if e == 87 { if !isWord(ch) { m = true; } }
+                else if e == 83 { if !isSpace(ch) { m = true; } }
+                else { if ch == e { m = true; } }
+                if m { hit = true; }
+                j = j + 2;
+            } else if j + 2 < plen && (String.charAt(pat, j + 1) & 255) == 45
+                      && (String.charAt(pat, j + 2) & 255) != 93 {
+                int lo = x;
+                int hi = String.charAt(pat, j + 2) & 255;
+                if ch >= lo && ch <= hi { hit = true; }
+                j = j + 3;
+            } else {
+                if ch == x { hit = true; }
+                j = j + 1;
+            }
+        }
+        if negate { return !hit; }
+        return hit;
+    }
+
+    // 原子长度（模式字符数）
+    pri static int atomLen(string pat, int pi) {
+        int plen = String.len(pat);
+        if pi >= plen { return 1; }
+        int c = String.charAt(pat, pi) & 255;
+        if c == 92 { if pi + 1 < plen { return 2; } return 1; }
+        if c == 91 {
+            int j = pi + 1;
+            while j < plen {
+                int x = String.charAt(pat, j) & 255;
+                if x == 92 { j = j + 2; }
+                else if x == 93 { return j - pi + 1; }
+                else { j = j + 1; }
+            }
+            return plen - pi;
+        }
+        if c == 40 {
+            int after = skipGroup(pat, pi);
+            if after < 0 { return 1; }
+            return after - pi;
+        }
+        return 1;
+    }
+
+    pri static bool atomMatch(string pat, int pi, string text, int ti) {
+        int plen = String.len(pat);
+        int tlen = String.len(text);
+        int c = String.charAt(pat, pi) & 255;
+        int ch = 0;
+        if ti < tlen { ch = String.charAt(text, ti) & 255; } else { return false; }
+
+        if c == 92 {
+            if pi + 1 >= plen { return ch == 92; }
+            int e = String.charAt(pat, pi + 1) & 255;
+            if e == 100 { return isDigit(ch); }
+            if e == 68 { return !isDigit(ch); }
+            if e == 119 { return isWord(ch); }
+            if e == 87 { return !isWord(ch); }
+            if e == 115 { return isSpace(ch); }
+            if e == 83 { return !isSpace(ch); }
+            return ch == e;
+        }
+        if c == 46 { return true; }
+        if c == 91 { return classMatch(pat, pi, ch); }
+        return ch == c;
+    }
+
+    // ==================================================================
+    // 四、回溯匹配
+    //   返回下一个位置；失败返回 -1
+    //   pi 为模式起点，pend 为本次匹配的模式终点（不含），
+    //   这样分组和或可以只在子区间内工作。
+    // ==================================================================
+
+    pri static int matchSub(string pat, int pi, int pend, string text, int ti, int must) {
+        int tlen = String.len(text);
+
+        // 或：按 | 切成若干分支，逐个尝试；能否算成功由 must 决定，
+        // 这样外层需要继续吃字符时，这里会自动回溯到下一个分支。
+        int alt = findAlt(pat, pi, pend);
+        if alt >= 0 {
+            int r = matchSub(pat, pi, alt, text, ti, must);
+            if r >= 0 { return r; }
+            return matchSub(pat, alt + 1, pend, text, ti, must);
+        }
+
+        // 模式到头：must < 0 表示任意终点都行，否则必须正好停在 must
+        if pi >= pend {
+            if must < 0 { return ti; }
+            if ti == must { return ti; }
+            return -1;
+        }
+        if ti > tlen { return -1; }
+
+        int c = String.charAt(pat, pi) & 255;
+
+        // 反向引用 \1..\9：重复第 N 个捕获组匹配到的内容
+        if c == 92 && pi + 1 < pend {
+            int bn = String.charAt(pat, pi + 1) & 255;
+            if bn >= 49 && bn <= 57 {
+                int gi = bn - 48;
+                if gi >= 10 { return -1; }
+                if g_capStart[gi] < 0 { return -1; }
+                int glen = g_capEnd[gi] - g_capStart[gi];
+                if ti + glen > tlen { return -1; }
+                if glen > 0 {
+                    int m = 0;
+                    while m < glen {
+                        int tc = String.charAt(text, ti + m) & 255;
+                        int gc = String.charAt(text, g_capStart[gi] + m) & 255;
+                        if tc != gc { return -1; }
+                        m = m + 1;
+                    }
+                }
+                return matchSub(pat, pi + 2, pend, text, ti + glen, must);
+            }
+        }
+
+        // 断言：(?=...) 前瞻  (?!...) 否定前瞻
+        if c == 40 && pi + 2 < pend {
+            int a1 = String.charAt(pat, pi + 1) & 255;
+            int a2 = String.charAt(pat, pi + 2) & 255;
+            // 后向断言 (?<=...) (?<!...)：看 ti 之前的文本
+            if a1 == 63 && a2 == 60 && pi + 3 < pend {
+                int b3 = String.charAt(pat, pi + 3) & 255;
+                if b3 == 61 || b3 == 33 {
+                    int bEnd = groupInnerEnd(pat, pi);
+                    if bEnd < 0 { return -1; }
+                    int bAfter = bEnd + 1;
+                    int bStart = pi + 4;
+                    bool bok = Regex.lookBehindOk(pat, bStart, bEnd, text, ti);
+                    if b3 == 33 { bok = !bok; }
+                    if !bok { return -1; }
+                    return matchSub(pat, bAfter, pend, text, ti, must);
+                }
+            }
+            if a1 == 63 && (a2 == 61 || a2 == 33) {
+                int aEnd = groupInnerEnd(pat, pi);
+                if aEnd < 0 { return -1; }
+                int aAfter = aEnd + 1;
+                int aStart = pi + 3;
+                int ar = matchSub(pat, aStart, aEnd, text, ti, -1);
+                bool ok = (ar >= 0);
+                if a2 == 33 { ok = !ok; }
+                if !ok { return -1; }
+                return matchSub(pat, aAfter, pend, text, ti, must);
+            }
+        }
+
+        // 分组：取出内部子模式，递归匹配，然后继续后面
+        if c == 40 {
+            int innerEnd = groupInnerEnd(pat, pi);
+            if innerEnd < 0 { return -1; }
+            int after = innerEnd + 1;
+            int innerStart = pi + 1;
+            if innerStart + 1 < innerEnd
+               && (String.charAt(pat, innerStart) & 255) == 63
+               && (String.charAt(pat, innerStart + 1) & 255) == 58 {
+                innerStart = innerStart + 2;
+            }
+
+            int capIdx = 0;
+            if innerStart == pi + 1 {
+                capIdx = Regex.countCapturesBefore(pat, pi) + 1;
+                if capIdx > 9 { capIdx = 0; }
+            }
+
+            bool hasQuant = false;
+            int quant = 0;
+            int gqmin = 0;
+            int gqmax = -1;
+            if after < pend {
+                int q = String.charAt(pat, after) & 255;
+                if q == 42 { quant = 1; hasQuant = true; gqmin = 0; gqmax = -1; }
+                else if q == 43 { quant = 2; hasQuant = true; gqmin = 1; gqmax = -1; }
+                else if q == 63 { quant = 3; hasQuant = true; gqmin = 0; gqmax = 1; }
+                else if q == 123 {
+                    int gbend = Regex.braceEnd(pat, after, pend);
+                    if gbend > 0 {
+                        quant = 4; hasQuant = true;
+                        gqmin = Regex.braceMin(pat, after, gbend);
+                        gqmax = Regex.braceMax(pat, after, gbend);
+                    }
+                }
+            }
+            int nextPi = after;
+            if hasQuant { nextPi = after + 1; }
+            if quant == 4 { nextPi = Regex.braceEnd(pat, after, pend); }
+
+            bool glazy = false;
+            if (hasQuant && nextPi < pend) {
+                int gq = String.charAt(pat, nextPi) & 255;
+                if gq == 63 { glazy = true; nextPi = nextPi + 1; }
+            }
+
+            if !hasQuant {
+                return groupThen(pat, innerStart, innerEnd, pat, nextPi, pend,
+                                 text, ti, glazy, capIdx, must);
+            }
+
+            if quant == 3 {
+                int r = groupThen(pat, innerStart, innerEnd, pat, nextPi, pend,
+                                  text, ti, glazy, capIdx, must);
+                if r >= 0 { return r; }
+                return matchSub(pat, nextPi, pend, text, ti, must);
+            }
+
+            return groupRepeat(pat, innerStart, innerEnd, pat, nextPi, pend,
+                               text, ti, gqmin, gqmax, capIdx, must);
+        }
+
+        if c == 36 && pi == pend - 1 {
+            if ti != tlen { return -1; }
+            return matchSub(pat, pend, pend, text, ti, must);
+        }
+
+        int al = atomLen(pat, pi);
+        int next = pi + al;
+
+        int qmin = 1;
+        int qmax = 1;
+        int after = next;
+        bool hasQuant = false;
+        if next < pend {
+            int q = String.charAt(pat, next) & 255;
+            if q == 42 {
+                hasQuant = true; qmin = 0; qmax = -1; after = next + 1;
+            } else if q == 43 {
+                hasQuant = true; qmin = 1; qmax = -1; after = next + 1;
+            } else if q == 63 {
+                hasQuant = true; qmin = 0; qmax = 1; after = next + 1;
+            } else if q == 123 {
+                int bend = Regex.braceEnd(pat, next, pend);
+                if bend > 0 {
+                    hasQuant = true;
+                    qmin = Regex.braceMin(pat, next, bend);
+                    qmax = Regex.braceMax(pat, next, bend);
+                    after = bend;
+                }
+            }
+        }
+
+        bool lazy = false;
+        if (hasQuant && after < pend) {
+            int lq = String.charAt(pat, after) & 255;
+            if lq == 63 { lazy = true; after = after + 1; }
+        }
+
+        if !hasQuant {
+            if atomMatch(pat, pi, text, ti) {
+                return matchSub(pat, next, pend, text, ti + 1, must);
+            }
+            return -1;
+        }
+
+        int maxK = 0;
+        int pos = ti;
+        while pos < tlen && atomMatch(pat, pi, text, pos) {
+            maxK = maxK + 1;
+            pos = pos + 1;
+            if qmax >= 0 && maxK >= qmax { break; }
+        }
+
+        int cap = maxK;
+        if qmax >= 0 && cap > qmax { cap = qmax; }
+
+        if lazy {
+            int k2 = qmin;
+            while k2 <= cap {
+                int r2 = matchSub(pat, after, pend, text, ti + k2, must);
+                if r2 >= 0 { return r2; }
+                k2 = k2 + 1;
+            }
+            return -1;
+        }
+        int k = cap;
+        while k >= qmin {
+            int r = matchSub(pat, after, pend, text, ti + k, must);
+            if r >= 0 { return r; }
+            k = k - 1;
+        }
+        return -1;
+    }
+
+    // 分组匹配一次：枚举内层所有可能的终点，逐个尝试外层。
+    // 内层直接在原文上按 [is, ie) 窗口匹配、目标终点必须正好是 e，
+    // 这样嵌套分组的捕获下标与坐标都是绝对的，也能真正回溯。
+    pri static int groupThen(string pat, int is, int ie, string outer, int nextPi,
+                            int pend, string text, int ti, bool lazy, int capIdx,
+                            int must) {
+        int tlen = String.len(text);
+
+        bool ascending = lazy;
+        if !ascending {
+            if Regex.innerEndsLazy(pat, is, ie) { ascending = true; }
+        }
+
+        int[10] snapS;
+        int[10] snapE;
+        snapS = g_capStart;
+        snapE = g_capEnd;
+
+        if ascending {
+            int el = ti;
+            while el <= tlen {
+                int r2l = matchSub(pat, is, ie, text, ti, el);
+                if r2l == el {
+                    int[10] inS;
+                    int[10] inE;
+                    inS = g_capStart;
+                    inE = g_capEnd;
+                    if capIdx > 0 {
+                        g_capStart[capIdx] = ti;
+                        g_capEnd[capIdx] = el;
+                    }
+                    int rl = matchSub(outer, nextPi, pend, text, el, must);
+                    if rl >= 0 { return rl; }
+                    g_capStart = inS;
+                    g_capEnd = inE;
+                }
+                el = el + 1;
+            }
+            g_capStart = snapS;
+            g_capEnd = snapE;
+            return -1;
+        }
+
+        int e = tlen;
+        while e >= ti {
+            int r2 = matchSub(pat, is, ie, text, ti, e);
+            if r2 == e {
+                int[10] inS2;
+                int[10] inE2;
+                inS2 = g_capStart;
+                inE2 = g_capEnd;
+                if capIdx > 0 {
+                    g_capStart[capIdx] = ti;
+                    g_capEnd[capIdx] = e;
+                }
+                int r = matchSub(outer, nextPi, pend, text, e, must);
+                if r >= 0 { return r; }
+                g_capStart = inS2;
+                g_capEnd = inE2;
+            }
+            e = e - 1;
+        }
+        g_capStart = snapS;
+        g_capEnd = snapE;
+        return -1;
+    }
+
+    // 分组重复（(...)* (...)+ (...){n,m}）：捕获记最后一次迭代，与主流引擎一致
+    pri static int groupRepeat(string pat, int is, int ie, string outer, int nextPi,
+                              int pend, string text, int ti, int qmin, int qmax,
+                              int capIdx, int must) {
+        int tlen = String.len(text);
+        int[] ends = new int[256];
+        ends[0] = ti;
+        int count = 0;
+        int cur = ti;
+        int guard = 0;
+        while guard < 255 {
+            guard = guard + 1;
+            if qmax >= 0 && count >= qmax { break; }
+            int e = matchSub(pat, is, ie, text, cur, -1);
+            if e < 0 { break; }
+            if e == cur { break; }
+            count = count + 1;
+            ends[count] = e;
+            cur = e;
+            if cur >= tlen { break; }
+        }
+
+        int[10] snapS;
+        int[10] snapE;
+        snapS = g_capStart;
+        snapE = g_capEnd;
+
+        int k = count;
+        while k >= qmin {
+            int[10] inS;
+            int[10] inE;
+            inS = g_capStart;
+            inE = g_capEnd;
+            if capIdx > 0 {
+                if k > 0 {
+                    g_capStart[capIdx] = ends[k - 1];
+                    g_capEnd[capIdx] = ends[k];
+                }
+            }
+            int r = matchSub(outer, nextPi, pend, text, ends[k], must);
+            if r >= 0 { return r; }
+            g_capStart = inS;
+            g_capEnd = inE;
+            k = k - 1;
+        }
+        g_capStart = snapS;
+        g_capEnd = snapE;
+        return -1;
+    }
+    // 统计 pi 之前有多少个捕获组（按 ( 顺序，跳过 (?: 与 (?= (?!）
+    pri static int countCapturesBefore(string pat, int pi) {
+        int n = 0;
+        int i = 0;
+        while i < pi {
+            int ch = String.charAt(pat, i) & 255;
+            if ch == 92 { i = i + 2; continue; }
+            if ch == 91 {
+                i = i + 1;
+                while i < pi {
+                    int x = String.charAt(pat, i) & 255;
+                    if x == 92 { i = i + 2; continue; }
+                    if x == 93 { i = i + 1; break; }
+                    i = i + 1;
+                }
+                continue;
+            }
+            if ch == 40 {
+                bool cap = true;
+                if i + 1 < pi && (String.charAt(pat, i + 1) & 255) == 63 {
+                    cap = false;
+                }
+                if cap { n = n + 1; }
+            }
+            i = i + 1;
+        }
+        return n;
+    }
+
+    // 后向断言判定：text[0..ti) 的某个后缀能否恰好匹配子模式
+    pri static bool lookBehindOk(string pat, int bs, int be, string text, int ti) {
+        int blen = be - bs;
+        if blen <= 0 { return true; }
+        string sub = String.sub(pat, bs, blen);
+        int k = ti - blen;
+        if k < 0 { k = 0; }
+        while k <= ti {
+            string piece = String.sub(text, k, ti - k);
+            int r = matchSub(sub, 0, blen, piece, 0, ti - k);
+            if r == (ti - k) { return true; }
+            k = k + 1;
+        }
+        return false;
+    }
+
+    // 去掉惰性标记（*?  +?  ??  {n,m}? 里的那个 ?），用于「整段必须匹配」的判定
+    pri static string stripLazy(string pat) {
+        int n = String.len(pat);
+        string r = "";
+        int i = 0;
+        while i < n {
+            int ch = String.charAt(pat, i) & 255;
+            int nx = 0;
+            if i + 1 < n { nx = String.charAt(pat, i + 1) & 255; }
+            if ch == 92 {
+                string two = String.sub(pat, i, 2);
+                r = r + two;
+                i = i + 2;
+                continue;
+            }
+            // 量词后紧跟的 ? 是惰性标记，丢弃
+            if (ch == 42 || ch == 43 || ch == 63 || ch == 125) && nx == 63 {
+                string one = String.sub(pat, i, 1);
+                r = r + one;
+                i = i + 2;
+                continue;
+            }
+            string one2 = String.sub(pat, i, 1);
+            r = r + one2;
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // 组内部模式是否以惰性量词结尾（*?  +?  ??  {n,m}?）
+    pri static bool innerEndsLazy(string pat, int is, int ie) {
+        /* 见下方 stripLazy */
+        if ie - 1 < is { return false; }
+        int last = String.charAt(pat, ie - 1) & 255;
+        if last != 63 { return false; }
+        if ie - 2 < is { return false; }
+        int prev = String.charAt(pat, ie - 2) & 255;
+        if prev == 42 { return true; }
+        if prev == 43 { return true; }
+        if prev == 63 { return true; }
+        if prev == 125 { return true; }
+        return false;
+    }
+
+
+    // ==================================================================
+    // 五、对外接口
+    // ==================================================================
+
+    // 从 from 开始找匹配起点，找不到返回 -1
+    pub static int findFrom(string pattern, string text, int from) {
+        Regex.clearCaptures();
+        int plen = String.len(pattern);
+        int tlen = String.len(text);
+        if plen == 0 { return from; }
+
+        bool anchored = false;
+        int start = 0;
+        if (String.charAt(pattern, 0) & 255) == 94 {
+            anchored = true;
+            start = 1;
+        }
+
+        int i = from;
+        if i < 0 { i = 0; }
+        while i <= tlen {
+            int r = matchSub(pattern, start, plen, text, i, -1);
+            if r >= 0 { return i; }
+            if anchored { return -1; }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    pub static int find(string pattern, string text) {
+        return findFrom(pattern, text, 0);
+    }
+
+    pri static int patStart(string pattern) {
+        if String.len(pattern) > 0 && (String.charAt(pattern, 0) & 255) == 94 {
+            return 1;
+        }
+        return 0;
+    }
+
+    // 整个串是否匹配
+    pub static bool matches(string pattern, string text) {
+        int tlen = String.len(text);
+        int r = matchSub(pattern, patStart(pattern), String.len(pattern), text, 0, tlen);
+        return r == tlen;
+    }
+
+    pub static bool contains(string pattern, string text) {
+        return find(pattern, text) >= 0;
+    }
+
+    // 第一个匹配的子串
+    pub static string firstMatch(string pattern, string text) {
+        int s = find(pattern, text);
+        if s < 0 { return ""; }
+        int e = matchSub(pattern, patStart(pattern), String.len(pattern), text, s, -1);
+        if e < 0 { return ""; }
+        return String.sub(text, s, e - s);
+    }
+
+    // 取第 index 个捕获组（0 = 整个匹配）
+    // 直接读引擎在匹配过程中记下的捕获区间，不再事后反推
+    pub static string group(string pattern, string text, int index) {
+        if index < 0 { return ""; }
+        if index > 9 { return ""; }
+        int s = find(pattern, text);
+        if s < 0 { return ""; }
+        if index == 0 { return firstMatch(pattern, text); }
+        if g_capStart[index] < 0 { return ""; }
+        int gs = g_capStart[index];
+        int ge = g_capEnd[index];
+        if ge < gs { return ""; }
+        return String.sub(text, gs, ge - gs);
+    }
+
+    // 替换第一个匹配
+    pub static string replaceFirst(string pattern, string text, string rep) {
+        int s = find(pattern, text);
+        if s < 0 { return text; }
+        int e = matchSub(pattern, patStart(pattern), String.len(pattern), text, s, -1);
+        if e < 0 { return text; }
+        string head = String.sub(text, 0, s);
+        string tail = String.sub(text, e, String.len(text) - e);
+        return head + rep + tail;
+    }
+
+    // 替换全部匹配
+    pub static string replaceAll(string pattern, string text, string rep) {
+        string out = "";
+        int pos = 0;
+        int tlen = String.len(text);
+        int guard = 0;
+        while pos <= tlen && guard < 10000 {
+            guard = guard + 1;
+            int s = findFrom(pattern, text, pos);
+            if s < 0 {
+                out = out + String.sub(text, pos, tlen - pos);
+                return out;
+            }
+            if s > pos {
+                out = out + String.sub(text, pos, s - pos);
+            }
+            int e = matchSub(pattern, patStart(pattern), String.len(pattern), text, s, -1);
+            if e < 0 {
+                out = out + String.sub(text, pos, tlen - pos);
+                return out;
+            }
+            if e == s {
+                if s < tlen { out = out + String.sub(text, s, 1); }
+                pos = s + 1;
+            } else {
+                out = out + rep;
+                pos = e;
+            }
+        }
+        return out;
+    }
+}

@@ -29,4 +29,6 @@ add_executable(yxg
         CFG.h
         SSA.c
         SSA.h
+        dwmap.c
+        dwmap.h
 )

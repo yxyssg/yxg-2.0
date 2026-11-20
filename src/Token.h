@@ -106,6 +106,8 @@ typedef enum TokenType
     TOKEN_PRI,
     TOKEN_CONST,
     TOKEN_NATIVE,
+    TOKEN_LINK,
+    TOKEN_STDCALL,
     TOKEN_VIRTUAL,
     TOKEN_OVERRIDE,
     TOKEN_RETURN,

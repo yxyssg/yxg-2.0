@@ -96,4 +96,8 @@ static bool parser_try_nested_func_ptr_param(Parser* parser,
 void AST_Free(ASTNode* node);
 static void free_func_sig_recursive(FuncSignature* sig);
 
+/* 2.5.1 FFI */
+void yxg_register_link_lib(const char* name);
+int yxg_link_lib_count(void);
+const char* yxg_link_lib_at(int i);
 #endif

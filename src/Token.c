@@ -30,7 +30,7 @@ static struct key_token key_token[] = {
     {">>=", TOKEN_SHIFT_RIGHT_ASSIGN},{"^",  TOKEN_BITWISE_XOR},{"^=", TOKEN_BITWISE_XOR_ASSIGN},
     {"?",TOKEN_QUESTION},{"null",TOKEN_NULL},{"unsafe",TOKEN_UNSAFE},{"static",TOKEN_STATIC},
     {"sizeof",TOKEN_SIZEOF},{"str",TOKEN_STR},{"->", TOKEN_ARROW},{"...",TOKEN_VARARG},{"InputSet", TOKEN_INPUT_SET},
-    {"try",TOKEN_TRY},{"catch",TOKEN_CATCH},{"throw",TOKEN_THROW},{"end",TOKEN_END},{"native",TOKEN_NATIVE},
+    {"try",TOKEN_TRY},{"catch",TOKEN_CATCH},{"throw",TOKEN_THROW},{"end",TOKEN_END},{"native",TOKEN_NATIVE},{"link",TOKEN_LINK},{"stdcall",TOKEN_STDCALL},
     {"virtual",TOKEN_VIRTUAL},{"override",TOKEN_OVERRIDE},{"const",TOKEN_CONST},
 
 };

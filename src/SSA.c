@@ -85,6 +85,9 @@ static bool bitset_equals(const BitSet* a, const BitSet* b) {
 
 static char* strip_all_ssa_suffixes(const char* name) {
     if (!name) return NULL;
+    /* 只有内部名（.tN / _varN 等，均以 . 或 _ 开头）才带 SSA 版本后缀。
+       字符串字面量原文也可能含 "@数字"（如 "sc16@64"），不能剥。 */
+    if (name[0] != '.' && name[0] != '_') return strdup(name);
 
     const char* p = name + strlen(name);
     const char* end = p;

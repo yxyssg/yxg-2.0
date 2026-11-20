@@ -39,6 +39,7 @@
 
 #include "Error.h"
 #include "SSA.h"
+#include "dwmap.h"
 
 typedef struct BuildOptions {
     const char** files;
@@ -51,6 +52,7 @@ typedef struct BuildOptions {
     bool assertions;
     bool force_rebuild;
     char* dump_symbols;
+    bool debug_info;
 } BuildOptions;
 typedef struct Dependency {
     char* name;
@@ -204,6 +206,7 @@ static int run_compiler(BuildOptions* opts)
     bool only_asm = opts->only_asm;
     bool only_window = opts->only_window;
     assertions_enabled = opts->assertions;
+    debug_info_enabled = opts->debug_info;
 
     char* file_name = NULL;
     if (opts->file_count > 0) {
@@ -608,6 +611,38 @@ static int run_compiler(BuildOptions* opts)
             return 1;
         }
     }
+    /* 2.5.1 FFI: 有用户 extern 声明时链接动态加载支持 */
+    /* 2.5.3 HTTPS: 有 _tls_* 调用时链接 SChannel 支持 */
+    if (has_tls_lib)
+    {
+        if (runtime_obj("runtime_tls") != 0)
+        {
+            clock_t end_time = clock();
+            double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+            fprintf(stderr, "Build Failed in %.6fs!\n", elapsed_time);
+            return 1;
+        }
+    }
+    if (semantics_user_extern_count() > 0)
+    {
+        if (runtime_obj("runtime_ffi") != 0)
+        {
+            clock_t end_time = clock();
+            double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+            fprintf(stderr, "Build Failed in %.6fs!\n", elapsed_time);
+            return 1;
+        }
+    }
+    if (has_debug_lib)
+    {
+        if (runtime_obj("runtime_debug") != 0)
+        {
+            clock_t end_time = clock();
+            double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+            fprintf(stderr, "Build Failed in %.6fs!\n", elapsed_time);
+            return 1;
+        }
+    }
     if (has_window_lib)
     {
         if (runtime_obj("runtime_window") != 0)
@@ -659,7 +694,9 @@ static int run_compiler(BuildOptions* opts)
         }
     }
 
-    if (has_image_lib)
+    /* runtime_window.asm 里的 Canvas_load 会引用 _image_load，
+       所以只要链 runtime_window 就必须有 image_loader.obj，不只是用了图片才需要。 */
+    if (has_image_lib || has_window_lib)
     {
         char nasm_cmd[MAX_PATH * 4];
         snprintf(nasm_cmd, sizeof(nasm_cmd),
@@ -697,6 +734,13 @@ static int run_compiler(BuildOptions* opts)
             fprintf(stderr, "Build Failed in %.6fs!\n", elapsed_time);
             return 1;
         }
+        if (runtime_obj("runtime_music") != 0)
+        {
+            clock_t end_time = clock();
+            double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+            fprintf(stderr, "Build Failed in %.6fs!\n", elapsed_time);
+            return 1;
+        }
     }
     if (has_video_lib)
     {
@@ -716,6 +760,13 @@ static int run_compiler(BuildOptions* opts)
                  "if not exist video_loader.obj gcc -g -m32 -O2 -c \"%s\\video_loader.c\" -o video_loader.obj",
                  g_exe_dir);
         if (system(cmd) != 0)
+        {
+            clock_t end_time = clock();
+            double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+            fprintf(stderr, "Build Failed in %.6fs!\n", elapsed_time);
+            return 1;
+        }
+        if (runtime_obj("runtime_video") != 0)
         {
             clock_t end_time = clock();
             double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
@@ -753,7 +804,11 @@ static int run_compiler(BuildOptions* opts)
         }
     }
 
-    if (system("nasm -g output.asm -O1 -f win32 -o output.obj") != 0)
+    /* 2.5.0：-g 时同时生成 listing，用于提取「偏移 -> 行号」映射 */
+    const char* nasm_cmd = debug_info_enabled
+        ? "nasm -g output.asm -O1 -f win32 -o output.obj -l output.lst"
+        : "nasm -g output.asm -O1 -f win32 -o output.obj";
+    if (system(nasm_cmd) != 0)
     {
         clock_t end_time = clock();
         double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
@@ -788,9 +843,12 @@ static int run_compiler(BuildOptions* opts)
                 "-Wl,-e,_mainCRTStartup -luser32 -lgdi32 -lcomdlg32 -lcomctl32 -luxtheme");
         }
     }
-    if (has_image_lib) command = append_to_command(command, "image_loader.obj");
-    if (has_music_lib) command = append_to_command(command, "runtime_music.obj -lole32 -lwinmm -luuid");
-    if (has_video_lib) command = append_to_command(command, "runtime_video.obj video_loader.obj music_loader.obj -lmfplat -lmfreadwrite -lmfuuid -lole32 -luuid -lwinmm");
+    if (has_image_lib || has_window_lib) command = append_to_command(command, "image_loader.obj");
+    if (has_music_lib) command = append_runtime_to_command(command, "runtime_music", "-lole32 -lwinmm -luuid");
+    if (has_debug_lib) command = append_runtime_to_command(command, "runtime_debug", NULL);
+    if (has_tls_lib) command = append_runtime_to_command(command, "runtime_tls", "-lsecur32");
+    if (semantics_user_extern_count() > 0) command = append_runtime_to_command(command, "runtime_ffi", NULL);
+    if (has_video_lib) command = append_runtime_to_command(command, "runtime_video", "video_loader.obj music_loader.obj -lmfplat -lmfreadwrite -lmfuuid -lole32 -luuid -lwinmm");
     if (has_time_lib) command = append_runtime_to_command(command, "runtime_time", NULL);
     if (has_thread_lib) command = append_runtime_to_command(command, "runtime_thread", NULL);
     if (has_sync_lib) command = append_runtime_to_command(command, "runtime_sync", NULL);
@@ -863,6 +921,15 @@ static int run_compiler(BuildOptions* opts)
     }
     command = strdup(temp);
     free(temp);
+    /* 2.5.1 FFI: link "xxx.dll"; 声明的依赖库。必须放在 output.obj 之后，
+       否则链接器先看到 -lxxx、再看到需要它的目标文件，符号解析不到。 */
+    for (int _li = 0; _li < yxg_link_lib_count(); _li++) {
+        const char* _ln = yxg_link_lib_at(_li);
+        if (!_ln) continue;
+        char _lbuf[128];
+        snprintf(_lbuf, sizeof(_lbuf), " -l%s", _ln);
+        command = append_to_command(command, _lbuf);
+    }
 
     if (system(command) != 0)
     {
@@ -871,6 +938,20 @@ static int run_compiler(BuildOptions* opts)
         fprintf(stderr, "Build Failed in %.6fs!\n",elapsed_time);
         remove(output_file_name);
         return 1;
+    }
+
+    /* 2.5.0：-g 时生成「地址 -> 行号」映射 */
+    if (debug_info_enabled) {
+        char map_path[MAX_PATH * 2];
+        snprintf(map_path, sizeof(map_path), "%s.map", output_file_name);
+        const char* src_leaf = file_name;
+        if (src_leaf) {
+            const char* s1 = strrchr(src_leaf, '\\');
+            const char* s2 = strrchr(src_leaf, '/');
+            if (s1 && (!s2 || s1 > s2)) src_leaf = s1 + 1;
+            else if (s2) src_leaf = s2 + 1;
+        }
+        dwmap_generate("output.lst", output_file_name, map_path, src_leaf);
     }
 
     AST_Free(ast_node);
@@ -1155,6 +1236,8 @@ static int parse_build_args(int argc, char** argv, BuildOptions* opts)
             opts->force_rebuild = true;
         } else if (argv[i][0] != '-') {
             add_input_file(opts, argv[i]);
+        } else if (strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "--debug-info") == 0) {
+            opts->debug_info = true;
         } else if (strcmp(argv[i], "--dump-symbols") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "error: --dump-symbols requires a path\n");
@@ -2375,3 +2458,4 @@ int main(int argc, char** argv)
 
     return cmd_build(argc, argv);
 }
+

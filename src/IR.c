@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "Error.h"
+#include "Semantics.h"
 
 int temp_i = 0;
 static int label_i = 0;
@@ -213,6 +214,11 @@ IR* parse_IR(ASTNode* ast_node)
     return ir_hoist_global_decls(start_generate_IR(ast_node));
 }
 
+/* 2.5.0：IR 生成时的当前源码位置 */
+static int g_ir_cur_line = 0;
+static const char* g_ir_cur_file = NULL;
+static IR* generate_IR_impl(ASTNode* ast_node);
+
 IR* create_IR(IRType ir_type)
 {
     IR* ir = calloc(1,sizeof(IR));
@@ -227,6 +233,9 @@ IR* create_IR(IRType ir_type)
     ir->label = NULL;
     ir->type = ir_type;
     ir->def_id = -1;
+    /* 2.5.0 调试信息：继承当前正在生成的 AST 节点行号 */
+    ir->source_line = g_ir_cur_line;
+    ir->source_file = g_ir_cur_file;
     ir->args1_def = -1;
     ir->args2_def = -1;
     ir->vtable_label = NULL;
@@ -677,6 +686,18 @@ static IR* try_fold_const_binary(AST_Binary* bin) {
             }
             char buf[64];
             snprintf(buf, sizeof(buf), "%.9g", (double)r);
+            /* "%.9g" 会把 5.0 打成 "5"，而 cg_load 靠有没有小数点判断浮点；
+               补一个 ".0" 保证序列化为浮点字面量，否则会被当成整数加载。 */
+            if (strchr(buf, '.') == NULL && strchr(buf, 'e') == NULL
+                && strchr(buf, 'E') == NULL && strchr(buf, 'n') == NULL
+                && strchr(buf, 'i') == NULL) {
+                size_t bl = strlen(buf);
+                if (bl + 3 < sizeof(buf)) {
+                    buf[bl] = '.';
+                    buf[bl + 1] = '0';
+                    buf[bl + 2] = '\0';
+                }
+            }
             return fold_result_literal(bin->resultType, buf);
         }
     }
@@ -1237,6 +1258,23 @@ IR* generate_IR(ASTNode* ast_node)
     {
         INTERNAL_ERROR("IR: generate_IR called with NULL");
     }
+    /* 2.5.0：记录本节点源码位置，供 create_IR 继承 */
+    {
+        int saved_line = g_ir_cur_line;
+        const char* saved_file = g_ir_cur_file;
+        if (ast_node->value.line > 0) {
+            g_ir_cur_line = ast_node->value.line;
+            g_ir_cur_file = ast_node->value.file;
+        }
+        IR* _r = generate_IR_impl(ast_node);
+        g_ir_cur_line = saved_line;
+        g_ir_cur_file = saved_file;
+        return _r;
+    }
+}
+
+static IR* generate_IR_impl(ASTNode* ast_node)
+{
 
     switch (ast_node->type)
     {
@@ -1273,6 +1311,11 @@ IR* generate_IR(ASTNode* ast_node)
         }
 
         Literal_ir->args2 = NULL;
+        /* 字面量的 args1 是原文（可能含 @数字），不能当 SSA 版本后缀剥掉 */
+        if (ast_literal->ptr_depth == 0 &&
+            (ast_literal->dataType == DATA_STRING || ast_literal->dataType == DATA_STR)) {
+            Literal_ir->is_literal_text = true;
+        }
 
         Literal_ir->data_type = (ast_literal->ptr_depth > 0)
                                 ? DATA_INT : ast_literal->dataType;
@@ -3107,7 +3150,7 @@ IR* generate_IR(ASTNode* ast_node)
                 assign_def_id(ld);
                 ld->args1 = strdup(left_name);
                 ld->args1_type = DATA_STR;
-                ld->data_type = DATA_INT;
+                ld->data_type = DATA_STRING;
                 ADD_IR(ld);
 
                 IR* push_str = create_IR(IR_PUSH);
@@ -3144,7 +3187,7 @@ IR* generate_IR(ASTNode* ast_node)
                 assign_def_id(ld);
                 ld->args1 = strdup(right_name);
                 ld->args1_type = DATA_STR;
-                ld->data_type = DATA_INT;
+                ld->data_type = DATA_STRING;
                 ADD_IR(ld);
 
                 IR* push_str = create_IR(IR_PUSH);
@@ -5738,6 +5781,7 @@ IR* generate_IR(ASTNode* ast_node)
 
             IR* var_ir = create_IR(IR_VAR);
             var_ir->result = strdup(ast_var->internal_name);
+             if (ast_var->name.value) { var_ir->src_name = strdup(ast_var->name.value); }
             var_ir->args1 = strdup(alloc->result);
             var_ir->args1_type = DATA_INT;
             var_ir->data_type = DATA_INT;
@@ -5756,6 +5800,7 @@ IR* generate_IR(ASTNode* ast_node)
 
             IR* var_ir = create_IR(IR_VAR_UNINIT);
             var_ir->result = strdup(ast_var->internal_name);
+             if (ast_var->name.value) { var_ir->src_name = strdup(ast_var->name.value); }
             var_ir->data_type = DATA_STR;
             if (ast_var->total_bytes > 4) var_ir->stack_bytes = ast_var->total_bytes;
 
@@ -5870,6 +5915,7 @@ IR* generate_IR(ASTNode* ast_node)
 
                 IR* var_decl = create_IR(IR_VAR_UNINIT);
                 var_decl->result = strdup(ast_var->internal_name);
+                 if (ast_var->name.value) { var_decl->src_name = strdup(ast_var->name.value); }
                 var_decl->data_type = ast_var->dataType;
                 var_decl->stack_bytes = 8;
 
@@ -5941,6 +5987,7 @@ IR* generate_IR(ASTNode* ast_node)
                 long long val = -parse_integer64(negated_lit->base.value.value);
                 IR* var_decl = create_IR(IR_VAR_UNINIT);
                 var_decl->result = strdup(ast_var->internal_name);
+                 if (ast_var->name.value) { var_decl->src_name = strdup(ast_var->name.value); }
                 var_decl->data_type = ast_var->dataType;
                 var_decl->stack_bytes = 8;
                 IR* dst_addr = create_IR(IR_ADDRESS_OF);
@@ -6001,6 +6048,7 @@ IR* generate_IR(ASTNode* ast_node)
 
             IR* var_decl = create_IR(IR_VAR_UNINIT);
             var_decl->result = strdup(ast_var->internal_name);
+             if (ast_var->name.value) { var_decl->src_name = strdup(ast_var->name.value); }
             var_decl->data_type = ast_var->dataType;
             var_decl->stack_bytes = ast_var->total_bytes;
             IR* dst_addr = create_IR(IR_ADDRESS_OF);
@@ -6036,6 +6084,7 @@ IR* generate_IR(ASTNode* ast_node)
             && ast_var->total_bytes >= 8) {
             IR* var_decl = create_IR(IR_VAR_UNINIT);
             var_decl->result = strdup(ast_var->internal_name);
+             if (ast_var->name.value) { var_decl->src_name = strdup(ast_var->name.value); }
             var_decl->data_type = DATA_STR;
             if (ast_var->total_bytes > 4)
                 var_decl->stack_bytes = ast_var->total_bytes;
@@ -6072,6 +6121,9 @@ IR* generate_IR(ASTNode* ast_node)
         }
 
         IR* Var_ir = create_IR(IR_VAR);
+        if (ast_var->name.value) {
+            Var_ir->src_name = strdup(ast_var->name.value);
+        }
         bool simple_literal = false;
         if (ast_var->Value != NULL && !ast_var->is_static_local
             && ast_var->dataType != DATA_STR
@@ -6115,6 +6167,7 @@ IR* generate_IR(ASTNode* ast_node)
                 IR* Var_ir_f = create_IR(IR_VAR);
                 Var_ir_f->data_type = ast_var->dataType;
                 Var_ir_f->result = strdup(ast_var->internal_name);
+                 if (ast_var->name.value) { Var_ir_f->src_name = strdup(ast_var->name.value); }
                 Var_ir_f->args1 = strdup(load_member->result);
                 Var_ir_f->args1_type = load_member->data_type;
 
@@ -6145,6 +6198,7 @@ IR* generate_IR(ASTNode* ast_node)
            Var_ir->dim_count = ast_var->dim_count;
        }
        Var_ir->result = strdup(ast_var->internal_name);
+        if (ast_var->name.value) { Var_ir->src_name = strdup(ast_var->name.value); }
         if (ast_var->Value && ast_var->Value->type == AST_NEW_ARRAY) {
             Var_ir->is_dynamic_array = true;
         } else if (ast_var->dim_count > 0) {
@@ -8309,7 +8363,8 @@ IR* generate_IR(ASTNode* ast_node)
             assign_def_id(lit);
             lit->args1 = strdup(access->member_name);
             lit->args1_type = DATA_IDENTIFIER;
-            lit->data_type = access->member_type;
+            lit->data_type = (access->member_return_type != DATA_VOID && access->member_return_type != DATA_ERROR)
+                              ? access->member_return_type : access->member_type;
             return lit;
         }
         if (access->const_value_str != NULL) {
@@ -8484,11 +8539,71 @@ IR* generate_IR(ASTNode* ast_node)
         }
         char* val_temp = val_last->result;
 
+        /* 判断 RHS 是不是「数组/指针」。float[] 字段里存的是 4 字节指针，
+        /* 值是不是数组/指针。float[] 字段里存的是 4 字节指针，不能按元素类型
+           做浮点存储（否则 fstp 时 FPU 栈为空，写进去是垃圾，之后访问就崩）。 */
+        bool value_is_array = false;
+        if (ass->value_is_array) value_is_array = true;
+        if (ass->value != NULL) {
+            ASTNode* vn = ass->value;
+            if (vn->type == AST_NEW_ARRAY || vn->type == AST_ARRAY_DECL) {
+                value_is_array = true;
+            } else if (vn->type == AST_LITERAL
+                       && ((AST_Literal*)vn)->is_dynamic_array) {
+                value_is_array = true;
+            } else if (vn->type == AST_VAR) {
+                AST_Var* avn = (AST_Var*)vn;
+                if (avn->dim_count > 0) {
+                    value_is_array = true;
+                } else if (avn->name.value != NULL) {
+                    Symbol* vsym = lookup_symbol(avn->name.value);
+                    if (vsym != NULL && (vsym->dim_count > 0
+                                         || vsym->is_dynamic_array
+                                         || vsym->ptr_array_info != NULL)) {
+                        value_is_array = true;
+                    }
+                }
+            }
+        }
+
+        bool mtype_is_float = (ass->member_type == DATA_FLOAT
+                               || ass->member_type == DATA_UFLOAT
+                               || ass->member_type == DATA_FLOAT32
+                               || ass->member_type == DATA_UFLOAT32
+                               || ass->member_type == DATA_FLOAT64
+                               || ass->member_type == DATA_UFLOAT64);
+
+        /* 标量 float 字段赋值（this.fs = n，n 是 int）：先插入 int->float 转换。 */
+        bool vtype_is_int = (val_last->data_type == DATA_INT
+                             || val_last->data_type == DATA_UINT
+                             || val_last->data_type == DATA_INT8
+                             || val_last->data_type == DATA_INT16
+                             || val_last->data_type == DATA_INT32
+                             || val_last->data_type == DATA_UINT8
+                             || val_last->data_type == DATA_UINT16
+                             || val_last->data_type == DATA_UINT32);
+        if (!value_is_array && mtype_is_float && vtype_is_int) {
+            IR* cv = create_IR(IR_CAST);
+            cv->result = create_temp();
+            assign_def_id(cv);
+            cv->args1 = strdup(val_last->result);
+            cv->args1_type = val_last->data_type;
+            cv->data_type = ass->member_type;
+            cv->cast_kind = CAST_INT_TO_FLOAT;
+            connect_IR(val_ir, cv);
+            val_last = cv;
+            val_temp = cv->result;
+            vtype_is_int = false;
+        }
+
+        /* 已经是 int/指针类型却要存进 float 字段 → 说明存的是指针，按 4 字节整数存。 */
+        bool store_as_ptr = value_is_array || (mtype_is_float && vtype_is_int);
+
         IR* store = create_IR(IR_ARRAY_STORE);
         store->args1 = strdup(add_ir->result);
         store->args2 = strdup(val_temp);
-        store->data_type = ass->member_type;
-        store->elem_size = get_type_size(ass->member_type);
+        store->data_type = store_as_ptr ? DATA_INT : ass->member_type;
+        store->elem_size = store_as_ptr ? 4 : get_type_size(ass->member_type);
         IR* chain = connect_IR(obj_ir, add_ir);
         chain = connect_IR(chain, val_ir);
         chain = connect_IR(chain, store);
@@ -9287,8 +9402,10 @@ IR* generate_IR(ASTNode* ast_node)
                 IR* decl = create_IR(IR_VAR_UNINIT);
                 decl->result = strdup(tn->catches[i].internal_name);
                 decl->data_type = DATA_INT;
-                decl->stack_bytes = tn->catches[i].total_bytes > 8
-                                    ? tn->catches[i].total_bytes : 8;
+                /* catch 变量里放的是对象指针（见下面 IR_VAR_ASS 处的说明），
+                   固定 4 字节；不能按类体大小分配，否则会被当成聚合体，
+                   e.field 会取到变量地址而不是对象指针，读成员即野指针崩溃。 */
+                decl->stack_bytes = 4;
                 chain = connect_IR(chain, decl);
             }
         }
@@ -9447,27 +9564,14 @@ IR* generate_IR(ASTNode* ast_node)
             lbl_c->args1 = strdup(L_catch[i]);
             chain = connect_IR(chain, lbl_c);
 
-            IR* dst = create_IR(IR_ADDRESS_OF);
-            dst->result = create_temp();
-            assign_def_id(dst);
-            dst->args1 = strdup(tn->catches[i].internal_name);
-            dst->args1_type = DATA_INT;
-            dst->data_type = DATA_INT;
-            dst->is_function_addr = false;
-            chain = connect_IR(chain, dst);
-
-            IR* copy = create_IR(IR_COPY_BLOCK);
-            copy->args1 = strdup(dst->result);
-            copy->args1_type = DATA_INT;
-            copy->args2 = strdup(exc_t);
-            copy->args2_type = DATA_INT;
-            char szb[16];
-            snprintf(szb, sizeof(szb), "%d", tn->catches[i].total_bytes);
-            copy->result = strdup(szb);
-            copy->data_type = DATA_INT;
-            copy->copy_bytes = tn->catches[i].total_bytes;
-            assign_def_id(copy);
-            chain = connect_IR(chain, copy);
+            /* catch 变量存「对象指针」，不是拷贝对象体。
+               否则 e.member 能读（偏移恰好对上），但把 e 作参数传出去就崩。 */
+            IR* store = create_IR(IR_VAR_ASS);
+            store->result = strdup(tn->catches[i].internal_name);
+            store->args1 = strdup(exc_t);
+            store->args1_type = DATA_INT;
+            store->data_type = DATA_INT;
+            chain = connect_IR(chain, store);
 
             if (tn->catches[i].body) {
                 IR* cbody = start_generate_IR(tn->catches[i].body);
@@ -9792,7 +9896,6 @@ IR* generate_IR(ASTNode* ast_node)
     }
 }
 
-//注：这里为SSA扩展
 IR* ir_insert_after(IR* after, IR* new_ir) {
     if (!new_ir) return NULL;
     if (!after) return new_ir;

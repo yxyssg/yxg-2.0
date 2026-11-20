@@ -5,6 +5,7 @@
 
 import yxg.Collections.List;
 import yxg.String;
+import yxg.Resource;
 
 pub class FileError : ERROR {
     pub FileError(string msg) {
@@ -32,10 +33,12 @@ pub class File {
         if _handle == 0 {
             throw new FileError("cannot open file: " + path);
         }
+        Resource.track(1, _handle);
     }
 
     pub void close() {
         if _handle != 0 {
+            Resource.untrack(_handle);
             _closeRaw();
             _handle = 0;
         }

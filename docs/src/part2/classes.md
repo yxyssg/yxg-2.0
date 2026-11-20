@@ -208,7 +208,28 @@ pub void main() {
 }
 ```
 
-不加 `virtual` / `override` 时是静态绑定，走基类版本。详见[继承](inheritance.md)。
+**非泛型类之间不用写关键字也会自动派发**：只要子类声明了和父类同名的方法，编译器就把父类方法标成 `virtual`、子类方法标成 `override`。
+
+```yxg
+pub class Shape {
+    pub int sides() { return -1; }        // 自动变 virtual
+}
+pub class Circle : Shape {
+    pub int sides() { return 0; }         // 自动变 override
+}
+
+Shape a = new Circle();
+print a.sides();      // 0
+```
+
+**泛型类仍然需要显式写 `virtual` / `override`**，否则静态绑定，编译器会给警告：
+
+```
+warning[E3003]: method 'x' hides parent method 'x' but neither is marked
+'virtual'/'override'; calls through a parent-typed variable will use the parent version
+```
+
+详见[继承](inheritance.md)。
 
 ## 类与结构体
 

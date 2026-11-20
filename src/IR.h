@@ -147,6 +147,7 @@ typedef struct IR
 
     int ptr_depth;
     bool is_function_addr;
+    bool is_literal_text;   /* args1 存的是字面量原文，SSA 不得剥 @<数字> */
     bool is_static_local;
     bool is_static_global;
     int* init_values;
@@ -178,6 +179,11 @@ typedef struct IR
     int cast_target_bytes;
 
     char* vtable_label;
+
+    /* 2.5.0 调试信息：该 IR 对应的源码行号（0 表示未知） */
+    int source_line;
+    const char* source_file;
+    const char* src_name;   /* 2.5.0: 源码变量名（供调试器显示） */
 }IR;
 
 typedef struct {

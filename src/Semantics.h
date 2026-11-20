@@ -209,4 +209,8 @@ static void free_func_sig(FuncSignature* sig);
 void semantics_cleanup(void);
 void free_symbol(Symbol* sym);
 
+/* 2.5.1 FFI */
+void semantics_register_user_extern(const char* name);
+int semantics_user_extern_count(void);
+const char* semantics_user_extern_at(int i);
 #endif

@@ -72,6 +72,40 @@ pub void main() {
 }
 ```
 
+### 空数组
+
+花括号留空得到长度为 0 的数组，等价于 `new T[0]`：
+
+```yxg
+pub void main() {
+    int[] a = {};
+    float[] b = {};
+    string[] c = {};
+
+    print a.length, " ", b.length, " ", c.length, "\n";   // 0 0 0
+}
+```
+
+**数组不能追加元素。** YXG 的数组是定长的，没有 `push`/`append`，也不能用 `+` 往数组里加东西：
+
+```yxg
+int[] a = {};
+a = a + 1;     // 错误[E3003]: array cannot be used with '+' or '-': fixed-size arrays have no append
+```
+
+需要不定长容器时用 `List<T>`：
+
+```yxg
+import yxg.Collections.List;
+
+pub void main() {
+    List<int> l = new List<int>();
+    l.add(1);
+    l.add(2);
+    print l.size(), "\n";      // 2
+}
+```
+
 ### 动态分配
 
 使用 new 关键字创建指定大小的数组：

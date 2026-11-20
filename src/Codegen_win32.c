@@ -28,9 +28,14 @@ bool has_64bit_ops = false;
 bool has_exception_lib = false;
 bool has_file_lib = false;
 bool has_socket_lib = false;
+bool has_tls_lib = false;   /* 2.5.3: HTTPS/TLS（secur32） */
 bool has_window_lib = false;
+
+/* 2.5.0：是否输出调试信息（-g） */
+bool debug_info_enabled = false;
 bool has_image_lib = false;
 bool has_music_lib = false;
+bool has_debug_lib = false;
 bool has_video_lib = false;
 bool has_time_lib = false;
 bool has_thread_lib = false;
@@ -514,6 +519,28 @@ void temp_map_ensure_capacity() {
     }
 }
 
+/* 取 _strN 常量标签对应的字符串长度；找不到返回 0 */
+static const char* string_const_text(const char* label) {
+    if (!label) return NULL;
+    for (int i = 0; i < consts->index; i++) {
+        if (consts->name[i] && strcmp(consts->name[i], label) == 0) {
+            return consts->value[i];
+        }
+    }
+    return NULL;
+}
+
+static int string_const_len(const char* label) {
+    if (!label) return 0;
+    for (int i = 0; i < consts->index; i++) {
+        if (consts->name[i] && strcmp(consts->name[i], label) == 0) {
+            if (consts->value[i]) return (int)strlen(consts->value[i]);
+            return 0;
+        }
+    }
+    return 0;
+}
+
 void temp_map_add(char* name, DataType type) {
     if (name == NULL) return;
     for (int i = 0; i < temp_map.count; i++) {
@@ -583,6 +610,19 @@ void temp_map_compute_offsets() {
         temp_map.offsets[i] = current_offset;
         current_offset += sz;
     }
+}
+
+/* 2.5.0: 在函数的 IR 链里找某个临时变量对应的源码变量名 */
+const char* _srcname_for(IR* head, const char* temp_name) {
+    if (!head || !temp_name) return temp_name;
+    int guard = 0;
+    for (IR* p = head; p && guard < 200000; p = p->next, guard++) {
+        /* 只在函数结束标签处停；循环等内部标签要继续走 */
+        if (p != head && p->type == IR_LABEL && p->has_return) break;
+        if (p->src_name && p->result && strcmp(p->result, temp_name) == 0)
+            return p->src_name;
+    }
+    return temp_name;
 }
 
 int temp_map_get_offset(const char* name) {
@@ -1605,6 +1645,25 @@ void codegen_win32(FILE* output,IR* ir)
         INTERNAL_ERROR("codegen: NULL IR");
     }
 
+    /* 2.5.1 FFI: stdcall 修饰名别名，必须是文件里的第一批内容（%define 先定义后使用） */
+    {
+        static bool _ffi_alias_done = false;
+        if (!_ffi_alias_done) {
+            _ffi_alias_done = true;
+            for (int _ei = 0; _ei < semantics_user_extern_count(); _ei++) {
+                const char* _en = semantics_user_extern_at(_ei);
+                if (!_en || _en[0] != '_' || !strchr(_en, '@')) continue;
+                const char* _at = strchr(_en, '@');
+                size_t _n = (size_t)(_at - _en);
+                if (_n > 0 && _n < 250) {
+                    char _plain[256];
+                    memcpy(_plain, _en, _n);
+                    _plain[_n] = 0;
+                    fprintf(output, "%%define %s %s\n", _plain, _en);
+                }
+            }
+        }
+    }
     in_function = false;
     current_local_offset = 0;
     current_func_end = NULL;
@@ -1680,6 +1739,10 @@ void codegen_win32(FILE* output,IR* ir)
                 ir_temp = ir_temp->next;
                 continue;
             }
+        }
+        /* 2.5.0 调试信息：为当前 IR 打行号标记 */
+        if (debug_info_enabled && ir_temp->source_line > 0) {
+            fprintf(output, ";@yxgline %d\n", ir_temp->source_line);
         }
         switch (ir_temp->type) {
             case IR_LITERAL: {
@@ -3739,6 +3802,11 @@ void codegen_win32(FILE* output,IR* ir)
                                    is_static ? 0 : current_local_offset,
                                    (var_stack_sz > 4),
                                    var_stack_sz,ir_temp->is_dynamic_array);
+                        /* 2.5.0 调试信息：记录本地变量源码名与栈偏移 */
+                        if (debug_info_enabled && ir_temp->src_name) {
+                            int _vo = current_local_offset < 0 ? -current_local_offset : current_local_offset;
+                            fprintf(output, ";@local . %d %s\n", _vo, ir_temp->src_name);
+                        }
                     } else {
                         if (var_type == DATA_STRING && src != NULL
                             && !is_temp(src) && get_const(src) == -1) {
@@ -4169,6 +4237,8 @@ void codegen_win32(FILE* output,IR* ir)
             case IR_FORMAT: {
                 cache_flush_all(output);
                 has_format = true;
+                has_gc = true;          /* format 返回 gc 字符串 */
+                has_memory_lib = true;
                 has_memory_lib = true;
                 int num = ir_temp->call_func_args_num;
                 if (num > 0) {
@@ -4328,6 +4398,8 @@ void codegen_win32(FILE* output,IR* ir)
                 }
                 if (strcmp(ir_temp->args1, "_format_string") == 0) {
                     has_format = true;
+                    has_gc = true;          /* format 返回 gc 字符串 */
+                    has_memory_lib = true;
                     has_memory_lib = true;
                 }
                 if (strcmp(ir_temp->args1, "_input_parse") == 0) {
@@ -4358,6 +4430,11 @@ void codegen_win32(FILE* output,IR* ir)
                     strncmp(ir_temp->args1, "_iocp_", 6) == 0 ||
                     strncmp(ir_temp->args1, "_ov_", 4) == 0) {
                     has_socket_lib = true;
+                    has_gc = true;
+                    has_memory_lib = true;
+                }
+                if (strncmp(ir_temp->args1, "_tls_", 5) == 0) {
+                    has_tls_lib = true;
                     has_gc = true;
                     has_memory_lib = true;
                 }
@@ -4735,6 +4812,11 @@ void codegen_win32(FILE* output,IR* ir)
                         fprintf(output, "  call _SetConsoleOutputCP@4\n");
                         fprintf(output, "  finit\n");
                         fprintf(output, "  call _gc_init\n");
+                        if (debug_info_enabled) {
+                            /* 2.5.0: 安装 SEH 崩溃处理器，配合 .map 打印源码行号 */
+                            fprintf(output, "  call _yxg_debug_install\n");
+                            has_debug_lib = true;
+                        }
                         in_main = true;
                         has_gc = true;
                         has_memory_lib = true;
@@ -5569,6 +5651,7 @@ void codegen_win32_end(FILE* output)
         fprintf(output, "extern Window_has_focus\n");
         fprintf(output, "extern Window_set_topmost_int\n");
         fprintf(output, "extern Window_set_maximizable_int\n");
+        fprintf(output, "extern Window_set_fullscreen_int\n");
         fprintf(output, "extern Window_set_resizable_int\n");
         fprintf(output, "extern Window_minimize\n");
         fprintf(output, "extern Window_maximize\n");
@@ -5933,6 +6016,12 @@ void codegen_win32_end(FILE* output)
 
     if (has_gc) {
         fprintf(output, "extern _gc_init\n");
+        if (debug_info_enabled) fprintf(output, "extern _yxg_debug_install\n");
+        /* 2.5.1 FFI: 用户声明的外部 C 函数 */
+        for (int _ei = 0; _ei < semantics_user_extern_count(); _ei++) {
+            const char* _en = semantics_user_extern_at(_ei);
+            if (_en) fprintf(output, "extern %s\n", _en);
+        }
         fprintf(output, "extern _gc_alloc\n");
         fprintf(output, "extern _gc_alloc_ptr_array\n");
         fprintf(output, "extern _gc_collect\n");
@@ -6023,6 +6112,8 @@ void codegen_win32_end(FILE* output)
         fprintf(output, "  gc_static_bss_end_label:\n");
     }
     fprintf(output,"section .data\n");
+    fprintf(output,"  _empty_str_len dd 0\n");
+    fprintf(output,"  _empty_str db 0\n");
     if (has_gc) {
         fprintf(output, "  gc_data_start_label:\n");
     }
@@ -6092,34 +6183,37 @@ void codegen_win32_end(FILE* output)
                 }
                 break;
             case DATA_STRING:
-                if (is_var_name(consts->value[i]) && consts->value_type[i] != DATA_STRING)
+                /* string 是 4 字节 gc 指针，长度存在 [ptr-4]。
+                   所以字面量前必须紧跟一个长度 dword，
+                   否则 String.len 会读到前面别的常量。 */
                 {
-                    fprintf(output,"  %s db ` `,0\n",consts->name[i]);
-                } else if (consts->value[i] != NULL
-                           && consts->value[i][0] == '_'
-                           && consts->value[i][1] == 's'
-                           && consts->value[i][2] == 't'
-                           && consts->value[i][3] == 'r') {
-                    int is_str_label = 1;
-                    for (int k = 4; consts->value[i][k]; k++) {
-                        if (consts->value[i][k] < '0' || consts->value[i][k] > '9') {
-                            is_str_label = 0;
-                            break;
+                    const char* _txt = consts->value[i];
+                    int _need_lit = 1;
+                    if (is_var_name(consts->value[i]) && consts->value_type[i] != DATA_STRING)
+                    {
+                        fprintf(output,"  %s dd _empty_str\n", consts->name[i]);
+                        _need_lit = 0;
+                    } else if (_txt != NULL && _txt[0] == '_' && _txt[1] == 's'
+                               && _txt[2] == 't' && _txt[3] == 'r') {
+                        int is_str_label = 1;
+                        for (int k = 4; _txt[k]; k++) {
+                            if (_txt[k] < '0' || _txt[k] > '9') { is_str_label = 0; break; }
+                        }
+                        if (is_str_label && _txt[4] != '\0') {
+                            /* _strN 是裸 db，没有长度头；查它的真实文本重新生成 */
+                            const char* real = string_const_text(_txt);
+                            if (real != NULL) { _txt = real; } else { _txt = ""; }
                         }
                     }
-                    if (is_str_label && consts->value[i][4] != '\0') {
-                        fprintf(output, "  %s dd %s\n", consts->name[i], consts->value[i]);
-                    } else {
-                        char* esc = escape_for_nasm(consts->value[i]);
-                        fprintf(output,"  %s db `%s`,0\n",consts->name[i], esc);
+                    if (_need_lit) {
+                        char* esc = escape_for_nasm(_txt ? _txt : "");
+                        fprintf(output,"  %s_len dd %d\n", consts->name[i],
+                                (int)strlen(_txt ? _txt : ""));
+                        fprintf(output,"  %s_lit db `%s`,0\n", consts->name[i], esc);
+                        fprintf(output,"  %s dd %s_lit\n", consts->name[i], consts->name[i]);
                         free(esc);
                     }
-                           } else
-                           {
-                               char* esc = escape_for_nasm(consts->value[i]);
-                               fprintf(output,"  %s db `%s`,0\n",consts->name[i], esc);
-                               free(esc);
-                           }
+                }
                 break;
             case DATA_IDENTIFIER:
                 fprintf(output,"  %s dd 0\n",consts->name[i]);

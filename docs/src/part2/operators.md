@@ -511,6 +511,45 @@ float 用 %g 风格打印，3.14 不会变成 3.140000。
 - 超出目标类型范围的值会被截断，不会报错
 - 字符串和数字之间不能用 `as` 转换
 
+## sizeof：取类型大小
+
+`sizeof(类型)` 在编译期算出一个常量（字节数），结果类型是 `int`。
+
+```yxg
+pub void main() {
+    print sizeof(int), "\n";        // 4
+    print sizeof(char), "\n";       // 1
+    print sizeof(bool), "\n";       // 1
+    print sizeof(uint), "\n";       // 4
+    print sizeof(float), "\n";      // 4
+    print sizeof(int64), "\n";      // 8
+    print sizeof(str), "\n";        // 8   指针 + 长度
+    print sizeof(string), "\n";     // 4   指针
+}
+```
+
+| 写法 | 结果 |
+|---|---|
+| `sizeof(int)` / `sizeof(uint)` / `sizeof(float)` | 4 |
+| `sizeof(char)` / `sizeof(bool)` / `sizeof(int8)` | 1 |
+| `sizeof(int16)` | 2 |
+| `sizeof(int64)` / `sizeof(float64)` | 8 |
+| `sizeof(string)` | 4（存的是指针） |
+| `sizeof(str)` | 8（两字长：指针 + 长度） |
+| `sizeof(类名)` | 4（对象变量存的是指针） |
+
+```yxg
+pub class Point { pub int x; pub int y; }
+
+print sizeof(Point), "\n";          // 4 —— 类变量是指针，不是对象体
+```
+
+**注意几点：**
+
+- `sizeof` 只看**类型名**，不能传变量、表达式或数组：`sizeof(Point)` 可以，`sizeof(p)` 不行。
+- 类名给的是**指针大小**（4），不是对象体的字节数。想知道对象体多大，得自己按字段累加。
+- 数组没有 `sizeof`：数组长度用 `arr.length`（元素个数），字节数要 `arr.length * sizeof(元素类型)`。
+
 ## 常见错误
 
 ### 除零错误

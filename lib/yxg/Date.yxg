@@ -1,0 +1,215 @@
+// yxg/Date.yxg -- date & time helpers (2.5.2)
+//
+// 用 msvcrt 的 time() 取 Unix 时间戳（UTC 秒），公历换算用纯算术完成，
+// 不依赖 SYSTEMTIME 之类的结构体，因此不需要新增汇编。
+//
+// 注意：这里给的是 UTC。要本地时间请自行加时区偏移（见 localOffset 用法）。
+//
+// 已知问题（2026-11 记录）：
+//   数值部分（fromUnix / toUnix / isLeapYear / daysInMonth）已验证正确。
+//   字符串格式化（toString / toDateString / toTimeString）目前返回空串 ——
+//   原因是编译器的 format() 在多参数 / 调用结果作为参数时会出错，
+//   详见 repro/BugStringFromCall.yxg。等 format 修好后这几处即可正常工作。
+
+import yxg.String;
+
+// time_t time(time_t* t) —— 传 0 只取返回值
+pub native int _time(int t);
+
+class Date {
+    pub int year;
+    pub int month;      // 1..12
+    pub int day;        // 1..31
+    pub int hour;       // 0..23
+    pub int minute;     // 0..59
+    pub int second;     // 0..59
+    pub int weekday;    // 0=周日 .. 6=周六
+
+    pub Date() {
+        year = 1970; month = 1; day = 1;
+        hour = 0; minute = 0; second = 0; weekday = 4;
+    }
+
+    // ---------- 取当前时间 ----------
+
+    // 当前 Unix 时间戳（秒，UTC）
+    pub static int nowUnix() {
+        return _time(0);
+    }
+
+    // 当前时间（UTC）
+    pub static Date now() {
+        return Date.fromUnix(Date.nowUnix());
+    }
+
+    // ---------- 换算 ----------
+
+    // Unix 秒 -> Date（UTC）
+    pub static Date fromUnix(int secs) {
+        Date d = new Date();
+
+        int days = secs / 86400;
+        int rem = secs - days * 86400;
+        if rem < 0 { rem = rem + 86400; days = days - 1; }
+
+        d.hour = rem / 3600;
+        int r2 = rem - d.hour * 3600;
+        d.minute = r2 / 60;
+        d.second = r2 - d.minute * 60;
+
+        // 1970-01-01 是周四
+        int wd = (days + 4) % 7;
+        if wd < 0 { wd = wd + 7; }
+        d.weekday = wd;
+
+        // Howard Hinnant 的 civil_from_days
+        int z = days + 719468;
+        int era = z / 146097;
+        if z < 0 && z % 146097 != 0 { era = era - 1; }
+        int doe = z - era * 146097;                       // [0, 146096]
+        int yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        int y = yoe + era * 400;
+        int doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        int mp = (5 * doy + 2) / 153;
+        int dd = doy - (153 * mp + 2) / 5 + 1;
+        int mm = mp + 3;
+        if mm > 12 { mm = mm - 12; y = y + 1; }
+
+        d.year = y;
+        d.month = mm;
+        d.day = dd;
+        return d;
+    }
+
+    // Date -> Unix 秒（UTC）
+    pub int toUnix() {
+        int y = year;
+        int m = month;
+        if m <= 2 { y = y - 1; }
+        int era = y / 400;
+        if y < 0 && y % 400 != 0 { era = era - 1; }
+        int yoe = y - era * 400;
+        int mp = m + 9;
+        if mp >= 12 { mp = mp - 12; }
+        int doy = (153 * mp + 2) / 5 + day - 1;
+        int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        int days = era * 146097 + doe - 719468;
+        return days * 86400 + hour * 3600 + minute * 60 + second;
+    }
+
+    // ---------- 格式化 ----------
+
+    // 两位补零
+    // 注意：format() 的返回值不能当 + 的操作数（拼接结果会丢掉它），
+    // 所以补零直接在 format 的模板里做。
+    pub static string pad2(int v) {
+        if v < 10 { return format("0{}", v); }
+        return format("{}", v);
+    }
+
+    pub static string pad4(int v) {
+        if v < 10 { return format("000{}", v); }
+        if v < 100 { return format("00{}", v); }
+        if v < 1000 { return format("0{}", v); }
+        return format("{}", v);
+    }
+
+    // "2026-01-31"
+    // 注意：+ 的右侧不能直接写函数调用（结果会被丢掉），先落到变量
+    pub string toDateString() {
+        int y = year;
+        int m = month;
+        int d = day;
+        string yy = pad4(y);
+        string mm = pad2(m);
+        string dd = pad2(d);
+        string r = format("{}-{}-{}", yy, mm, dd);
+        return r;
+    }
+
+    // "13:05:09"
+    pub string toTimeString() {
+        int h = hour;
+        int mi = minute;
+        int s = second;
+        string a = pad2(h);
+        string b = pad2(mi);
+        string c = pad2(s);
+        string r = format("{}:{}:{}", a, b, c);
+        return r;
+    }
+
+    // "2026-01-31 13:05:09"
+    pub string asText() {
+        string a = toDateString();
+        string b = toTimeString();
+        string r = format("{} {}", a, b);
+        return r;
+    }
+
+    // "2026-01-31T13:05:09"
+    pub string toIsoString() {
+        string a = toDateString();
+        string b = toTimeString();
+        string r = format("{}T{}", a, b);
+        return r;
+    }
+
+    // 星期几的中文名
+    pub string weekdayName() {
+        if weekday == 0 { return "周日"; }
+        if weekday == 1 { return "周一"; }
+        if weekday == 2 { return "周二"; }
+        if weekday == 3 { return "周三"; }
+        if weekday == 4 { return "周四"; }
+        if weekday == 5 { return "周五"; }
+        return "周六";
+    }
+
+    // ---------- 常用计算 ----------
+
+    // 该月天数
+    pub static int daysInMonth(int y, int m) {
+        if m == 2 {
+            bool leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+            if leap { return 29; }
+            return 28;
+        }
+        if m == 4 || m == 6 || m == 9 || m == 11 { return 30; }
+        return 31;
+    }
+
+    pub static bool isLeapYear(int y) {
+        return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+    }
+
+    // 当前秒数加上 delta 秒后的新 Date
+    pub Date addSeconds(int delta) {
+        return Date.fromUnix(this.toUnix() + delta);
+    }
+
+    pub Date addDays(int n) {
+        return Date.fromUnix(this.toUnix() + n * 86400);
+    }
+
+    // 两个日期相差多少天
+    pub int daysUntil(Date other) {
+        int a = this.toUnix();
+        int b = other.toUnix();
+        int diff = b - a;
+        return diff / 86400;
+    }
+
+    // 本机时区偏移（小时）。用一个粗略值，需要精确时请改用系统 API。
+    // 东八区返回 8。
+    pub static int localOffsetHours() {
+        // 用 UTC 与本地时间的差值无法在不调用系统 API 的情况下得到，
+        // 这里留一个可改的常量，默认东八区。
+        return 8;
+    }
+
+    // 本地时间（默认东八区，可用 localOffsetHours 改）
+    pub static Date nowLocal() {
+        return Date.fromUnix(Date.nowUnix() + Date.localOffsetHours() * 3600);
+    }
+}

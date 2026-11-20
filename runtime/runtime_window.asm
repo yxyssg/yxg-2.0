@@ -1,9 +1,9 @@
 ; ============================================================
-; runtime_window.asm — YXG Windows 图形库运行时（修复版）
+; runtime_window.asm �? YXG Windows 图形库运行时（修复版�?
 ;
 ; 实例方法约定:  [ebp+8] = this
-;   [this+0] = class_id  [this+4] = vtable  [this+8] = 第一个字段
-;   Window 类的第一个字段是 hwnd；Canvas 是 canvas_id
+;   [this+0] = class_id  [this+4] = vtable  [this+8] = 第一个字�?
+;   Window 类的第一个字段是 hwnd；Canvas �? canvas_id
 ;   控件（Button/TextBox/Label/…）第一个字段是 hwnd
 ; ============================================================
 
@@ -174,6 +174,8 @@ OFN_OVERWRITEPROMPT  equ 0x00000002
 OFN_HIDEREADONLY     equ 0x00000004
 WS_CHILD       equ 0x40000000
 WS_VISIBLE     equ 0x10000000
+WS_POPUP       equ 0x80000000
+HWND_TOP       equ 0
 WS_BORDER      equ 0x00800000
 WS_TABSTOP     equ 0x00010000
 BS_PUSHBUTTON  equ 0x00000000
@@ -301,6 +303,7 @@ SWP_NOMOVE         equ 0x0002
 SWP_NOSIZE         equ 0x0001
 SWP_NOZORDER       equ 0x0004
 SWP_FRAMECHANGED   equ 0x0020
+SWP_SHOWWINDOW     equ 0x0040
 WS_THICKFRAME      equ 0x00040000
 GENERIC_READ       equ 0x80000000
 FILE_SHARE_READ    equ 1
@@ -426,7 +429,7 @@ section .bss
 section .text
 
 ; ============================================================
-; 内部辅助（无 this，不修改）
+; 内部辅助（无 this，不修改�?
 ; ============================================================
 bgr_convert:
     push ebx
@@ -1260,7 +1263,7 @@ Window_create_string_int_int:
     call _UpdateWindow@4
     mov eax, ebx
     mov edx, [ebp+8]
-    mov [edx+8], eax            ; this->hwnd（原 [edx] 删除）
+    mov [edx+8], eax            ; this->hwnd（原 [edx] 删除�?
     jmp .done
 .fail_no_slot:
     push ebx
@@ -2392,7 +2395,7 @@ Window_get_mouse_wheel:
     pop ebp
     ret
 
-; ── 静态方法 ──
+; �?�? 静�?�方�? �?�?
 
 global Window_set_font_size_int
 Window_set_font_size_int:
@@ -2523,7 +2526,7 @@ rgb_convert:
     ret
 
 ; ============================================================
-; Canvas — Canvas_create_int_int 里把 canvas_id 写入 this+8
+; Canvas �? Canvas_create_int_int 里把 canvas_id 写入 this+8
 ; ============================================================
 
 global Canvas_create_int_int
@@ -2612,7 +2615,7 @@ Canvas_create_int_int:
     sar edx, 5
     inc edx
     mov eax, [ebp+8]
-    mov [eax+8], edx            ; this->canvas_id（原 [eax] 删除）
+    mov [eax+8], edx            ; this->canvas_id（原 [eax] 删除�?
     mov eax, edx
     jmp .done
 .fail:
@@ -3114,7 +3117,7 @@ Window_draw_canvas_identifier_int_int:
     mov eax, [ebp+12]
     test eax, eax
     jz  .ret
-    mov eax, [eax+8]            ; canvas identifier 的值也在 +8
+    mov eax, [eax+8]            ; canvas identifier 的�?�也�? +8
     call get_canvas_offset
     cmp eax, -1
     je  .ret
@@ -3334,7 +3337,7 @@ Window_draw_char_int_int_int_int:
     ret
 
 ; ============================================================
-; 批次 D: 定时器
+; 批次 D: 定时�?
 ; ============================================================
 
 global Window_start_timer_int
@@ -3405,7 +3408,7 @@ Window_get_timer_hits:
     ret
 
 ; ============================================================
-; 批次 E: 多窗口管理
+; 批次 E: 多窗口管�?
 ; ============================================================
 
 global Window_is_valid
@@ -3680,7 +3683,7 @@ Window_get_at_int:
     ret
 
 ; ============================================================
-; 批次 F: 文件对话框（静态方法，ofn_fill_common 从 this+8 读 hwnd）
+; 批次 F: 文件对话框（静�?�方法，ofn_fill_common �? this+8 �? hwnd�?
 ; ============================================================
 
 ofn_fill_common:
@@ -3699,7 +3702,7 @@ ofn_fill_common:
     mov ecx, 65
     rep stosd
     mov eax, [ebp+8]
-    mov eax, [eax+8]            ; this->hwnd（原为 [eax]）
+    mov eax, [eax+8]            ; this->hwnd（原�? [eax]�?
     mov dword [ofn_struct+0], 76
     mov [ofn_struct+4], eax
     mov dword [ofn_struct+8], 0
@@ -3890,15 +3893,15 @@ layout_place:
     ret
 
 ; ============================================================
-; 组件库
+; 组件�?
 ; ============================================================
 
-; control_create: ebx = identifier(parent)，父窗口 hwnd 从 [ebx+8] 读
+; control_create: ebx = identifier(parent)，父窗口 hwnd �? [ebx+8] �?
 control_create:
     push esi
     push edi
     mov esi, eax
-    mov edi, [ebx+8]            ; 父窗口 hwnd（原为 [ebx]）
+    mov edi, [ebx+8]            ; 父窗�? hwnd（原�? [ebx]�?
     mov eax, [ebp+20]
     mov ecx, [ebp+24]
     cmp eax, -1
@@ -4002,7 +4005,7 @@ Button_create_identifier_string_int_int_int_int:
     mov eax, [ebp+8]
     mov [edx+16], eax
     mov eax, [ebp+8]
-    mov [eax+8], edi            ; this->hwnd（原 [eax] 删除）
+    mov [eax+8], edi            ; this->hwnd（原 [eax] 删除�?
     mov eax, edi
     jmp .done
 .fail_destroy:
@@ -4773,7 +4776,7 @@ ComboBox_create_identifier_int_int_int_int:
     mov ebx, [ebp+12]
     test ebx, ebx
     jz  .fail
-    mov esi, [ebx+8]            ; 父窗口 hwnd
+    mov esi, [ebx+8]            ; 父窗�? hwnd
     mov edx, WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED
     mov eax, [ebp+16]
     mov ecx, [ebp+20]
@@ -5063,7 +5066,7 @@ ListBox_create_identifier_int_int_int_int:
     mov ebx, [ebp+12]
     test ebx, ebx
     jz  .fail
-    mov esi, [ebx+8]            ; 父窗口 hwnd
+    mov esi, [ebx+8]            ; 父窗�? hwnd
     mov edx, WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_BORDER | WS_TABSTOP | LBS_NOTIFY | LBS_OWNERDRAWFIXED
     mov eax, [ebp+16]
     mov ecx, [ebp+20]
@@ -5395,7 +5398,7 @@ GroupBox_create_identifier_string_int_int_int_int:
     test eax, eax
     jz  .fail
     mov edx, [ebp+8]
-    mov [edx+8], eax            ; this->hwnd（原 [edx] 删除）
+    mov [edx+8], eax            ; this->hwnd（原 [edx] 删除�?
     jmp .done
 .fail:
     xor eax, eax
@@ -5676,7 +5679,7 @@ Panel_create_identifier_int_int_int_int:
     mov ebx, [ebp+12]
     test ebx, ebx
     jz  .fail
-    mov esi, [ebx+8]            ; 父窗口 hwnd
+    mov esi, [ebx+8]            ; 父窗�? hwnd
     mov edx, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN
     mov eax, [ebp+16]
     mov ecx, [ebp+20]
@@ -6122,7 +6125,7 @@ Menu_create_identifier:
     mov ebx, [ebp+12]
     test ebx, ebx
     jz  .fail
-    mov esi, [ebx+8]            ; 父窗口 hwnd
+    mov esi, [ebx+8]            ; 父窗�? hwnd
     test esi, esi
     jz  .fail
     call _CreateMenu@0
@@ -6157,7 +6160,7 @@ Menu_create_identifier:
     push esi
     call _DrawMenuBar@4
     mov edx, [ebp+8]
-    mov [edx+8], edi            ; this->hmenu（原 [edx] 删除）
+    mov [edx+8], edi            ; this->hmenu（原 [edx] 删除�?
     mov eax, edi
     jmp .done
 .fail_menu:
@@ -6447,7 +6450,7 @@ Toolbar_create_identifier_int:
     mov ebx, [ebp+12]
     test ebx, ebx
     jz  .fail
-    mov esi, [ebx+8]            ; 父窗口 hwnd
+    mov esi, [ebx+8]            ; 父窗�? hwnd
     test esi, esi
     jz  .fail
     lea eax, [rect_struct]
@@ -6497,7 +6500,7 @@ Toolbar_create_identifier_int:
     push edi
     call _SendMessageA@16
     mov ecx, [ebp+8]
-    mov [ecx+8], edi            ; this->hwnd（原 [ecx] 删除）
+    mov [ecx+8], edi            ; this->hwnd（原 [ecx] 删除�?
     mov eax, edi
     jmp .done
 .fail_destroy:
@@ -6678,7 +6681,7 @@ ButtonBar_create_identifier_int:
     jz  .fail
     test esi, esi
     jz  .fail
-    mov eax, [esi+8]            ; 父窗口 hwnd
+    mov eax, [esi+8]            ; 父窗�? hwnd
     test eax, eax
     jz  .fail
     lea edi, [rect_struct]
@@ -6777,7 +6780,7 @@ StatusBar_create_identifier:
     jz  .fail
     test esi, esi
     jz  .fail
-    mov esi, [esi+8]            ; 父窗口 hwnd
+    mov esi, [esi+8]            ; 父窗�? hwnd
     test esi, esi
     jz  .fail
     cmp dword [toolbar_comctl_init], 0
@@ -6844,7 +6847,7 @@ StatusBar_create_identifier:
     push 0
     push edi
     call _MoveWindow@24
-    mov [ebx+8], edi            ; this->hwnd（原 [ebx] 删除）
+    mov [ebx+8], edi            ; this->hwnd（原 [ebx] 删除�?
     mov eax, edi
     jmp .done
 .fail:
@@ -7212,7 +7215,7 @@ ProgressBar_create_identifier_int_int_int_int:
     jz  .fail
     test esi, esi
     jz  .fail
-    mov esi, [esi+8]            ; 父窗口 hwnd
+    mov esi, [esi+8]            ; 父窗�? hwnd
     test esi, esi
     jz  .fail
     call init_comctl_ext
@@ -7266,7 +7269,7 @@ ProgressBar_create_identifier_int_int_int_int:
     mov dword [edx+8], 1
     mov dword [edx+12], 0
     mov eax, [ebp+8]
-    mov [eax+8], edi            ; this->hwnd（原 [eax] 删除）
+    mov [eax+8], edi            ; this->hwnd（原 [eax] 删除�?
     mov eax, edi
     jmp .done
 .fail_destroy:
@@ -7472,7 +7475,7 @@ SpinBox_create_identifier_int_int_int_int:
     jz  .fail
     test esi, esi
     jz  .fail
-    mov esi, [esi+8]            ; 父窗口 hwnd
+    mov esi, [esi+8]            ; 父窗�? hwnd
     test esi, esi
     jz  .fail
     call init_comctl_ext
@@ -7554,7 +7557,7 @@ SpinBox_create_identifier_int_int_int_int:
     mov dword [edx+12], 0
     mov eax, [ebp-4]
     mov ecx, [ebp+8]
-    mov [ecx+8], eax            ; this->hwnd（原 [ecx] 删除）
+    mov [ecx+8], eax            ; this->hwnd（原 [ecx] 删除�?
     mov eax, eax
     jmp .done
 .fail_both:
@@ -7788,7 +7791,7 @@ Slider_create_identifier_int_int_int_int:
     jz  .fail
     test esi, esi
     jz  .fail
-    mov esi, [esi+8]            ; 父窗口 hwnd
+    mov esi, [esi+8]            ; 父窗�? hwnd
     test esi, esi
     jz  .fail
     call init_comctl_ext
@@ -7838,7 +7841,7 @@ Slider_create_identifier_int_int_int_int:
     mov dword [edx+8], 1
     mov dword [edx+12], 0
     mov eax, [ebp+8]
-    mov [eax+8], edi            ; this->hwnd（原 [eax] 删除）
+    mov [eax+8], edi            ; this->hwnd（原 [eax] 删除�?
     mov eax, edi
     jmp .done
 .fail_destroy:
@@ -8018,7 +8021,7 @@ Slider_hide:
     jmp control_hide
 
 ; ============================================================
-; 子类化 owner-draw 入口
+; 子类�? owner-draw 入口
 ; ============================================================
 global ProgressBar_owner_draw
 ProgressBar_owner_draw:
@@ -8101,7 +8104,7 @@ GroupBox_owner_draw:
     ret
 
 ; ============================================================
-; 输入状态
+; 输入状�??
 ; ============================================================
 control_is_hover:
     push ebp
@@ -8203,7 +8206,7 @@ control_refresh:
     ret
 
 ; ============================================================
-; 自定义绘制
+; 自定义绘�?
 ; ============================================================
 set_paint_impl:
     push ebp
@@ -8506,7 +8509,7 @@ drawitem_dispatch:
     ret
 
 ; ============================================================
-; 自绘用 DC 绘图
+; 自绘�? DC 绘图
 ; ============================================================
 global Window_dc_fill_rect_int_int_int_int_int_int
 Window_dc_fill_rect_int_int_int_int_int_int:
@@ -8843,7 +8846,7 @@ Label_set_paint_int:
     jmp set_paint_impl
 
 ; ============================================================
-; get_text / 状态 / refresh 入口
+; get_text / 状�?? / refresh 入口
 ; ============================================================
 global Button_get_text
 Button_get_text:
@@ -9593,14 +9596,14 @@ release_auto_slot:
     ret
 
 ; ============================================================
-; 像素级贴图
+; 像素级贴�?
 ; ============================================================
 
 blit_fetch_targets:
     mov eax, [ebp+8]
     test eax, eax
     jz  .bad
-    mov eax, [eax+8]            ; this->hwnd（原为 [eax]）
+    mov eax, [eax+8]            ; this->hwnd（原�? [eax]�?
     call get_slot_offset
     cmp eax, -1
     je  .bad
@@ -9619,7 +9622,7 @@ blit_fetch_targets:
     mov eax, [ebp+12]
     test eax, eax
     jz  .bad
-    mov eax, [eax+8]            ; Canvas 的 id 也在 +8
+    mov eax, [eax+8]            ; Canvas �? id 也在 +8
     call get_canvas_offset
     cmp eax, -1
     je  .bad
@@ -10037,7 +10040,113 @@ Window_set_resizable_int:
     ret
 
 ; ============================================================
-; 垂直渐变填充（自绘 DC 用）
+; Window_set_fullscreen : �л��ޱ߿�ȫ��
+;   this, enable(1=����, 0=�˳�)
+;   ��λ +132 �����ǰ����ʽ���� 0 ��ʾ��ǰ����ȫ����
+;   ��λ +136..151 �����ǰ�Ĵ��ھ���
+; ============================================================
+global Window_set_fullscreen_int
+Window_set_fullscreen_int:
+    push ebp
+    mov ebp, esp
+    push ebx
+    push esi
+    push edi
+    mov esi, [ebp+8]
+    test esi, esi
+    jz  .fs_ret
+    mov eax, [esi+8]
+    test eax, eax
+    jz  .fs_ret
+    call get_slot_offset
+    cmp eax, -1
+    je  .fs_ret
+    lea edi, [window_table]
+    add edi, eax
+    mov ebx, [edi+0]
+    mov eax, [ebp+12]
+    test ebx, ebx
+    jz  .fs_ret
+
+    cmp dword [ebp+12], 0
+    je  .fs_exit
+
+    ; ---- ����ȫ�� ----
+    cmp dword [edi+132], 0
+    jne .fs_ret
+    push GWL_STYLE
+    push ebx
+    call _GetWindowLongA@8
+    mov [edi+132], eax
+    lea eax, [edi+136]
+    push eax
+    push ebx
+    call _GetWindowRect@8
+
+    ; ��ȥ�߿�
+    push GWL_STYLE
+    push ebx
+    call _GetWindowLongA@8
+    and eax, ~(WS_OVERLAPPEDWINDOW)
+    or  eax, WS_POPUP | WS_VISIBLE
+    push eax
+    push GWL_STYLE
+    push ebx
+    call _SetWindowLongA@12
+
+    ; ȡ��Ļ���ߣ�GetSystemMetrics ���ƻ� edx/ecx�����뼰ʱѹջ��
+    push 0
+    call _GetSystemMetrics@4
+    push eax                      ; ��Ļ��
+    push 1
+    call _GetSystemMetrics@4
+    push eax                      ; ��Ļ��
+
+    ; SetWindowPos(hwnd, HWND_TOP, 0, 0, cx, cy, flags)
+    push SWP_FRAMECHANGED | SWP_NOZORDER | SWP_SHOWWINDOW
+    push dword [esp+4]            ; cy = ��Ļ��
+    push dword [esp+12]           ; cx = ��Ļ����ע�� esp ������һ�� push �ƶ���
+    push 0                        ; y
+    push 0                        ; x
+    push HWND_TOP
+    push ebx
+    call _SetWindowPos@28
+    add  esp, 8                   ; ����������Ļ�ߴ�
+    jmp  .fs_ret
+
+.fs_exit:
+    cmp dword [edi+132], 0
+    je  .fs_ret
+    push dword [edi+132]
+    push GWL_STYLE
+    push ebx
+    call _SetWindowLongA@12
+    mov dword [edi+132], 0
+    lea eax, [edi+136]
+    mov ecx, [eax+0]          ; left
+    mov edx, [eax+4]          ; top
+    mov esi, [eax+8]          ; right
+    mov edi, [eax+12]         ; bottom
+    sub esi, ecx              ; cx = right - left
+    sub edi, edx              ; cy = bottom - top
+    push SWP_NOZORDER | SWP_FRAMECHANGED
+    push edi                  ; cy
+    push esi                  ; cx
+    push edx                  ; y
+    push ecx                  ; x
+    push HWND_TOP
+    push ebx
+    call _SetWindowPos@28
+.fs_ret:
+    pop edi
+    pop esi
+    pop ebx
+    pop ebp
+    ret
+
+
+; ============================================================
+; 垂直渐变填充（自�? DC 用）
 ; ============================================================
 global Window_dc_fill_gradient_int_int_int_int_int_int_int
 Window_dc_fill_gradient_int_int_int_int_int_int_int:
@@ -10209,7 +10318,7 @@ Window_dc_fill_gradient_round_int_int_int_int_int_int_int_int:
     ret
 
 ; ============================================================
-; 真 Alpha 混合核心
+; �? Alpha 混合核心
 ; ============================================================
 blit_part_core_alpha:
     call blit_core_setup

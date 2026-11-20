@@ -13,6 +13,7 @@
 | 基础 | `String` `Math` `Char` | 字符串、数学、字符判断 |
 | 容器 | `Collections.List` `Collections.Map` `Collections.Set` `Collections.Queue` `Collections.Stack` | 泛型容器 |
 | 数据 | `Json` `JsonExt` `Utils` | JSON 处理、编码/哈希、类型转换 |
+| 数据库 | `Collections.Database` | SQLite（预编译语句、事务） |
 | 并发 | `Thread` `Sync` `Function` | 线程、互斥量/事件、函数对象 |
 
 > `String`、`Math`、`Char`、`JsonExt`、`Utils` 里的方法都是 `static`，用 `类名.方法()` 调用，**不要** `new`。
@@ -272,8 +273,96 @@ pub void main() {
 }
 ```
 
-## JSON
+## SQLite 数据库 Database
 
+导入：`import yxg.Collections.Database;`
+
+SQLite 已经编进运行时，不用额外装任何东西。数据库文件就是普通文件。
+
+```yxg
+import yxg.Collections.Database;
+import yxg.File;
+
+pub void main() {
+    if File.exists("app.db") {
+        File.delete("app.db");
+    }
+
+    Database db = new Database("app.db");
+    if !db.isOpen() {
+        print "打开失败: ", db.errmsg(), "\n";
+        return;
+    }
+
+    db.exec("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT, score REAL)");
+
+    int rc = db.exec("INSERT INTO users(name, score) VALUES('alice', 90.5)");
+    print "rc = ", rc, " changes = ", db.changes(), " lastId = ", db.lastInsertId(), "\n";
+
+    db.close();
+}
+```
+
+### Database
+
+| 方法 | 说明 |
+|---|---|
+| `new Database(path)` | 打开（不存在则创建） |
+| `isOpen()` | 是否打开成功 |
+| `exec(sql)` | 执行一条 SQL，返回 0 表示成功 |
+| `prepare(sql)` | 预编译，返回 `Statement` |
+| `lastInsertId()` | 最后一次插入的 rowid（`int64`） |
+| `changes()` | 上一条语句影响的行数 |
+| `errmsg()` | 最近一次错误信息 |
+| `close()` | 关闭 |
+
+`exec` 也可以跑 `BEGIN` / `COMMIT` / `ROLLBACK`，用它包事务：
+
+```yxg
+db.exec("BEGIN");
+db.exec("INSERT INTO users(name, score) VALUES('bob', 75)");
+db.exec("INSERT INTO users(name, score) VALUES('carol', 88)");
+db.exec("COMMIT");
+```
+
+### Statement（预编译语句）
+
+参数用 `?` 占位，下标**从 1 开始**。
+
+```yxg
+Statement st = db.prepare("INSERT INTO users(name, score) VALUES(?, ?)");
+st.bindText(1, "bob");
+st.bindInt(2, 75);
+int rc = st.step();          // 101 = SQLITE_DONE，插入完成
+st.finalize();
+```
+
+查询用 `step() == 100` 循环（100 = `SQLITE_ROW`，还有下一行）：
+
+```yxg
+Statement q = db.prepare("SELECT id, name, score FROM users ORDER BY id");
+while q.step() == 100 {
+    print q.columnInt(0), " ", q.columnText(1), " ", q.columnFloat(2), "\n";
+}
+q.finalize();
+```
+
+| 方法 | 说明 |
+|---|---|
+| `bindInt(i, v)` / `bindInt64(i, v)` / `bindText(i, v)` / `bindNull(i)` | 绑定第 i 个参数 |
+| `step()` | 100=有行，101=完成，其它=出错 |
+| `columnInt(c)` / `columnInt64(c)` / `columnText(c)` / `columnFloat(c)` | 取第 c 列（从 0 开始） |
+| `columnType(c)` | 1=整数 2=浮点 3=文本 4=blob 5=NULL |
+| `reset()` | 重置语句以便再次 `step` |
+| `finalize()` | 释放语句（**必须调**） |
+
+### 注意
+
+- **`columnFloat` 目前有精度问题**：它内部是 `columnInt(col) as float`，小数部分会被丢掉（`90.5` 读出来是 `90.0`）。要精确的浮点值请用 `q.columnText(c)` 拿文本，再 `Convert.parseFloat(...)`。
+- `Statement` 用完必须 `finalize()`，`Database` 用完必须 `close()` —— YXG 没有析构函数，不会自动回收（见[错误处理与资源管理](error-resource.md)）。
+- 错误有两种呈现：`exec` / `step` 返回非 0 的返回码，同时 `errmsg()` 给出 SQLite 的原始错误文本。不建议只看返回码。
+
+## JSON
 导入：`import yxg.Json;`
 
 JSON 解析与构造，值是 `JsonValue` 对象：
@@ -615,6 +704,37 @@ pub void main() {
 |---|---|---|
 | `Mutex` | `lock()` / `unlock()` / `isValid()` / `destroy()` | 互斥锁 |
 | `Event` | `set()` / `reset()` / `wait()` / `waitTimeout(ms)` | 事件通知 |
+
+## 2.5 新增模块
+
+2.5 版本补齐了五个常用模块，各有独立章节：
+
+| 模块 | 用途 | 详见 |
+|---|---|---|
+| `Path` | 路径处理：取文件名、扩展名、规范化 | [模块文档](stdlib-modules-2.5.md#path-模块) |
+| `Date` | 时间戳与日期换算、格式化 | [模块文档](stdlib-modules-2.5.md#date-模块) |
+| `Crypto` | MD5、SHA-256、Base64、十六进制 | [模块文档](stdlib-modules-2.5.md#crypto-模块) |
+| `Encoding` | UTF-8 / UTF-16 / GBK 互转 | [模块文档](stdlib-modules-2.5.md#encoding-模块) |
+| `Regex` | 正则匹配、捕获组、替换 | [模块文档](stdlib-modules-2.5.md#regex-模块) |
+
+快速示例：
+
+```yxg
+import yxg.Path;
+import yxg.Crypto;
+import yxg.Regex;
+
+pub void main() {
+    // 从路径里取文件名
+    print Path.fileName("C:\\a\\b.txt"), "\n";       // b.txt
+
+    // 算摘要
+    print Crypto.md5("abc"), "\n";
+
+    // 正则提取数字
+    print Regex.firstMatch("[0-9]+", "abc12345"), "\n";  // 12345
+}
+```
 
 ## 继续阅读
 

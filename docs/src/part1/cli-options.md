@@ -177,23 +177,48 @@ yxg build hello.yxg --force
 
 默认会做增量检查（源文件时间戳没变则跳过），加 `--force` 强制完整重编。
 
+### -g：生成调试信息（2.5 新增）
+
+```
+yxg build hello.yxg -o hello.exe -g
+```
+
+加上 `-g` 后会额外生成 `hello.exe.map`，内容是「机器码地址 → 源码行号 → 函数名」，以及局部变量在栈上的偏移：
+
+```
+# yxg dbgmap v1
+# src hello.yxg
+00002be0 1 _main
+00002c0d 2 _main
+00002c23 5 _main
+# local . 144 count
+# local . 148 total
+```
+
+**加了 `-g` 还有一个重要效果**：程序崩溃时会自动打印源码位置和调用栈，不用挂调试器也能定位：
+
+```
+*** CRASH ***
+  fault address : 0x00D12C0A
+  module offset : 0x00002C0A
+  source        : crash.yxg:3   (in  deep_int)
+  stack:
+    0x00D12C4C       crash.yxg:6   (in  middle_int)
+```
+
+`-g` 不影响代码优化，只增加 map 文件和崩溃处理器。发布版本可以不加，排查线上问题时再加。
+
+VSCode 里按 F5 调试时会**自动加 `-g`** 重新编译。
+
+详见 [调试：断点、单步、崩溃定位](../part2/debugging.md)。
+
 ### -d：预留参数（当前无效果）
 
 ```
 yxg build hello.yxg -d
 ```
 
-**当前版本（2.0）里 `-d` 不产生任何输出**，加不加编译结果完全一样。
-
-这个参数是为将来的调试功能预留的，源码里对应：
-
-```c
-} else if (strcmp(argv[i], "-d") == 0) {
-    /* 保留兼容，暂未使用 */
-}
-```
-
-命令行解析器接受了它（不会报「未知选项」），但没有设置任何标志，也没有任何阶段检查它。
+`-d` 不产生任何输出，加不加编译结果完全一样。这是早期为调试功能预留的占位参数，2.5 的调试信息请用上面的 `-g`。
 
 ### 想看中间结果怎么办
 

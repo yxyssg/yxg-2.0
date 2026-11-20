@@ -57,6 +57,23 @@ static int next_class_id = 1;
 
 static char** native_symbols = NULL;
 static int native_symbol_count = 0;
+
+/* 2.5.1 FFI：用户用 native 声明的外部 C 函数，需要输出 extern 并参与链接 */
+char* g_user_externs[256];
+int   g_user_extern_count = 0;
+
+void semantics_register_user_extern(const char* name) {
+    if (!name) return;
+    for (int i = 0; i < g_user_extern_count; i++)
+        if (strcmp(g_user_externs[i], name) == 0) return;
+    if (g_user_extern_count >= 256) return;
+    g_user_externs[g_user_extern_count++] = strdup(name);
+}
+
+int semantics_user_extern_count(void) { return g_user_extern_count; }
+const char* semantics_user_extern_at(int i) {
+    return (i >= 0 && i < g_user_extern_count) ? g_user_externs[i] : NULL;
+}
 static int native_symbol_cap = 0;
 
 static StaticDecl* g_static_decls = NULL;
@@ -5417,6 +5434,12 @@ static void resolve_class_members(AST_ClassDef* cd, ClassEntry* cls) {
             mi->offset = -1;
             mi->inherited_from = NULL;
             mi->is_static = func->is_static;
+            /* 2.6 诊断：toString 是保留名 */
+            if (!mi->is_static && func->name.value
+                && strcmp(func->name.value, "toString") == 0) {
+                WARNING(ERR_SEM_TYPE_MISMATCH, SEMLOC(func->name),
+                        "toString is a reserved name; the compiler rewrites .toString() into array-to-string conversion, so this method is unreachable. Rename it (e.g. asText).");
+            }
             cls->members[cls->member_count++] = mi;
 
             if (cls->short_name != NULL
@@ -5425,27 +5448,62 @@ static void resolve_class_members(AST_ClassDef* cd, ClassEntry* cls) {
                 if (cd->parent_count > 0) {
                     ClassEntry* pcls = find_class(cd->parent_names[0]);
                     if (pcls && pcls->constructor) {
-                        AST_Literal* supercall = calloc(1, sizeof(AST_Literal));
-                        supercall->base.type = AST_LITERAL;
-                        supercall->base.next = func->Code;
-                        supercall->base.value.type = TOKEN_IDENTIFIER;
-                        supercall->base.value.value =
-                            strdup(pcls->constructor->internal_name);
-                        supercall->dataType = DATA_VOID;
-                        supercall->internal_name =
-                            strdup(pcls->constructor->internal_name);
-                        supercall->is_call_function = true;
-                        supercall->call_function_Parameter = NULL;
-                        supercall->call_function_ParameterCount = 0;
-                        supercall->call_result_class_name = NULL;
+                        /* 隐式调用父类构造：第一个参数是 this，其余要转发
+                           派生类构造自己的形参。以前只传了 this，父类构造
+                           拿到的 msg 就是 this 指针，父类字段被写坏。 */
+                        int dcount = func->parameterCount - 1;
+                        int pneed = pcls->constructor->parameterCount - 1;
+                        if (pneed < 0) pneed = 0;
+                        if (pneed <= dcount) {
+                            AST_Literal* supercall = calloc(1, sizeof(AST_Literal));
+                            supercall->base.type = AST_LITERAL;
+                            supercall->base.next = func->Code;
+                            supercall->base.value.type = TOKEN_IDENTIFIER;
+                            supercall->base.value.value =
+                                strdup(pcls->constructor->internal_name);
+                            supercall->dataType = DATA_VOID;
+                            supercall->internal_name =
+                                strdup(pcls->constructor->internal_name);
+                            supercall->is_call_function = true;
+                            supercall->call_function_Parameter = NULL;
+                            supercall->call_function_ParameterCount = 0;
+                            supercall->call_result_class_name = NULL;
 
-                        AST_This* this_node = calloc(1, sizeof(AST_This));
-                        this_node->base.type = AST_THIS;
-                        this_node->base.next = NULL;
-                        supercall->call_function_Parameter = (ASTNode*)this_node;
-                        supercall->call_function_ParameterCount = 1;
+                            AST_This* this_node = calloc(1, sizeof(AST_This));
+                            this_node->base.type = AST_THIS;
+                            this_node->base.next = NULL;
+                            ASTNode* arg_head = (ASTNode*)this_node;
+                            ASTNode* arg_tail = arg_head;
 
-                        func->Code = (ASTNode*)supercall;
+                            ASTNode* dp = func->Parameter;
+                            if (dp) dp = dp->next;
+                            for (int ai = 0; ai < pneed && dp; ai++) {
+                                AST_Literal* arg = calloc(1, sizeof(AST_Literal));
+                                arg->base.type = AST_LITERAL;
+                                arg->base.value.type = TOKEN_IDENTIFIER;
+                                arg->dataType = DATA_INT;
+                                if (dp->type == AST_VAR
+                                    || dp->type == AST_UNINIT_VAR
+                                    || dp->type == AST_VAR_ASS) {
+                                    AST_Var* dv = (AST_Var*)dp;
+                                    const char* pname = dv->name.value
+                                        ? dv->name.value
+                                        : dv->base.value.value;
+                                    arg->base.value.value = strdup(pname ? pname : "");
+                                    arg->dataType = dv->dataType;
+                                } else {
+                                    arg->base.value.value = strdup("");
+                                }
+                                arg_tail->next = (ASTNode*)arg;
+                                arg_tail = (ASTNode*)arg;
+                                dp = dp->next;
+                            }
+
+                            supercall->call_function_Parameter = arg_head;
+                            supercall->call_function_ParameterCount = 1 + pneed;
+
+                            func->Code = (ASTNode*)supercall;
+                        }
                     }
                 }
             }
@@ -15546,12 +15604,45 @@ static void analyze_node(ASTNode* temp) {
         AST_Function* function_node = (AST_Function*)temp;
 
         if (function_node->is_native) {
-            if (!function_node->internal_name) {
-                function_node->internal_name =
-                    strdup(function_node->name.value);
+            /* 2.5.1 FFI: 只有"顶层" native 才用原始 C 符号名；
+               类内 native 方法（第一个参数是 _this）保留 File__xxx 这种改编名。 */
+            bool _is_method = false;
+            if (function_node->Parameter) {
+                ASTNode* _p0 = function_node->Parameter;
+                if (_p0->type == AST_VAR || _p0->type == AST_UNINIT_VAR) {
+                    const char* _pn = ((AST_Var*)_p0)->internal_name;
+                    if (_pn && strcmp(_pn, "_this") == 0) _is_method = true;
+                }
+            }
+            /* 顶层改编名的形式是 "函数名_类型_类型"；类方法是 "类名_方法名_类型"，
+               前缀不是函数名，据此区分，静态方法同样适用。 */
+            if (function_node->internal_name) {
+                size_t _nl = strlen(function_node->name.value);
+                /* 零参数函数的改编名就等于原名，也要算作顶层 */
+                bool _top_mangled =
+                    strcmp(function_node->internal_name, function_node->name.value) == 0 ||
+                    (strncmp(function_node->internal_name, function_node->name.value, _nl) == 0
+                     && function_node->internal_name[_nl] == '_');
+                if (!_top_mangled) _is_method = true;
+            }
+            char stdcall_name[512];
+            const char* raw_name = function_node->name.value;
+            if (!_is_method && function_node->is_stdcall) {
+                int bytes = function_node->parameterCount * 4;
+                snprintf(stdcall_name, sizeof(stdcall_name), "_%s@%d", raw_name, bytes);
+                raw_name = stdcall_name;
+            }
+            if (!_is_method) {
+                if (function_node->internal_name) {
+                    free(function_node->internal_name);
+                    function_node->internal_name = NULL;
+                }
+                function_node->internal_name = strdup(raw_name);
             }
             if (function_node->internal_name) {
                 semantics_register_native_symbol(function_node->internal_name);
+                if (!_is_method)
+                    semantics_register_user_extern(function_node->internal_name);
             }
             Symbol* func_sym = lookup_symbol(function_node->name.value);
             if (!func_sym) {
@@ -18053,6 +18144,9 @@ static void analyze_node(ASTNode* temp) {
             MemberInfo* mi = target_class->members[i];
             if (!mi->is_method && strcmp(mi->name, mass->member_name) == 0) {
                 mass->member_type = mi->type;
+                mass->value_is_array = (mi->dim_count > 0
+                                        || mi->is_dynamic_array
+                                        || mi->ptr_depth > 0);
                 mass->member_offset = mi->offset;
                 found = 1;
 

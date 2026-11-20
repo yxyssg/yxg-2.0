@@ -1,5 +1,5 @@
 // ============================================================
-// window.yxg — YXG Windows 图形库 (面向对象封装)
+// window.yxg �? YXG Windows 图形�? (面向对象封装)
 //
 // 用法:
 //     import yxg.Window;
@@ -8,8 +8,8 @@
 //     ...
 //
 // 类内 native 方法会自动获得隐藏的 this 参数,
-// runtime_window.asm 导出 mangle 后的符号名.
-// 颜色格式 0xRRGGBB. 枚举结尾不要加分号!
+// runtime_window.asm 导出 mangle 后的符号�?.
+// 颜色格式 0xRRGGBB. 枚举结尾不要加分�?!
 // ============================================================
 
 // ---------- 颜色常量 (0xRRGGBB) ----------
@@ -79,7 +79,7 @@ enum WindowCursor {
     CURSOR_NO       = 8
 }
 
-// ---------- 弹窗返回值 (与 Win32 IDxxx 对齐) ----------
+// ---------- 弹窗返回�? (�? Win32 IDxxx 对齐) ----------
 enum PopupResult {
     POPUP_NONE   = 0,
     POPUP_OK     = 1,
@@ -91,7 +91,7 @@ enum PopupResult {
     POPUP_NO     = 7
 }
 
-// ---------- 自绘回调收到的控件状态 ----------
+// ---------- 自绘回调收到的控件状�? ----------
 enum DrawState {
     STATE_PRESSED  = 1,
     STATE_DISABLED = 4,
@@ -100,7 +100,7 @@ enum DrawState {
 }
 
 // ============================================================
-// Canvas — 离屏画布 (精灵图)
+// Canvas �? 离屏画布 (精灵�?)
 // ============================================================
 class Canvas {
     int handle;
@@ -127,7 +127,7 @@ class Canvas {
 }
 
 // ============================================================
-// Window 类
+// Window �?
 // ============================================================
 class Window {
     int handle;
@@ -150,7 +150,7 @@ class Window {
     pub native int  get_width();
     pub native int  get_height();
 
-    // ---------- 消息循环与刷新 ----------
+    // ---------- 消息循环与刷�? ----------
     pub native int  update();
     pub native int  wait();
     pub native void flush();
@@ -199,21 +199,22 @@ class Window {
     pub native int  get_char();
     pub native void center();
 
-    // ---------- 定时器 ----------
+    // ---------- 定时�? ----------
     pub native void start_timer(int ms);
     pub native void stop_timer();
     pub native int  get_timer_hits();
 
-    // ---------- 窗口状态 ----------
+    // ---------- 窗口状�?? ----------
     pub native int  is_valid();
     pub native int  is_minimized();
     pub native int  is_maximized();
     pub native int  is_visible();
-    // ---------- 焦点与层级 ----------
+    // ---------- 焦点与层�? ----------
     pub native void set_focus();
     pub native int  has_focus();
     pub native void set_topmost(int enable);
     pub native void set_maximizable(int enable);
+    pub native void set_fullscreen(int enable);
     pub native void set_resizable(int enable);
     pub native void minimize();
     pub native void maximize();
@@ -222,15 +223,15 @@ class Window {
     pub native void set_close_blocked(int blocked);
     pub native int  is_close_requested();
     pub native void clear_close_request();
-    // ---------- 静态: 多窗口管理 (用 Window.xxx() 类名调用) ----------
+    // ---------- 静�??: 多窗口管�? (�? Window.xxx() 类名调用) ----------
     pub static native int get_count();
     pub static native int get_at(int index);
-    // ---------- 文件对话框 (模态阻塞) ----------
-    // 成功返回所选文件路径, 取消/失败返回空串 ""
+    // ---------- 文件对话�? (模�?�阻�?) ----------
+    // 成功返回�?选文件路�?, 取消/失败返回空串 ""
     pub native string open_file(string title);
     pub native string save_file(string title);
     // ---------- 自动流式布局 ----------
-    // 在 begin..end 区间内, 组件 create 传 x=-1, y=-1 时自动取位置并换行
+    // �? begin..end 区间�?, 组件 create �? x=-1, y=-1 时自动取位置并换�?
     pub native void layout_begin(int x, int y, int gap, int max_width);
     pub native void layout_end();
     pub native void layout_space(int extra);
@@ -245,8 +246,8 @@ class Window {
     pub static native int    popup_retry_cancel(string text, string title);
     pub static native string popup_input(string prompt, string title);
 
-    // ---------- 自绘用 DC 绘图 (相当于 Java 的 Graphics) ----------
-    // 只能在 set_paint 回调里使用; dc 由运行时传入
+    // ---------- 自绘�? DC 绘图 (相当�? Java �? Graphics) ----------
+    // 只能�? set_paint 回调里使�?; dc 由运行时传入
     pub static native void dc_fill_rect(int dc, int x, int y, int w, int h, int color);
     pub static native void dc_draw_rect(int dc, int x, int y, int w, int h, int color);
     pub static native void dc_set_pixel(int dc, int x, int y, int color);

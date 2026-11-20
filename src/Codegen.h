@@ -18,6 +18,7 @@ extern bool has_64bit_ops;
 extern bool has_exception_lib;
 extern bool has_file_lib;
 extern bool has_socket_lib;
+extern bool has_tls_lib;
 extern bool has_window_lib;
 extern bool has_image_lib;
 extern bool has_music_lib;
@@ -103,4 +104,6 @@ void add_symbol(DataType type, char* value, char* name,
 void temp_map_compute_offsets(void);
 int  temp_map_get_offset(const char* name);
 void codegen_cleanup(void);
+extern bool debug_info_enabled;
+extern bool has_debug_lib;
 #endif

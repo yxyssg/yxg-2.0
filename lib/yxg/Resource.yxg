@@ -1,0 +1,220 @@
+// yxg/Resource.yxg -- 句柄注册表与泄漏防护（2.6）
+//
+// 解决的问题：
+//   YXG 没有析构函数、没有 finally、没有 defer，
+//   File / Socket / Database / Https 的句柄全靠手动 close，
+//   忘了就泄漏，而且不会报错。
+//
+// 2.6 起提供：
+//   Resource.track(kind, handle)      打开句柄时登记
+//   Resource.untrack(handle)          正常关闭时注销
+//   Resource.report()                 一句话摘要
+//   Resource.dump()                   逐条列出
+//   Resource.leakCount()              未释放数量
+//   Resource.leakCheck()              有泄漏时打印警告并返回 false
+//   Resource.releaseAll()             用注册的关闭函数批量释放
+//   Resource.registerCloser(kind, fn) 各模块注册自己的关闭函数
+//
+// 用法：
+//   File f = new File("a.txt", "r");     // 内部已自动 track
+//   ...
+//   f.close();                           // 内部已自动 untrack
+//   Resource.leakCheck();                 // 程序结束前查一次
+//
+// kind 约定：1=File 2=Socket 3=Database 4=Https
+
+import yxg.String;
+import yxg.Function;
+import yxg.Utils;
+import yxg.Error;
+
+// ---- 注册表存储（模块级全局） ----
+int[256] g_regKind;
+int[256] g_regHandle;
+int[256] g_regUsed;
+int g_regLive = 0;
+bool g_tracking = true;
+
+pub class Resource {
+    pub static Function closerFile = null;
+    pub static Function closerSock = null;
+    pub static Function closerDb = null;
+
+    // ---- 登记 ----
+
+    pub static void track(int kind, int handle) {
+        if !g_tracking { return; }
+        if handle == 0 { return; }
+        Registry.add(kind, handle);
+    }
+
+    pub static void untrack(int handle) {
+        if handle == 0 { return; }
+        Registry.remove(handle);
+    }
+
+    pub static void registerCloser(int kind, Function fn) {
+        if kind == 1 { Resource.closerFile = fn; }
+        else if kind == 2 { Resource.closerSock = fn; }
+        else if kind == 3 { Resource.closerDb = fn; }
+    }
+
+    // ---- 查询 ----
+
+    pub static int leakCount() {
+        return Registry.liveCount();
+    }
+
+    pub static bool hasLeak() {
+        return Registry.liveCount() > 0;
+    }
+
+    pub static string report() {
+        int n = Registry.liveCount();
+        if n <= 0 {
+            string empty = "";
+            return empty;
+        }
+        string ns = Convert.formatInt(n);
+        string r = "资源泄漏: ";
+        r = r + ns;
+        string tail = " 个句柄未释放";
+        r = r + tail;
+        return r;
+    }
+
+    pub static string dump() {
+        string r = "";
+        int i = 0;
+        while i < 256 {
+            if Registry.isLive(i) {
+                int k = Registry.kindAt(i);
+                int h = Registry.handleAt(i);
+                string line = "  [";
+                string ks = Resource.kindName(k);
+                line = line + ks;
+                string sp = "] 句柄 ";
+                line = line + sp;
+                string hs = Convert.formatInt(h);
+                line = line + hs;
+                string nl = "\n";
+                line = line + nl;
+                r = r + line;
+            }
+            i = i + 1;
+        }
+        return r;
+    }
+
+    pub static bool leakCheck() {
+        if !Resource.hasLeak() {
+            return true;
+        }
+        string msg = Resource.report();
+        print "[资源警告] ", msg, "\n";
+        print Resource.dump();
+        return false;
+    }
+
+    pub static int releaseAll() {
+        int closed = 0;
+        int i = 0;
+        while i < 256 {
+            if Registry.isLive(i) {
+                int k = Registry.kindAt(i);
+                int h = Registry.handleAt(i);
+                Function fn = Resource.closerFor(k);
+                if fn != null {
+                    fn.call(h);
+                }
+                Registry.remove(h);
+                closed = closed + 1;
+            }
+            i = i + 1;
+        }
+        return closed;
+    }
+
+    pri static Function closerFor(int kind) {
+        if kind == 1 { return Resource.closerFile; }
+        if kind == 2 { return Resource.closerSock; }
+        if kind == 3 { return Resource.closerDb; }
+        return null;
+    }
+
+    pub static string kindName(int k) {
+        if k == 1 { return "File"; }
+        if k == 2 { return "Socket"; }
+        if k == 3 { return "Database"; }
+        if k == 4 { return "Https"; }
+        string unk = "Unknown";
+        return unk;
+    }
+
+    pub static void enable(bool on) {
+        g_tracking = on;
+    }
+
+    pub static bool enabled() {
+        return g_tracking;
+    }
+}
+
+pub class Registry {
+    pri static int findFree() {
+        int i = 0;
+        while i < 256 {
+            if g_regUsed[i] == 0 { return i; }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    pri static int findByHandle(int handle) {
+        int i = 0;
+        while i < 256 {
+            if g_regUsed[i] != 0 && g_regHandle[i] == handle { return i; }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    pub static void add(int kind, int handle) {
+        if Registry.findByHandle(handle) >= 0 { return; }
+        int s = Registry.findFree();
+        if s < 0 { return; }
+        g_regKind[s] = kind;
+        g_regHandle[s] = handle;
+        g_regUsed[s] = 1;
+        g_regLive = g_regLive + 1;
+    }
+
+    pub static void remove(int handle) {
+        int s = Registry.findByHandle(handle);
+        if s < 0 { return; }
+        g_regUsed[s] = 0;
+        g_regKind[s] = 0;
+        g_regHandle[s] = 0;
+        g_regLive = g_regLive - 1;
+    }
+
+    pub static bool isLive(int i) {
+        if i < 0 { return false; }
+        if i >= 256 { return false; }
+        return g_regUsed[i] != 0;
+    }
+
+    pub static int kindAt(int i) {
+        if !Registry.isLive(i) { return 0; }
+        return g_regKind[i];
+    }
+
+    pub static int handleAt(int i) {
+        if !Registry.isLive(i) { return 0; }
+        return g_regHandle[i];
+    }
+
+    pub static int liveCount() {
+        return g_regLive;
+    }
+}

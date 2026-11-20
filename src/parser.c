@@ -53,6 +53,7 @@ static TypeParam* g_parse_type_params = NULL;
 static int g_parse_type_param_count = 0;
 bool assertions_enabled = true;
 static bool g_native_requested = false;
+static bool g_stdcall_requested = false;
 
 static int resolve_type_param_index(const char* name) {
     if (!g_parse_type_params || !name) return -1;
@@ -912,11 +913,41 @@ ASTNode* parser_parse_code_block(Parser* parser)
     return head;
 }
 
+/* 2.5.1 FFI: link "xxx.dll"; link libs collected (dll suffix stripped) */
+/* 2.5.1 FFI: link "xxx.dll"; collected link libs (dll suffix stripped) */
+static char* g_link_libs[64];
+static int   g_link_lib_count = 0;
+
+void yxg_register_link_lib(const char* name) {
+    if (!name || !*name) return;
+    if (g_link_lib_count >= 64) return;
+    char buf[256];
+    size_t n = strlen(name);
+    if (n >= sizeof(buf)) n = sizeof(buf) - 1;
+    memcpy(buf, name, n);
+    buf[n] = 0;
+    char* slash = strrchr(buf, 92);
+    char* base = slash ? slash + 1 : buf;
+    size_t blen = strlen(base);
+    if (blen > 4 && (strcmp(base + blen - 4, ".dll") == 0 || strcmp(base + blen - 4, ".DLL") == 0))
+        base[blen - 4] = 0;
+    if (strncmp(base, "lib", 3) == 0) base += 3;
+    for (int i = 0; i < g_link_lib_count; i++)
+        if (strcmp(g_link_libs[i], base) == 0) return;
+    g_link_libs[g_link_lib_count++] = strdup(base);
+}
+
+int yxg_link_lib_count(void) { return g_link_lib_count; }
+const char* yxg_link_lib_at(int i) {
+    return (i >= 0 && i < g_link_lib_count) ? g_link_libs[i] : NULL;
+}
+
 bool is_Modifier(Parser* parser)
 {
     return parser->current.type == TOKEN_PUB || parser->current.type == TOKEN_PRO ||
         parser->current.type == TOKEN_PRI || parser->current.type == TOKEN_STATIC ||
             parser->current.type == TOKEN_NATIVE ||
+            parser->current.type == TOKEN_STDCALL ||
             parser->current.type == TOKEN_VIRTUAL ||
             parser->current.type == TOKEN_OVERRIDE ||
             parser->current.type == TOKEN_CONST;
@@ -1053,6 +1084,7 @@ ASTNode* parser_Sentence(Parser* parser, bool is_block)
     int modifier = 0;
     bool is_static = false;
     bool is_native = false;
+    bool is_stdcall = false;
     bool is_virtual = false;
     bool is_override = false;
     bool is_const = false;
@@ -1093,6 +1125,16 @@ ASTNode* parser_Sentence(Parser* parser, bool is_block)
                           "duplicate 'native' modifier");
                 }
                 is_native = true;
+            }
+            else if (t == TOKEN_STDCALL) {
+                if (is_stdcall) {
+                    ERROR(ERR_PARSE_UNEXPECTED_TOKEN,
+                          LOC(parser->filename, parser->current.line,
+                              parser->current.column),
+                          "duplicate 'stdcall' modifier");
+                }
+                is_stdcall = true;
+                g_stdcall_requested = true;
             }
             else if (t == TOKEN_VIRTUAL) {
                 if (is_virtual) {
@@ -1219,6 +1261,7 @@ ASTNode* parser_Sentence(Parser* parser, bool is_block)
             if (ctor && ctor->type == AST_FUNCTION) {
                 ((AST_Function*)ctor)->is_static = is_static;
                 ((AST_Function*)ctor)->is_native = is_native;
+                ((AST_Function*)ctor)->is_stdcall = is_stdcall;
                 ((AST_Function*)ctor)->is_virtual = is_virtual;
                 ((AST_Function*)ctor)->is_override = is_override;
                 ((AST_Function*)ctor)->return_pointee_const = return_pointee_const;
@@ -1775,6 +1818,25 @@ ASTNode* parser_Sentence(Parser* parser, bool is_block)
         temp = parser_class_def(parser, 0);
     } else if (parser->current.type == TOKEN_ENUM) {
         temp = parser_enum_def(parser);
+    } else if (parser->current.type == TOKEN_LINK) {
+        /* 2.5.1 FFI: link "user32.dll"; ÉùÃ÷Íâ²¿ÒÀÀµ¿â */
+        parser_eat(parser, TOKEN_LINK);
+        if (parser->current.type == TOKEN_STRING_LITERAL || parser->current.type == TOKEN_STRING) {
+            yxg_register_link_lib(parser->current.value);
+        }
+        parser_eat(parser, TOKEN_STRING_LITERAL);
+        if (parser_current_is_type(parser, TOKEN_SEMICOLON))
+            parser_eat(parser, TOKEN_SEMICOLON);
+        AST_Null* lnop = calloc(1, sizeof(AST_Null));
+        if (!lnop) OUT_OF_MEMORY();
+        lnop->base.type  = AST_NULL;
+        lnop->base.next  = NULL;
+        lnop->base.value = (Token){ .value = strdup("link"), .type = TOKEN_NONE,
+                                    .line = parser->current.line,
+                                    .column = parser->current.column,
+                                    .file = parser->filename };
+        lnop->ptr_depth = 0;
+        return (ASTNode*)lnop;
     } else if (parser->current.type == TOKEN_IMPORT) {
         ASTNode* imported = parser_import(parser);
         if (parser_current_is_type(parser, TOKEN_SEMICOLON))
@@ -2687,6 +2749,8 @@ ASTNode* parser_constructor_def(Parser* parser, int modifier)
         g_native_requested = false;
         parser_eat(parser, TOKEN_SEMICOLON);
         ast_function->is_native = true;
+        ast_function->is_stdcall = g_stdcall_requested;
+        g_stdcall_requested = false;
         ast_function->return_Count = 1;
         ast_function->Return = calloc(1, sizeof(AST_Return));
         if (!ast_function->Return) OUT_OF_MEMORY();
@@ -3558,6 +3622,8 @@ ASTNode* parser_def_function_with_modifier(Parser* parser, int modifier) {
         g_native_requested = false;
         parser_eat(parser, TOKEN_SEMICOLON);
         ast_function->is_native = true;
+        ast_function->is_stdcall = g_stdcall_requested;
+        g_stdcall_requested = false;
         ast_function->return_Count = 1;
         ast_function->Return = calloc(1, sizeof(AST_Return));
         if (!ast_function->Return) OUT_OF_MEMORY();
@@ -4383,6 +4449,8 @@ ASTNode* parser_def_function(Parser* parser) {
         g_native_requested = false;
         parser_eat(parser, TOKEN_SEMICOLON);
         ast_function->is_native = true;
+        ast_function->is_stdcall = g_stdcall_requested;
+        g_stdcall_requested = false;
         ast_function->return_Count = 1;
         ast_function->Return = calloc(1, sizeof(AST_Return));
         if (!ast_function->Return) OUT_OF_MEMORY();
@@ -5106,7 +5174,7 @@ static bool parser_parse_complex_type(Parser *parser, ParsedTypeInfo *pti) {
                 DataType dt = Get_Datatype(parser->current.type);
                 pti->generic_type_args[pti->generic_type_arg_count] = dt;
                 pti->generic_type_arg_names[pti->generic_type_arg_count] =
-                    (dt == DATA_IDENTIFIER) ? strdup(parser->current.value) : NULL;
+                    parser->current.value ? strdup(parser->current.value) : NULL;
                 pti->generic_type_arg_count++;
                 parser_advance(parser);
 
@@ -8414,6 +8482,8 @@ ASTNode* parser_def_function_with_generics(Parser* parser,
         }
         parser_eat(parser, TOKEN_SEMICOLON);
         ast_function->is_native = true;
+        ast_function->is_stdcall = g_stdcall_requested;
+        g_stdcall_requested = false;
         ast_function->return_Count = 1;
         ast_function->Return = calloc(1, sizeof(AST_Return));
         if (!ast_function->Return) OUT_OF_MEMORY();

@@ -31,6 +31,7 @@ section .data
     minus_sign db '-', 0
 
     epsilon_iter dd 0x3D100000
+ftoa_half dd 0.5
 
 section .rodata
   _err_true  db `true`,0
@@ -40,6 +41,12 @@ section .bss
     buffer resb 256
     chars_written resd 1
     float_buf resb 64
+bi_words resd 6
+bi_dig resb 12
+ftoa_i64 resq 1
+ftoa_dig resb 32
+ftoa_cw_old resw 1
+ftoa_cw_new resw 1
     _err_buf resb 40
     _err_written resd 1
 
@@ -171,6 +178,40 @@ __utoa:
     pop ebp
     ret
 
+; ---- 输出 qword [ftoa_i64] 的十进制到 edi（无符号），破坏 eax/ebx/ecx/edx/esi ----
+ftoa_write_i64:
+    mov  eax, [ftoa_i64]
+    mov  edx, [ftoa_i64+4]
+    lea  ebx, [ftoa_dig+31]
+    mov  byte [ebx], 0
+.fw64_digit:
+    mov  esi, eax
+    mov  eax, edx
+    xor  edx, edx
+    mov  ecx, 10
+    div  ecx
+    push eax
+    mov  eax, esi
+    div  ecx
+    mov  ecx, edx
+    pop  edx
+    dec  ebx
+    add  cl, '0'
+    mov  [ebx], cl
+    mov  esi, eax
+    or   esi, edx
+    jnz  .fw64_digit
+    mov  ecx, ftoa_dig+31
+    sub  ecx, ebx
+.fw64_copy:
+    mov  al, [ebx]
+    mov  [edi], al
+    inc  ebx
+    inc  edi
+    dec  ecx
+    jnz  .fw64_copy
+    ret
+
 __ftoa:
     push ebp
     mov ebp, esp
@@ -234,17 +275,33 @@ __ftoa:
 .pow_done:
     mov [ebp-16], eax
 
-    fld st0
-    fimul dword [ebp-16]
+    ; 整数部分用 64 位：v*10^prec 会超出 32 位，fistp dword 溢出成 0x80000000。
+    ; 同时临时把舍入模式设为向零截断，否则 frndint 会把 1.5 舍成 2。
+    fstcw [ftoa_cw_old]
+    mov  ax, [ftoa_cw_old]
+    and  ax, 0xF3FF
+    or   ax, 0x0C00
+    mov  [ftoa_cw_new], ax
+    fldcw [ftoa_cw_new]
+    fld  st0
     frndint
-    fistp dword [ebp-8]
-    fstp st0
-
-    mov eax, [ebp-8]
-    xor edx, edx
-    div dword [ebp-16]
-    mov [ebp-20], edx
-    mov [ebp-24], eax
+    fistp qword [ftoa_i64]
+    fild qword [ftoa_i64]
+    fsubp st1, st0                ; st0 = 小数部分
+    fldcw [ftoa_cw_old]
+    fimul dword [ebp-16]          ; 小数 * 10^prec
+    frndint                      ; 就近舍入（CW 已恢复为默认）
+    fistp dword [ebp-20]          ; 小数位（< 10^prec）
+    mov  dword [ebp-24], 0        ; 旧变量占位（不再使用）
+    ; 进位：小数位达到 10^prec 时整数 +1
+    mov  eax, [ebp-20]
+    cmp  eax, [ebp-16]
+    jl   .no_carry64
+    sub  eax, [ebp-16]
+    mov  [ebp-20], eax
+    inc  dword [ftoa_i64]
+    adc  dword [ftoa_i64+4], 0
+.no_carry64:
 
     mov edi, float_buf
     cmp byte [ebp-1], 0
@@ -252,36 +309,7 @@ __ftoa:
     mov byte [edi], '-'
     inc edi
 .no_sign:
-    push dword [ebp-24]
-    call __itoa
-    add esp, 4
-    push esi
-    mov esi, eax
-    mov ecx, edx
-    rep movsb
-    pop esi
-    mov [ebp-28], edi
-
-    mov eax, [ebp-20]
-    cmp eax, [ebp-16]
-    jl .no_carry
-    sub eax, [ebp-16]
-    mov [ebp-20], eax
-    inc dword [ebp-24]
-    mov edi, float_buf
-    cmp byte [ebp-1], 0
-    je .no_sign2
-    mov byte [edi], '-'
-    inc edi
-.no_sign2:
-    push dword [ebp-24]
-    call __itoa
-    add esp, 4
-    push esi
-    mov esi, eax
-    mov ecx, edx
-    rep movsb
-    pop esi
+    call ftoa_write_i64           ; 输出 [ftoa_i64] 到 edi
     mov [ebp-28], edi
 .no_carry:
 
@@ -470,16 +498,60 @@ _print:
     jmp .done
 
 .float_case:
+    ; |v| >= 2^63（指数域 >= 190）时 int64 会溢出，改走精确二进制展开
+    mov  eax, [ebp+8]
+    shr  eax, 23
+    and  eax, 0xFF
+    cmp  eax, 190
+    jae  .float_big
     push dword [float_mode]
     push dword [float_precision]
     push dword [ebp+8]
     call __ftoa
-    add esp, 12
+    add  esp, 12
     push edx
     push eax
     call __write_string
-    add esp, 8
-    jmp .done
+    add  esp, 8
+    jmp  .done
+
+.float_big:
+    mov  edi, float_buf
+    mov  eax, [ebp+8]
+    test eax, eax
+    jns  .fb_nosign
+    mov  byte [edi], '-'
+    inc  edi
+.fb_nosign:
+    mov  eax, [ebp+8]
+    and  eax, 0x7FFFFFFF
+    push edi
+    push eax
+    call bi_bigdec
+    add  esp, 8
+    add  edi, eax
+    cmp  byte [float_mode], FLOAT_MODE_MINIMAL
+    jne  .fb_fixed
+    mov  byte [edi], '.'
+    mov  byte [edi+1], '0'
+    add  edi, 2
+    jmp  .fb_out
+.fb_fixed:
+    mov  ecx, [float_precision]
+    test ecx, ecx
+    jz   .fb_out
+    mov  byte [edi], '.'
+    inc  edi
+    mov  al, '0'
+    rep  stosb
+.fb_out:
+    mov  edx, edi
+    sub  edx, float_buf
+    push edx
+    push dword float_buf
+    call __write_string
+    add  esp, 8
+    jmp  .done
 
 .char_case:
     mov eax, [ebp+8]
@@ -741,4 +813,144 @@ _print_err:
     call _LeaveCriticalSection@4
     pop ebp
     ret
+    ret
+
+; ============================================================
+; 大浮点（|v| >= 2^63）精确十进制输出
+; float32 值 = 尾数 × 2^k；把 24 位尾数放进 base-1e9 大数，
+; 左移 k 次（乘 2）并做十进制进位传播，每一位都精确。
+; 已与 printf("%.0f") 在 1e19..3.4e38 范围逐位比对通过。
+; ============================================================
+bi_bigdec:
+    push ebx
+    push esi
+    push edi
+    push ebp
+    mov  ebp, [esp+24]
+    mov  edi, ebp
+    mov  eax, [esp+20]
+    mov  ecx, eax
+    shr  ecx, 23
+    and  ecx, 0xFF
+    cmp  ecx, 0xFF
+    je   .bd_bad
+    and  eax, 0x7FFFFF
+    or   eax, 0x800000
+    sub  ecx, 150
+
+    mov  esi, bi_words
+    mov  ebx, 6
+    xor  edx, edx
+.bd_clr:
+    mov  [esi], edx
+    add  esi, 4
+    dec  ebx
+    jnz  .bd_clr
+    mov  [bi_words], eax
+
+    test ecx, ecx
+    jle  .bd_print
+.bd_dbl:
+    xor  edx, edx
+    mov  esi, bi_words
+    mov  ebx, 6
+.bd_dbl_i:
+    mov  eax, [esi]
+    add  eax, eax
+    add  eax, edx
+    xor  edx, edx
+    cmp  eax, 1000000000
+    jb   .bd_noc
+    sub  eax, 1000000000
+    mov  edx, 1
+.bd_noc:
+    mov  [esi], eax
+    add  esi, 4
+    dec  ebx
+    jnz  .bd_dbl_i
+    dec  ecx
+    jnz  .bd_dbl
+
+.bd_print:
+    mov  ecx, 5
+.bd_find:
+    mov  eax, [bi_words + ecx*4]
+    test eax, eax
+    jnz  .bd_found
+    dec  ecx
+    jns  .bd_find
+    mov  byte [edi], '0'
+    inc  edi
+    jmp  .bd_fin
+.bd_found:
+    mov  esi, ecx
+    mov  eax, [bi_words + esi*4]
+    call bi_utoa
+    dec  esi
+.bd_next:
+    test esi, esi
+    js   .bd_fin
+    mov  eax, [bi_words + esi*4]
+    mov  ecx, 9
+.bd_pad:
+    xor  edx, edx
+    mov  ebx, 10
+    div  ebx
+    add  dl, '0'
+    mov  [bi_dig + ecx - 1], dl
+    dec  ecx
+    jnz  .bd_pad
+    xor  ecx, ecx
+.bd_c9:
+    mov  al, [bi_dig + ecx]
+    mov  [edi], al
+    inc  edi
+    inc  ecx
+    cmp  ecx, 9
+    jb   .bd_c9
+    dec  esi
+    jmp  .bd_next
+.bd_fin:
+    mov  eax, edi
+    sub  eax, ebp
+    jmp  .bd_ret
+.bd_bad:
+    mov  byte [edi], '#'
+    mov  eax, 1
+.bd_ret:
+    pop  ebp
+    pop  edi
+    pop  esi
+    pop  ebx
+    ret
+
+bi_utoa:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    lea  esi, [bi_dig + 11]
+    mov  byte [esi], 0
+    mov  ebx, 10
+    xor  ecx, ecx
+.bu1:
+    xor  edx, edx
+    div  ebx
+    add  dl, '0'
+    dec  esi
+    mov  [esi], dl
+    inc  ecx
+    test eax, eax
+    jnz  .bu1
+.bu2:
+    mov  al, [esi]
+    mov  [edi], al
+    inc  esi
+    inc  edi
+    dec  ecx
+    jnz  .bu2
+    pop  esi
+    pop  edx
+    pop  ecx
+    pop  ebx
     ret

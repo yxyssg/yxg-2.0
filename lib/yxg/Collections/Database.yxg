@@ -1,5 +1,6 @@
 import yxg.File;
 import yxg.String;
+import yxg.Resource;
 
 pub class DbError : ERROR {
     pub DbError(string msg) {
@@ -13,6 +14,7 @@ pub class Database {
 
     pub Database(string path) {
         this._db = _sqlite_open(path, 6);
+        if (this._db != 0) { Resource.track(3, this._db); }
         this._ok = (this._db != 0);
     }
 
@@ -26,6 +28,7 @@ pub class Database {
 
     pub void close() {
         if this._ok {
+            Resource.untrack(this._db);
             _sqlite_close(this._db);
             this._db = 0;
             this._ok = false;

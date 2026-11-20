@@ -47,13 +47,13 @@ c.create(64, 64);            // 第二步：分配真实资源
 
 | 名称 | 值 | 名称 | 值 |
 |---|---|---|---|
-| `COLOR_BLACK` | `0x000000` | `COLOR_WHITE` | `0xFFFFFF` |
-| `COLOR_RED` | `0xFF0000` | `COLOR_GREEN` | `0x00FF00` |
-| `COLOR_BLUE` | `0x0000FF` | `COLOR_YELLOW` | `0xFFFF00` |
-| `COLOR_CYAN` | `0x00FFFF` | `COLOR_MAGENTA` | `0xFF00FF` |
-| `COLOR_GRAY` | `0x808080` | `COLOR_DARK_GRAY` | `0x404040` |
-| `COLOR_LIGHT_GRAY` | `0xC0C0C0` | `COLOR_ORANGE` | `0xFF8000` |
-| `COLOR_PURPLE` | `0x800080` | `COLOR_TRANSPARENT` | `0xFF00FF` |
+| `WindowColor.COLOR_BLACK` | `0x000000` | `WindowColor.COLOR_WHITE` | `0xFFFFFF` |
+| `WindowColor.COLOR_RED` | `0xFF0000` | `WindowColor.COLOR_GREEN` | `0x00FF00` |
+| `WindowColor.COLOR_BLUE` | `0x0000FF` | `WindowColor.COLOR_YELLOW` | `0xFFFF00` |
+| `WindowColor.COLOR_CYAN` | `0x00FFFF` | `WindowColor.COLOR_MAGENTA` | `0xFF00FF` |
+| `WindowColor.COLOR_GRAY` | `0x808080` | `WindowColor.COLOR_DARK_GRAY` | `0x404040` |
+| `WindowColor.COLOR_LIGHT_GRAY` | `0xC0C0C0` | `WindowColor.COLOR_ORANGE` | `0xFF8000` |
+| `WindowColor.COLOR_PURPLE` | `0x800080` | `WindowColor.COLOR_TRANSPARENT` | `0xFF00FF` |
 
 透明贴图的魔法色是**品红 `0xFF00FF`**——像素等于它时，透明 blit 会跳过。
 
@@ -62,8 +62,8 @@ c.create(64, 64);            // 第二步：分配真实资源
 不是事件回调，每帧主动查询：
 
 ```yxg
-win.is_key_down(KEY_LEFT)      // 按住期间持续为真
-win.is_key_pressed(KEY_SPACE)  // 只有刚按下那一帧为真
+win.is_key_down(WindowKey.KEY_LEFT)      // 按住期间持续为真
+win.is_key_pressed(WindowKey.KEY_SPACE)  // 只有刚按下那一帧为真
 ```
 
 只有**获得焦点的窗口**能收到输入。
@@ -74,7 +74,7 @@ win.is_key_pressed(KEY_SPACE)  // 只有刚按下那一帧为真
 while win.is_valid() != 0 {
     // 1. 读输入
     // 2. 更新逻辑
-    win.clear(COLOR_BLACK);
+    win.clear(WindowColor.COLOR_BLACK);
     // 3. 绘制
     win.flush();       // 后台缓冲刷到屏幕
     win.update();      // 处理窗口消息
@@ -84,51 +84,68 @@ while win.is_valid() != 0 {
 
 ## 常量速查
 
+这些常量都是**枚举成员**，用的时候要带枚举前缀，不能裸写：
+
+| 枚举 | 前缀 | 例 |
+|---|---|---|
+| `WindowColor` | `WindowColor.` | `WindowColor.COLOR_BLACK` |
+| `WindowKey` | `WindowKey.` | `WindowKey.KEY_SPACE` |
+| `WindowMouse` | `WindowMouse.` | `WindowMouse.MOUSE_LEFT` |
+| `WindowCursor` | `WindowCursor.` | `WindowCursor.CURSOR_HAND` |
+| `PopupResult` | `PopupResult.` | `PopupResult.POPUP_OK` |
+| `DrawState` | `DrawState.` | `DrawState.STATE_PRESSED` |
+
+```yxg
+win.clear(WindowColor.COLOR_BLACK);
+win.draw_text(10, 10, "得分", WindowColor.COLOR_WHITE);
+if win.is_key_down(WindowKey.KEY_LEFT) { /* ... */ }
+```
+
 ### 按键
 
 | 常量 | 值 | 常量 | 值 |
 |---|---|---|---|
-| `KEY_BACKSPACE` | 8 | `KEY_TAB` | 9 |
-| `KEY_ENTER` | 13 | `KEY_ESC` | 27 |
-| `KEY_SPACE` | 32 | `KEY_LEFT`/`UP`/`RIGHT`/`DOWN` | 37/38/39/40 |
-| `KEY_0`~`KEY_9` | 48~57 | `KEY_A`~`KEY_Z` | 65~90 |
-| `KEY_F1`~`KEY_F12` | 112~123 | | |
+| `WindowKey.KEY_BACKSPACE` | 8 | `WindowKey.KEY_TAB` | 9 |
+| `WindowKey.KEY_ENTER` | 13 | `WindowKey.KEY_ESC` | 27 |
+| `WindowKey.KEY_SPACE` | 32 | `WindowKey.KEY_LEFT`/`UP`/`RIGHT`/`DOWN` | 37/38/39/40 |
+| `WindowKey.KEY_0`~`WindowKey.KEY_9` | 48~57 | `WindowKey.KEY_A`~`WindowKey.KEY_Z` | 65~90 |
+| `WindowKey.KEY_F1`~`WindowKey.KEY_F12` | 112~123 | | |
 
 ### 鼠标
 
 | 常量 | 值 |
 |---|---|
-| `MOUSE_LEFT` | 0 |
-| `MOUSE_RIGHT` | 1 |
-| `MOUSE_MIDDLE` | 2 |
+| `WindowMouse.MOUSE_LEFT` | 0 |
+| `WindowMouse.MOUSE_RIGHT` | 1 |
+| `WindowMouse.MOUSE_MIDDLE` | 2 |
 
 ### 光标样式
 
 | 常量 | 值 |
 |---|---|
-| `CURSOR_ARROW` | 0 |
-| `CURSOR_HAND` | 1 |
-| `CURSOR_CROSS` | 2 |
-| `CURSOR_IBEAM` | 3 |
-| `CURSOR_WAIT` | 4 |
+| `WindowCursor.CURSOR_ARROW` | 0 |
+| `WindowCursor.CURSOR_HAND` | 1 |
+| `WindowCursor.CURSOR_CROSS` | 2 |
+| `WindowCursor.CURSOR_IBEAM` | 3 |
+| `WindowCursor.CURSOR_WAIT` | 4 |
 
 ### 自绘状态位
 
 | 常量 | 值 |
 |---|---|
-| `STATE_PRESSED` | 1 |
-| `STATE_DISABLED` | 4 |
-| `STATE_FOCUS` | 16 |
-| `STATE_HOT` | 64 |
+| `DrawState.STATE_PRESSED` | 1 |
+| `DrawState.STATE_DISABLED` | 4 |
+| `DrawState.STATE_FOCUS` | 16 |
+| `DrawState.STATE_HOT` | 64 |
 
 ### 弹窗返回值
 
 | 常量 | 值 |
 |---|---|
-| `POPUP_OK` | 1 |
-| `POPUP_CANCEL` | 2 |
-| `POPUP_YES` | 6 |
-| `POPUP_NO` | 7 |
+| `PopupResult.POPUP_OK` | 1 |
+| `PopupResult.POPUP_CANCEL` | 2 |
+| `PopupResult.POPUP_YES` | 6 |
+| `PopupResult.POPUP_NO` | 7 |
 
 ## Window 窗口库
 
@@ -190,8 +207,8 @@ pub void main() {
 | `draw_triangle` / `fill_triangle` | 三角形 |
 
 ```yxg
-win.draw_circle(400, 300, 50, COLOR_RED);
-win.fill_circle(400, 300, 48, COLOR_YELLOW);
+win.draw_circle(400, 300, 50, WindowColor.COLOR_RED);
+win.fill_circle(400, 300, 48, WindowColor.COLOR_YELLOW);
 ```
 
 ### 文字
@@ -205,8 +222,8 @@ win.fill_circle(400, 300, 48, COLOR_YELLOW);
 
 ```yxg
 Window.set_font_size(24);
-win.draw_text(10, 10, "得分", COLOR_WHITE);
-win.draw_text_center(50, "标题", COLOR_YELLOW);
+win.draw_text(10, 10, "得分", WindowColor.COLOR_WHITE);
+win.draw_text_center(50, "标题", WindowColor.COLOR_YELLOW);
 ```
 
 ### 贴图
@@ -273,12 +290,60 @@ int dt = Window.get_ticks() - t0;
 
 | 方法 | 说明 |
 |---|---|
-| `is_minimized()` / `is_maximized()` / `is_visible()` | 状态查询 |
-| `set_focus()` / `has_focus()` | 焦点 |
-| `set_topmost(int)` | 置顶 |
-| `set_resizable(int)` / `set_maximizable(int)` | 允许调整 / 最大化 |
+| `is_valid()` | 句柄是否有效（`0` 表示窗口已销毁） |
+| `is_minimized()` / `is_maximized()` / `is_visible()` | 状态查询，返回 `1`/`0` |
+| `set_focus()` / `has_focus()` | 置焦点 / 查焦点 |
+| `set_topmost(int)` | 置顶，`1` 开 `0` 关 |
+| `set_resizable(int)` | 是否允许拖边框改变大小 |
+| `set_maximizable(int)` | 是否允许最大化 |
 | `minimize()` / `maximize()` / `restore()` | 最小化 / 最大化 / 还原 |
 
+**布尔参数一律传 `int`**：写 `set_maximizable(1)`，不是 `true`。字面量 `true`/`false` 走的是整型路径，`,` 后面接的必须是整数表达式。
+
+#### 固定窗口尺寸
+
+禁止用户改大小、也禁止最大化，两个都要设：
+
+```yxg
+import yxg.Window;
+
+Window win;
+
+pub void main() {
+    win = new Window();
+    win.create("固定尺寸窗口", 640, 480);
+
+    win.set_resizable(0);      // 拖边框不能改大小
+    win.set_maximizable(0);    // 标题栏最大化按钮变灰
+
+    while win.update() != 0 {
+        win.clear(0xFFFFFF);
+        win.flush();
+    }
+}
+```
+
+`set_maximizable(0)` 和 `set_resizable(0)` 是两件事：前者只管最大化，后者只管拖拽缩放，**只设一个仍会留下另一个入口**。
+
+#### 主动最大化 / 还原
+
+```yxg
+win.maximize();
+print "是否最大化: ", win.is_maximized(), "\n";   // 1
+
+win.restore();
+print "是否最大化: ", win.is_maximized(), "\n";   // 0
+```
+
+#### 置顶窗口
+
+```yxg
+win.set_topmost(1);    // 始终显示在最前面
+win.set_topmost(0);    // 取消
+```
+
+> ⚠️ 这些方法都依赖内部窗口句柄，**必须在 `create()` 之后调用**。
+> 在 `new Window()` 之前或 `create()` 之前调用会拿到无效句柄，程序直接崩（`0xC0000005`）。
 ### 关闭拦截
 
 ```yxg
@@ -368,8 +433,8 @@ Canvas c;
 pub void main() {
     c = new Canvas();
     c.create(64, 64);
-    c.clear(COLOR_MAGENTA);
-    c.fill_circle(32, 32, 20, COLOR_GREEN);
+    c.clear(WindowColor.COLOR_MAGENTA);
+    c.fill_circle(32, 32, 20, WindowColor.COLOR_GREEN);
 }
 ```
 
@@ -395,8 +460,8 @@ Canvas sprite;
 pub void main() {
     sprite = new Canvas();
     sprite.create(32, 32);
-    sprite.clear(COLOR_TRANSPARENT);       // 品红底
-    sprite.fill_circle(16, 16, 12, COLOR_GREEN);
+    sprite.clear(WindowColor.COLOR_TRANSPARENT);       // 品红底
+    sprite.fill_circle(16, 16, 12, WindowColor.COLOR_GREEN);
 
     // 贴到窗口时品红自动透明
     // win.draw_canvas_transparent(sprite, 100, 100);
@@ -452,12 +517,12 @@ if b.is_clicked() != 0 {
 
 ```yxg
 void myPaint(int dc, int x, int y, int w, int h, int state) {
-    int bg = COLOR_GRAY;
-    if state & STATE_PRESSED != 0 {
-        bg = COLOR_BLUE;
+    int bg = WindowColor.COLOR_GRAY;
+    if state & DrawState.STATE_PRESSED != 0 {
+        bg = WindowColor.COLOR_BLUE;
     }
     Window.dc_fill_rect(dc, x, y, w, h, bg);
-    Window.dc_draw_text(dc, x, y + 8, "自绘", COLOR_WHITE);
+    Window.dc_draw_text(dc, x, y + 8, "自绘", WindowColor.COLOR_WHITE);
 }
 ```
 
@@ -501,12 +566,12 @@ pub void main() {
     btn.create(win, "点我", 100, 80, 100, 40);
     count = 0;
 
-    while win.is_valid() != 0 && win.is_key_down(KEY_ESC) == 0 {
+    while win.is_valid() != 0 && win.is_key_down(WindowKey.KEY_ESC) == 0 {
         if btn.is_clicked() != 0 {
             count = count + 1;
         }
-        win.clear(COLOR_LIGHT_GRAY);
-        win.draw_text_center(40, format("次数: {}", count), COLOR_BLACK);
+        win.clear(WindowColor.COLOR_LIGHT_GRAY);
+        win.draw_text_center(40, format("次数: {}", count), WindowColor.COLOR_BLACK);
         win.flush();
         win.update();
         win.sleep(16);
@@ -547,7 +612,7 @@ pub void main() {
 同一对象 `play` 会从头重播；需要同时多个音效就建多个 `Music` 对象。对象必须全局。
 
 ## Video 视频库
-
+：`import yxg.Video;`
 导入：`import yxg.Video;`
 
 支持 **MP4/H.264**（系统 Media Foundation 解码，含 AAC 音轨）。
@@ -562,7 +627,6 @@ pub void main() {
 | `fps()` / `duration()` / `time()` | 帧率 / 时长 / 当前时间 |
 | `seek(float sec)` / `rewind()` | 跳转 / 回起点 |
 | `set_loop(int)` | 循环开关 |
-| `set_max_size(int w, int h)` | **必须在 load 前**，限制解码尺寸 |
 | `blit_to(Canvas c)` | 当前帧拷到画布（尺寸须一致） |
 | `last_error()` | 错误码 |
 
@@ -582,7 +646,6 @@ pub void main() {
     win.show();
 
     vid = new Video();
-    vid.set_max_size(1280, 720);
     if vid.load("test.mp4") == 1 {
         frame = new Canvas();
         frame.create(vid.width(), vid.height());
@@ -593,7 +656,7 @@ pub void main() {
     }
 
     int t0 = Window.get_ticks();
-    while win.is_valid() != 0 && win.is_key_down(KEY_ESC) == 0 {
+    while win.is_valid() != 0 && win.is_key_down(WindowKey.KEY_ESC) == 0 {
         int elapsed = Window.get_ticks() - t0;
 
         // 追帧：连续解码直到追上时间戳
@@ -604,7 +667,7 @@ pub void main() {
         }
         if guard > 0 { vid.blit_to(frame); }
 
-        win.clear(COLOR_BLACK);
+        win.clear(WindowColor.COLOR_BLACK);
         win.draw_canvas_scaled(frame, 0, 0, 640, 480);
         win.flush();
         win.update();

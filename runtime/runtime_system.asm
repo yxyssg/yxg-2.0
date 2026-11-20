@@ -23,8 +23,14 @@ section .bss
     _index  resd 1
 
     out_buffer      resb 4096
+; 2.5.2: _format_string rotating buffers (avoid clobbering previous results)
+    fmt_slot        resd 1
+    fmt_buffers     resb 4096*8
     int_temp_buf    resb 32
     double_temp_int resd 1
+    wfs_i64        resq 1
+    ws_words       resd 6
+    ws_dig         resb 12
     fmt_width_temp  resd 1
     fmt_prec_temp   resd 1
     fs_dbl_temp     resd 1
@@ -858,6 +864,50 @@ write_bool:
     pop  ecx
     ret
 
+; ---- ��� qword [wfs_i64] ��ʮ���Ƶ� edi�����س��� eax ----
+; �޷��ţ������ɵ��÷���������� 0..2^64-1 ȫ���߽�ֵ��֤��
+write_i64:
+    push ebx
+    push esi
+    push ebp
+    mov  ebp, edi             ; ���
+    mov  eax, [wfs_i64]
+    mov  edx, [wfs_i64+4]
+    lea  ebx, [int_temp_buf+31]
+    mov  byte [ebx], 0
+.w64_digit:
+    mov  esi, eax             ; esi = �� 32
+    mov  eax, edx             ; eax = �� 32
+    xor  edx, edx
+    mov  ecx, 10
+    div  ecx                  ; eax = ����, edx = ����
+    push eax
+    mov  eax, esi             ; �� 32
+    div  ecx                  ; eax = ����, edx = ����
+    mov  ecx, edx             ; ����
+    pop  edx                  ; ����
+    dec  ebx
+    add  cl, '0'
+    mov  [ebx], cl
+    mov  esi, eax
+    or   esi, edx
+    jnz  .w64_digit
+    mov  ecx, int_temp_buf+31
+    sub  ecx, ebx
+.w64_copy:
+    mov  al, [ebx]
+    mov  [edi], al
+    inc  ebx
+    inc  edi
+    dec  ecx
+    jnz  .w64_copy
+    mov  eax, edi
+    sub  eax, ebp
+    pop  ebp
+    pop  esi
+    pop  ebx
+    ret
+
 write_int_default:
     push ebx
     push edx
@@ -1165,17 +1215,24 @@ write_float_single:
     inc  edi
     fchs
 .pos_wfs:
+    ; |v| >= 2^63��ָ���� >= 190��ʱ int64 ��������߾�ȷ������չ��
+    mov  eax, [esi]
+    shr  eax, 23
+    and  eax, 0xFF
+    cmp  eax, 190
+    jae  .wfs_big
+
     cmp  ebx, 9
     jbe  .prec_ok
     mov  ebx, 9
 .prec_ok:
+    ; �������ֿ��ܳ��� 32 λ�з��ŷ�Χ���� 1e10����fist �����д 0x80000000��
+    ; ������� fistp ��� 64 λ������ write_i64 ���ʮ���ơ�
     fld  st0
     frndint
-    fist dword [double_temp_int]
-    fsub st1, st0
-    fstp st0
-
-    push dword [double_temp_int]
+    fistp qword [wfs_i64]
+    fild qword [wfs_i64]
+    fsubp st1, st0            ; st0 = С������
 
     test ebx, ebx
     jz   .no_frac
@@ -1200,19 +1257,14 @@ write_float_single:
     mov  eax, [double_temp_int]
     cmp  eax, ecx
     jb   .no_carry
-    pop  eax
-    inc  eax
-    push eax
+    ; С����λ���������� +1��64 λ��
+    inc  dword [wfs_i64]
+    adc  dword [wfs_i64+4], 0
     mov  dword [double_temp_int], 0
-    jmp  .carry_done
 .no_carry:
-    pop  eax
-    push eax
-.carry_done:
 
     push ecx
-    mov  eax, [esp+4]
-    call write_int_default
+    call write_i64
     pop  ecx
     cmp  eax, ecx
     ja   .error_wfs
@@ -1226,19 +1278,33 @@ write_float_single:
     mov  eax, [double_temp_int]
     mov  ecx, ebx
     call write_fraction_padded
-    add  esp, 4
     jmp  .done_wfs
 
 .no_frac:
     fstp st0
-    pop  eax
     push ecx
-    call write_int_default
+    call write_i64
     pop  ecx
     cmp  eax, ecx
     ja   .error_wfs
     sub  ecx, eax
     jmp  .done_wfs
+
+.wfs_big:
+    push edi
+    mov  eax, [esi]
+    and  eax, 0x7FFFFFFF
+    push eax
+    call ws_bigdec
+    add  esp, 8
+    add  edi, eax
+    test ebx, ebx
+    jz   .done_wfs
+    mov  byte [edi], '.'
+    inc  edi
+    mov  ecx, ebx
+    mov  al, '0'
+    rep  stosb
 
 .done_wfs:
     fldcw [cw_old]
@@ -1502,11 +1568,12 @@ write_bin_padded:
     pop  ebp
     ret
 
+extern _gc_alloc
 global _format_string
 _format_string:
     push ebp
     mov  ebp, esp
-    sub  esp, 16
+    sub  esp, 24
     
     push esi
     push edi
@@ -1520,10 +1587,18 @@ _format_string:
     mov  dword [ebp-12], 0
     mov  dword [ebp-16], 20
 
+    ; ѡһ�����β�λ���������д�������
+    mov  eax, [fmt_slot]
+    and  eax, 7
+    inc  dword [fmt_slot]
+    shl  eax, 12
+    add  eax, fmt_buffers
+    mov  [ebp-20], eax
+
     mov  esi, [ebp+8]
     test esi, esi
     jz   .error_fs
-    mov  edi, out_buffer
+    mov  edi, [ebp-20]
     mov  ecx, 4096
 
 .parse_loop_fs:
@@ -2378,7 +2453,31 @@ _format_string:
 
 .finish_fs:
     mov  byte [edi], 0
-    mov  eax, out_buffer
+    ; 按 YXG string ABI 包装：gc_alloc(len+8)，[p]=len，数据在 p+4，返回 p+4
+    mov  eax, [ebp-20]
+    mov  ecx, edi
+    sub  ecx, eax
+    mov  ebx, ecx                 ; ebx = 长度
+    lea  eax, [ebx + 8]
+    add  eax, 3
+    and  eax, -4
+    push eax
+    call _gc_alloc
+    add  esp, 4
+    test eax, eax
+    jz   .finish_raw_fs
+    mov  [eax], ebx
+    lea  edi, [eax + 4]
+    mov  esi, [ebp-20]
+    push edi
+    mov  ecx, ebx
+    rep  movsb
+    mov  byte [edi], 0
+    pop  eax
+    jmp  .finish_done_fs
+.finish_raw_fs:
+    mov  eax, [ebp-20]
+.finish_done_fs:
     pop  ebx
     pop  edi
     pop  esi
@@ -2692,4 +2791,139 @@ strlen:
     jmp .sll
 .sld:
     pop esi
+    ret
+
+; ============================================================
+; write_float_single �Ĵ�����֧��|v| >= 2^63 ʱ��ȷ�����������
+; �� runtime_print.asm �� bi_bigdec ͬһ�㷨������λ�ȶ���֤��
+; ============================================================
+ws_bigdec:
+    push ebx
+    push esi
+    push edi
+    push ebp
+    mov  ebp, [esp+24]
+    mov  edi, ebp
+    mov  eax, [esp+20]
+    mov  ecx, eax
+    shr  ecx, 23
+    and  ecx, 0xFF
+    cmp  ecx, 0xFF
+    je   .ws_bad
+    and  eax, 0x7FFFFF
+    or   eax, 0x800000
+    sub  ecx, 150
+    mov  esi, ws_words
+    mov  ebx, 6
+    xor  edx, edx
+.ws_clr:
+    mov  [esi], edx
+    add  esi, 4
+    dec  ebx
+    jnz  .ws_clr
+    mov  [ws_words], eax
+    test ecx, ecx
+    jle  .ws_print
+.ws_dbl:
+    xor  edx, edx
+    mov  esi, ws_words
+    mov  ebx, 6
+.ws_dbl_i:
+    mov  eax, [esi]
+    add  eax, eax
+    add  eax, edx
+    xor  edx, edx
+    cmp  eax, 1000000000
+    jb   .ws_noc
+    sub  eax, 1000000000
+    mov  edx, 1
+.ws_noc:
+    mov  [esi], eax
+    add  esi, 4
+    dec  ebx
+    jnz  .ws_dbl_i
+    dec  ecx
+    jnz  .ws_dbl
+.ws_print:
+    mov  ecx, 5
+.ws_find:
+    mov  eax, [ws_words + ecx*4]
+    test eax, eax
+    jnz  .ws_found
+    dec  ecx
+    jns  .ws_find
+    mov  byte [edi], '0'
+    inc  edi
+    jmp  .ws_fin
+.ws_found:
+    mov  esi, ecx
+    mov  eax, [ws_words + esi*4]
+    call ws_utoa
+    dec  esi
+.ws_next:
+    test esi, esi
+    js   .ws_fin
+    mov  eax, [ws_words + esi*4]
+    mov  ecx, 9
+.ws_pad:
+    xor  edx, edx
+    mov  ebx, 10
+    div  ebx
+    add  dl, '0'
+    mov  [ws_dig + ecx - 1], dl
+    dec  ecx
+    jnz  .ws_pad
+    xor  ecx, ecx
+.ws_c9:
+    mov  al, [ws_dig + ecx]
+    mov  [edi], al
+    inc  edi
+    inc  ecx
+    cmp  ecx, 9
+    jb   .ws_c9
+    dec  esi
+    jmp  .ws_next
+.ws_fin:
+    mov  eax, edi
+    sub  eax, ebp
+    jmp  .ws_ret
+.ws_bad:
+    mov  byte [edi], '#'
+    mov  eax, 1
+.ws_ret:
+    pop  ebp
+    pop  edi
+    pop  esi
+    pop  ebx
+    ret
+
+ws_utoa:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    lea  esi, [ws_dig + 11]
+    mov  byte [esi], 0
+    mov  ebx, 10
+    xor  ecx, ecx
+.wu1:
+    xor  edx, edx
+    div  ebx
+    add  dl, '0'
+    dec  esi
+    mov  [esi], dl
+    inc  ecx
+    test eax, eax
+    jnz  .wu1
+.wu2:
+    mov  al, [esi]
+    mov  [edi], al
+    inc  esi
+    inc  edi
+    dec  ecx
+    jnz  .wu2
+    pop  esi
+    pop  edx
+    pop  ecx
+    pop  ebx
     ret

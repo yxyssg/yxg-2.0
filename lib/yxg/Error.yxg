@@ -1,0 +1,181 @@
+// yxg/Error.yxg -- 统一错误状态（2.6）
+//
+// 解决的问题：
+//   2.5 之前各模块失败约定不一致（有的返回 ""、有的返回 -1、有的靠 lastError()），
+//   生产代码里每调一个函数都要查文档确认它怎么报错，漏判一个就是静默错误。
+//
+// 2.6 起统一为「一个地方查」：
+//   if SysError.has() {
+//       print "失败: ", SysError.describe(), "\n";
+//   }
+//
+// 每个模块失败时调用 SysError.set(模块, 代码, 说明)。
+// 旧接口的哨兵返回值（""、-1、false）保持不变，向后兼容；
+// check() / checkWith() 在出错时直接抛 SysException。
+//
+// 实现说明：状态放在模块级全局变量里。
+// 类 static 的 string 字段在 YXG 里未初始化是 NULL，访问会崩，故不用。
+
+import yxg.String;
+import yxg.Utils;
+
+// ---- 全局状态（模块级） ----
+bool   g_errSet     = false;
+string g_errModule  = "";
+int    g_errCode    = 0;
+string g_errMessage = "";
+int    g_errCount   = 0;
+
+// 统一抛出的异常类型
+pub class SysException : ERROR {
+    pub SysException(string msg) {
+        this.info = msg;
+    }
+}
+
+pub class SysError {
+    // ---- 写入 ----
+
+    pub static void set(string module, int code, string message) {
+        g_errSet = true;
+        g_errModule = module;
+        g_errCode = code;
+        g_errMessage = message;
+        g_errCount = g_errCount + 1;
+    }
+
+    pub static void clear() {
+        g_errSet = false;
+        g_errModule = "";
+        g_errCode = 0;
+        g_errMessage = "";
+    }
+
+    // ---- 查询 ----
+
+    pub static bool has() {
+        return g_errSet;
+    }
+
+    pub static bool ok() {
+        return !g_errSet;
+    }
+
+    pub static int code() {
+        return g_errCode;
+    }
+
+    pub static string module() {
+        return g_errModule;
+    }
+
+    pub static string message() {
+        return g_errMessage;
+    }
+
+    pub static int count() {
+        return g_errCount;
+    }
+
+    // "模块: 说明 (代码 N)"
+    pub static string describe() {
+        if !g_errSet {
+            return "";
+        }
+        string cs = Convert.formatInt(g_errCode);
+        string r = g_errModule;
+        string sep = ": ";
+        r = r + sep;
+        r = r + g_errMessage;
+        string tail = " (代码 ";
+        r = r + tail;
+        r = r + cs;
+        string close = ")";
+        r = r + close;
+        return r;
+    }
+
+    // ---- 强制性检查 ----
+
+    // 有错误就抛异常。适合「失败即致命」的入口
+    pub static void check() {
+        if g_errSet {
+            string msg = SysError.describe();
+            SysError.clear();
+            throw new SysException(msg);
+        }
+    }
+
+    // 有错误就抛，并带上自定义前缀
+    pub static void checkWith(string context) {
+        if g_errSet {
+            string msg = context;
+            string arrow = " -> ";
+            msg = msg + arrow;
+            string d = SysError.describe();
+            msg = msg + d;
+            SysError.clear();
+            throw new SysException(msg);
+        }
+    }
+
+    // ---- 断言式辅助（不抛异常，只记录并返回 bool） ----
+
+    pub static bool require(bool cond, string module, int code, string message) {
+        if cond {
+            return true;
+        }
+        SysError.set(module, code, message);
+        return false;
+    }
+
+    pub static bool requireNonEmpty(string s, string module, string what) {
+        if String.len(s) > 0 {
+            return true;
+        }
+        string m = what;
+        string tail = " 为空";
+        m = m + tail;
+        SysError.set(module, 2, m);
+        return false;
+    }
+
+    pub static bool requireOk(int rc, string module, int code, string message) {
+        if rc >= 0 {
+            return true;
+        }
+        SysError.set(module, code, message);
+        return false;
+    }
+    // ---- 输出（走 print_err，写到 stderr） ----
+
+    // 把当前错误打到 stderr
+    pub static void printToStderr() {
+        if !g_errSet { return; }
+        string d = SysError.describe();
+        print_err("[错误] ", d, "\n");
+    }
+
+    // 打到 stderr 并清除
+    pub static void printAndClear() {
+        if !g_errSet { return; }
+        string d = SysError.describe();
+        print_err("[错误] ", d, "\n");
+        SysError.clear();
+    }
+
+    // 带自定义标签
+    pub static void warn(string tag) {
+        if !g_errSet { return; }
+        string d = SysError.describe();
+        print_err("[", tag, "] ", d, "\n");
+    }
+
+    // 有错误就打到 stderr 并返回 false（适合做「最后一道检查」）
+    pub static bool report() {
+        if !g_errSet { return true; }
+        string d = SysError.describe();
+        print_err("[错误] ", d, "\n");
+        return false;
+    }
+}

@@ -1,4 +1,4 @@
-import game.vec2;
+import yxg.Game.Vec2;
 
 pub class Rect {
     pub float x;
