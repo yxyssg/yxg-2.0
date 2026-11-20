@@ -1039,6 +1039,28 @@ static bool ir_is_param_name(const char* internal)
 static IR* gen_array_access_ir(AST_ArrayAccess* acc, bool gen_load, char** addr_out) {
     if (acc->index_count == 0) return NULL;
 
+    /* 多维下标要用各维尺寸算步长。普通数组的维度在分析阶段就填进
+       acc->full_dim_sizes 了；但「对象字段是数组」这种情况（obj.arr[i][j]）
+       走的是另一条赋值路径，有时 acc 上没有维度信息，于是步长退化成 1，
+       写进去的下标是错的（表现为 a[1][2] 读到 a[3][0] 的值）。
+       这里从成员节点自带的维度信息补一份。 */
+    int  dims_buf[16];
+    int* dims = acc->full_dim_sizes;
+    int  dims_count = acc->full_dim_count;
+    if ((dims == NULL || dims_count <= 0)
+        && acc->array != NULL && acc->array->type == AST_MEMBER_ACCESS) {
+        AST_MemberAccess* fma = (AST_MemberAccess*)acc->array;
+        if (fma->member_dim_count > 0 && fma->member_dim_sizes != NULL
+            && fma->member_dim_count <= 16) {
+            for (int k = 0; k < fma->member_dim_count; k++) {
+                dims_buf[k] = (fma->member_dim_sizes[k] > 0)
+                              ? fma->member_dim_sizes[k] : 1;
+            }
+            dims = dims_buf;
+            dims_count = fma->member_dim_count;
+        }
+    }
+
     if (acc->func_sig != NULL && acc->index_count == 1) {
         IR* base_ir = generate_IR(acc->array);
         IR* base_last = base_ir;
@@ -1281,7 +1303,7 @@ static IR* gen_array_access_ir(AST_ArrayAccess* acc, bool gen_load, char** addr_
         if (d == 0) {
             offset_temp = idx_val;
         } else {
-            int cur_dim = acc->full_dim_sizes[d];
+            int cur_dim = (dims != NULL && d < dims_count) ? dims[d] : 1;
             char dim_str[16];
             sprintf(dim_str, "%d", cur_dim);
 
@@ -1316,9 +1338,9 @@ static IR* gen_array_access_ir(AST_ArrayAccess* acc, bool gen_load, char** addr_
     }
 
     int stride = elem_size;
-    for (int s = acc->index_count; s < acc->full_dim_count; s++) {
-        if (acc->full_dim_sizes && acc->full_dim_sizes[s] > 0)
-            stride *= acc->full_dim_sizes[s];
+    for (int s = acc->index_count; s < dims_count; s++) {
+        if (dims != NULL && dims[s] > 0)
+            stride *= dims[s];
     }
     IR* mul_elem = create_IR(IR_BINARY);
     mul_elem->op = IR_MUL;

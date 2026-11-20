@@ -609,6 +609,9 @@ typedef struct AST_MEMBER_ACCESS {
     bool is_method;
     bool is_method_ptr;
     bool is_field_array;
+    /* 字段是数组时的完整维度信息（供 a[i][j] 这类下标计算用） */
+    int member_dim_count;
+    int* member_dim_sizes;
     char* method_internal;
     int method_param_count;
     DataType* method_param_types;

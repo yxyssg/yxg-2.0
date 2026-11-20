@@ -4423,6 +4423,26 @@ static void predeclare_global_vars(ASTNode* node) {
                 gsym->is_global_predecl = true;
                 gsym->ptr_depth = var->ptr_depth;
                 gsym->is_static = var->is_static;
+                /* const 的取值以前要等到这一条声明本身被 analyze 时才算出，
+                   而类成员（字段数组的维度写成常量名）在那之前就要用到它，
+                   于是求值失败、维度退化成 -2、字段只占 8 字节。
+                   这里在预声明阶段就把能算的常量值先算出来。 */
+                if (var->is_const && var->Value != NULL
+                    && (var->dataType == DATA_INT || var->dataType == DATA_UINT
+                        || var->dataType == DATA_INT8 || var->dataType == DATA_INT16
+                        || var->dataType == DATA_INT32 || var->dataType == DATA_INT64
+                        || var->dataType == DATA_UINT8 || var->dataType == DATA_UINT16
+                        || var->dataType == DATA_UINT32 || var->dataType == DATA_UINT64
+                        || var->dataType == DATA_CHAR || var->dataType == DATA_BOOL)) {
+                    int64_t pval = 0;
+                    bool pof = false;
+                    if (eval_constant_expr(var->Value, &pval, &pof) && !pof) {
+                        char pbuf[32];
+                        snprintf(pbuf, sizeof(pbuf), "%lld", (long long)pval);
+                        gsym->is_const = true;
+                        gsym->const_value_str = strdup(pbuf);
+                    }
+                }
                 insert_symbol(gsym);
             }
         }
@@ -5234,6 +5254,34 @@ static void resolve_class_members(AST_ClassDef* cd, ClassEntry* cls) {
             }
         } else if (m->type == AST_ARRAY_DECL) {
             AST_ArrayDecl* arr = (AST_ArrayDecl*)m;
+
+            /* 字段的数组维度如果写成常量名/常量表达式，parser 会记成 -2 并把表达式
+               留在 dim_exprs 里，等语义层求值。局部变量和全局变量走
+               AST_ARRAY_DECL 分析（下面 12565 那段）会求出来，但**类字段**这条
+               路径以前从来不求值：-2 不满足 `> 0`，于是 all_dynamic 为真、
+               字段只占 8 字节（当成动态数组），new 出来的对象装不下
+               int[KEY_MAX] 那么大的数组，写进去就越界，最后表现为
+               "Error: null pointer dereference"。
+               所以这里也要把 -2 求成真实尺寸。 */
+            if (arr->dim_exprs != NULL) {
+                for (int di = 0; di < arr->dim_count; di++) {
+                    if (arr->dim_sizes[di] == -2 && arr->dim_exprs[di] != NULL) {
+                        int64_t dval = 0;
+                        bool dof = false;
+                        if (eval_constant_expr(arr->dim_exprs[di], &dval, &dof)
+                            && !dof && dval > 0 && dval <= 2147483647LL) {
+                            arr->dim_sizes[di] = (int)dval;
+                            AST_Free(arr->dim_exprs[di]);
+                            arr->dim_exprs[di] = NULL;
+                        } else {
+                            ERROR(ERR_SEM_INVALID_INDEX,
+                                  SEMLOC(arr->base.value),
+                                  "array dimension of field '%s' must be a compile-time constant",
+                                  arr->name);
+                        }
+                    }
+                }
+            }
 
             bool all_dynamic = true;
             int total_elements = 1;
@@ -7434,6 +7482,14 @@ static ASTNode* shallow_clone_node(ASTNode* node) {
             dst->is_method = src->is_method;
             dst->is_method_ptr = src->is_method_ptr;
             dst->is_field_array = src->is_field_array;
+    dst->member_dim_count = src->member_dim_count;
+    if (src->member_dim_count > 0 && src->member_dim_sizes != NULL) {
+        dst->member_dim_sizes = malloc(sizeof(int) * (size_t)src->member_dim_count);
+        memcpy(dst->member_dim_sizes, src->member_dim_sizes,
+               sizeof(int) * (size_t)src->member_dim_count);
+    } else {
+        dst->member_dim_sizes = NULL;
+    }
             dst->vtable_index = src->vtable_index;
             dst->method_internal = src->method_internal ? strdup(src->method_internal) : NULL;
             dst->method_param_count = src->method_param_count;
@@ -12872,6 +12928,44 @@ static void analyze_node(ASTNode* temp) {
                 acc->elementType = ai->element_type;
                 acc->dim_sizes = (remaining > 0) ? acc->dim_sizes : NULL;
             }
+        } else if (acc->array->type == AST_MEMBER_ACCESS) {
+            /* 成员是数组字段（obj.arr[i][j]）：维度信息不在 Symbol 里，而在
+               MemberInfo 里。以前这里不给 full_dim_sizes 赋值，IR 生成时
+               解引用空指针直接崩（0xC0000005）。 */
+            AST_MemberAccess* fma = (AST_MemberAccess*)acc->array;
+            if (fma->is_field_array && fma->member_dim_count > 0
+                && fma->member_dim_sizes != NULL) {
+                int totalDims = fma->member_dim_count;
+                acc->full_dim_count = totalDims;
+                acc->full_dim_sizes = malloc(sizeof(int) * (size_t)totalDims);
+                if (!acc->full_dim_sizes) OUT_OF_MEMORY();
+                for (int fd = 0; fd < totalDims; fd++) {
+                    acc->full_dim_sizes[fd] = (fma->member_dim_sizes[fd] > 0)
+                                              ? fma->member_dim_sizes[fd] : -1;
+                }
+                acc->elementType = fma->member_type;
+                acc->is_heap_array = false;
+
+                if (acc->index_count > totalDims) {
+                    ERROR(ERR_SEM_INVALID_INDEX,
+                          SEMLOC(acc->indices[totalDims]->value),
+                          "too many indices for array field '%s'",
+                          fma->member_name);
+                    acc->elementType = DATA_ERROR;
+                } else {
+                    int remaining = totalDims - acc->index_count;
+                    acc->dim_count = remaining;
+                    if (remaining > 0) {
+                        acc->dim_sizes = malloc(sizeof(int) * (size_t)remaining);
+                        if (!acc->dim_sizes) OUT_OF_MEMORY();
+                        for (int fd = 0; fd < remaining; fd++) {
+                            acc->dim_sizes[fd] = acc->full_dim_sizes[acc->index_count + fd];
+                        }
+                    } else {
+                        acc->dim_sizes = NULL;
+                    }
+                }
+            }
         }
 
         if (sym && sym->dim_count != 0) {
@@ -16481,6 +16575,15 @@ static void analyze_node(ASTNode* temp) {
                 ma->member_type   = mi->type;
                 ma->member_ptr_depth = mi->ptr_depth;
                 ma->is_field_array = (mi->dim_count > 0);
+                ma->member_dim_count = mi->dim_count;
+                if (mi->dim_count > 0 && mi->dim_sizes != NULL) {
+                    ma->member_dim_sizes = malloc(sizeof(int) * (size_t)mi->dim_count);
+                    if (!ma->member_dim_sizes) OUT_OF_MEMORY();
+                    memcpy(ma->member_dim_sizes, mi->dim_sizes,
+                           sizeof(int) * (size_t)mi->dim_count);
+                } else {
+                    ma->member_dim_sizes = NULL;
+                }
                 if (mi->is_static) {
                     int nlen = (int)strlen(target_class->name) + 1
                              + (int)strlen(mi->name) + 1;
