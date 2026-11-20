@@ -68,4 +68,3 @@
 - [附录 A：编译错误码速查](appendix/error-codes.md)
 - [附录 B：术语表](appendix/glossary.md)
 - [附录 C：参考资料](appendix/references.md)
-- [附录 D：已知问题](appendix/known-issues.md)
