@@ -1,18 +1,18 @@
 ; ============================================================================
-; 字符串和字符拼接库 - NASM x86 (32位) 汇编实现 - 完全修复版
+; 字符串和字符拼接�?- NASM x86 (32�? 汇编实现 - 完全修复�?
 ; 调用约定: cdecl (参数从右向左压栈，调用者清理栈)
-; 所有函数要求目标缓冲区足够大，且假设指针有效
+; 所有函数要求目标缓冲区足够大，且假设指针有�?
 ; 全局符号前面加下划线，兼容Unix风格链接
 ; 
 ; 修复内容:
-; 1. 修正所有长度计算函数 - 正确使用EDI扫描源字符串
-; 2. 优化寄存器使用，避免破坏未保存的寄存器
+; 1. 修正所有长度计算函�?- 正确使用EDI扫描源字符串
+; 2. 优化寄存器使用，避免破坏未保存的寄存�?
 ; 3. 添加栈帧保护，确保EBP正确恢复
 ; 4. 完善边界条件处理
 ; ============================================================================
 
 section .text
-global _str_length, _str_copy, _str_concat
+global _str_length, _str_copy, _str_concat, _cstr_scan_len
 global _char_to_str, _char_concat, _char_pair_to_str
 global _str_plus_char, _char_plus_str
 global _str_equal, _str_not_equal, _str_substring
@@ -28,12 +28,47 @@ extern rodata_end_label
 
 ; ----------------------------------------------------------------------------
 ; size_t _str_length(const char *str)
-; 功能: 计算字符串长度（不含终止符'\0'）
-; 参数: [ebp+8] = 字符串指针
+; 功能: 计算字符串长度（不含终止�?\0'�?
+; 参数: [ebp+8] = 字符串指�?
 ; 返回: eax = 长度
-; 寄存器: 保存ECX, EDI
+; 寄存�? 保存ECX, EDI
 ; ----------------------------------------------------------------------------
 
+; ----------------------------------------------------------------------------
+; int _cstr_scan_len(const char *str)
+; ����: ����ֽ�ɨ�赽 '\0'�������ֽ�����
+;       �� _str_length �����𣺲�����ָ��ǰ���г���ͷ�������ⲿ/FFI ��������
+;       �� C �ַ���������ָ��ǰ��Ȳ��� GC ��ͷҲ���ǳ����ֶΣ���
+; ����: [ebp+8] = �ַ���ָ��
+; ����: eax = ���ȣ�NULL ���� 0��
+; ----------------------------------------------------------------------------
+_cstr_scan_len:
+    push    ebp
+    mov     ebp, esp
+    push    ecx
+    push    edi
+
+    mov     edi, [ebp+8]
+    test    edi, edi
+    jz      .scan_null
+
+    xor     ecx, ecx
+    or      ecx, -1
+    xor     eax, eax
+    repne   scasb
+    not     ecx
+    dec     ecx
+    mov     eax, ecx
+    jmp     .scan_done
+
+.scan_null:
+    xor     eax, eax
+
+.scan_done:
+    pop     edi
+    pop     ecx
+    pop     ebp
+    ret
 _str_length:
     push    ebp
     mov     ebp, esp
@@ -96,11 +131,11 @@ _str_copy:
     or      ecx, -1
     xor     eax, eax
     repne   scasb
-    not     ecx                ; ecx = src长度+1 (包括终止符)
+    not     ecx                ; ecx = src长度+1 (包括终止�?
     jmp     .do_copy
     
 .copy_null:
-    xor     ecx, ecx          ; 空字符串，只复制终止符
+    xor     ecx, ecx          ; 空字符串，只复制终止�?
     
 .do_copy:
     mov     esi, [ebp+12]      ; src
@@ -108,7 +143,7 @@ _str_copy:
     test    edi, edi
     jz      .copy_error
     
-    rep     movsb             ; 复制整个字符串（包括0）
+    rep     movsb             ; 复制整个字符串（包括0�?
     mov     eax, [ebp+8]      ; 返回dest
     jmp     .done
     
@@ -127,7 +162,7 @@ _str_copy:
 ; 功能: 将src拼接到dest末尾（覆盖dest原终止符，然后添加新终止符）
 ; 参数: [ebp+8] = dest, [ebp+12] = src
 ; 返回: eax = dest
-; 修复: 正确使用EDI扫描src长度，保存dest终止符位置
+; 修复: 正确使用EDI扫描src长度，保存dest终止符位�?
 ; ----------------------------------------------------------------------------
 _str_concat:
     push    ebp
@@ -136,7 +171,7 @@ _str_concat:
     push    edi
     push    ecx
 
-    ; 检查参数
+    ; 检查参�?
     mov     edi, [ebp+8]       ; dest
     test    edi, edi
     jz      .concat_error
@@ -153,7 +188,7 @@ _str_concat:
 
     ; 2. 计算src的长度（包括终止符）
     push    edi               ; 保存dest的写入点
-    mov     edi, esi          ; edi = src  - 关键修复！
+    mov     edi, esi          ; edi = src  - 关键修复�?
     xor     ecx, ecx
     or      ecx, -1
     xor     eax, eax
@@ -163,7 +198,7 @@ _str_concat:
 
     ; 3. 执行拼接
     mov     esi, [ebp+12]    ; src
-    rep     movsb            ; 复制src（包括终止符）
+    rep     movsb            ; 复制src（包括终止符�?
 
 .concat_done:
     mov     eax, [ebp+8]     ; 返回dest
@@ -181,10 +216,10 @@ _str_concat:
 
 ; ----------------------------------------------------------------------------
 ; char* _char_to_str(int ch)
-; 功能: 分配新字符串, 写入 ch 和 NUL 终止符
+; 功能: 分配新字符串, 写入 ch �?NUL 终止�?
 ; 参数: [ebp+8] = ch (仅低字节有效)
 ; 返回: eax = 新字符串指针
-; 说明: 与语义层注册的 _char_to_str(int)->string 保持一致
+; 说明: 与语义层注册�?_char_to_str(int)->string 保持一�?
 ; ----------------------------------------------------------------------------
 _char_to_str:
     push    ebp
@@ -196,17 +231,17 @@ _char_to_str:
     test    eax, eax
     jz      .done               ; 分配失败返回 NULL
     mov     ecx, [ebp+8]        ; ch
-    mov     dword [eax], 1      ; 长度头 = 1
+    mov     dword [eax], 1      ; 长度�?= 1
     mov     [eax+4], cl         ; 数据字节
-    mov     byte [eax+5], 0     ; NUL 终止符
-    add     eax, 4              ; 返回数据区指针
+    mov     byte [eax+5], 0     ; NUL 终止�?
+    add     eax, 4              ; 返回数据区指�?
 .done:
     pop     ebp
     ret
 
 ; ----------------------------------------------------------------------------
 ; char* _char_to_str_buf(char *dest, char ch)
-; 功能: 将单个字符写入已分配的目标缓冲 (内部辅助函数)
+; 功能: 将单个字符写入已分配的目标缓�?(内部辅助函数)
 ; 参数: [ebp+8] = dest, [ebp+12] = ch (仅低字节有效)
 ; 返回: eax = dest
 ; ----------------------------------------------------------------------------
@@ -219,7 +254,7 @@ _char_to_str_buf:
     jz      .null_dest
     mov     al, byte [ebp+12]  ; 字符
     mov     [edi], al
-    mov     byte [edi+1], 0    ; 终止符
+    mov     byte [edi+1], 0    ; 终止�?
     mov     eax, [ebp+8]
     jmp     .done
 .null_dest:
@@ -232,7 +267,7 @@ _char_to_str_buf:
 ; ----------------------------------------------------------------------------
 ; char* _char_concat(char *dest, char ch)
 ; 功能: 将字符ch拼接到dest字符串末尾（覆盖原终止符，然后添加新终止符）
-; 参数: [ebp+8] = dest, [ebp+12] = ch (低字节)
+; 参数: [ebp+8] = dest, [ebp+12] = ch (低字�?
 ; 返回: eax = dest
 ; ----------------------------------------------------------------------------
 _char_concat:
@@ -248,11 +283,11 @@ _char_concat:
     xor     ecx, ecx
     or      ecx, -1
     xor     eax, eax
-    repne   scasb             ; 找到终止符
-    dec     edi              ; edi指向终止符位置
+    repne   scasb             ; 找到终止�?
+    dec     edi              ; edi指向终止符位�?
 
     mov     al, byte [ebp+12] ; 字符
-    mov     [edi], al        ; 覆盖终止符
+    mov     [edi], al        ; 覆盖终止�?
     mov     byte [edi+1], 0  ; 添加新终止符
     mov     eax, [ebp+8]
     jmp     .done
@@ -268,7 +303,7 @@ _char_concat:
 
 ; ----------------------------------------------------------------------------
 ; char* _char_pair_to_str(char *dest, char ch1, char ch2)
-; 功能: 将两个字符拼接成字符串存入dest（ch1 + ch2 + '\0'）
+; 功能: 将两个字符拼接成字符串存入dest（ch1 + ch2 + '\0'�?
 ; 参数: [ebp+8] = dest, [ebp+12] = ch1, [ebp+16] = ch2
 ; 返回: eax = dest
 ; ----------------------------------------------------------------------------
@@ -281,11 +316,11 @@ _char_pair_to_str:
     test    edi, edi
     jz      .null_dest
     
-    mov     al, byte [ebp+12]  ; 第一个字符
+    mov     al, byte [ebp+12]  ; 第一个字�?
     mov     [edi], al
-    mov     al, byte [ebp+16]  ; 第二个字符
+    mov     al, byte [ebp+16]  ; 第二个字�?
     mov     [edi+1], al
-    mov     byte [edi+2], 0    ; 终止符
+    mov     byte [edi+2], 0    ; 终止�?
     mov     eax, [ebp+8]
     jmp     .done
     
@@ -300,7 +335,7 @@ _char_pair_to_str:
 ; ----------------------------------------------------------------------------
 ; char* _str_plus_char(char *dest, const char *str, char ch)
 ; 功能: 将字符串str和字符ch拼接（str在前，ch在后）存入dest
-; 注意: dest可以和str相同（原地追加），此时dest必须足够大
+; 注意: dest可以和str相同（原地追加），此时dest必须足够�?
 ; 参数: [ebp+8] = dest, [ebp+12] = str, [ebp+16] = ch
 ; 返回: eax = dest
 ; ----------------------------------------------------------------------------
@@ -312,7 +347,7 @@ _str_plus_char:
     push    ecx
     push    edx              ; 保存ch
 
-    ; 检查参数
+    ; 检查参�?
     mov     edi, [ebp+8]     ; dest
     test    edi, edi
     jz      .error
@@ -340,8 +375,8 @@ _str_plus_char:
     pop     edi             ; 恢复dest
     mov     esi, [ebp+12]   ; str
     rep     movsb           ; 复制str
-    ; edi现在指向dest末尾（包含终止符）
-    dec     edi             ; 指向终止符位置
+    ; edi现在指向dest末尾（包含终止符�?
+    dec     edi             ; 指向终止符位�?
     jmp     .append_char
 
 .in_place:
@@ -350,11 +385,11 @@ _str_plus_char:
     or      ecx, -1
     xor     eax, eax
     repne   scasb
-    dec     edi             ; 指向终止符
+    dec     edi             ; 指向终止�?
 
 .append_char:
     ; 追加字符
-    mov     [edi], dl       ; 覆盖终止符
+    mov     [edi], dl       ; 覆盖终止�?
     mov     byte [edi+1], 0 ; 新终止符
     mov     eax, [ebp+8]    ; 返回dest
     jmp     .done
@@ -385,7 +420,7 @@ _char_plus_str:
     push    ecx
     push    edx
 
-    ; 检查参数
+    ; 检查参�?
     mov     edi, [ebp+8]     ; dest
     test    edi, edi
     jz      .error
@@ -396,11 +431,11 @@ _char_plus_str:
     ; 先放入字符ch
     mov     al, byte [ebp+12]
     mov     [edi], al
-    inc     edi              ; edi指向下一个位置
+    inc     edi              ; edi指向下一个位�?
 
     ; 计算str长度
     push    edi
-    mov     edi, esi         ; edi = str - 关键修复！
+    mov     edi, esi         ; edi = str - 关键修复�?
     xor     ecx, ecx
     or      ecx, -1
     xor     eax, eax
@@ -410,12 +445,12 @@ _char_plus_str:
     
     ; 复制str
     mov     esi, [ebp+16]   ; str
-    rep     movsb           ; 复制str（包括终止符）
+    rep     movsb           ; 复制str（包括终止符�?
     mov     eax, [ebp+8]
     jmp     .done
 
 .copy_char_only:
-    ; 只复制字符和终止符
+    ; 只复制字符和终止�?
     mov     al, byte [ebp+12]
     mov     [edi], al
     mov     byte [edi+1], 0
@@ -435,14 +470,14 @@ _char_plus_str:
 
 ; ----------------------------------------------------------------------------
 ; int _str_equal(const char *str1, const char *str2)
-; 功能: 比较两个字符串是否完全相等（包括长度）
+; 功能: 比较两个字符串是否完全相等（包括长度�?
 ; 参数: [ebp+8] = str1, [ebp+12] = str2
-; 返回: eax = 1（相等）或 0（不相等）
+; 返回: eax = 1（相等）�?0（不相等�?
 ; 说明: 
-;   - 两个指针均为 NULL 时视为相等（返回 1）
-;   - 仅一个为 NULL 时视为不相等（返回 0）
-;   - 正常比较逐字符进行，直到遇到不同的字符或同时遇到终止符
-; 寄存器: 保存 esi, edi, ebx（被调用者保存）
+;   - 两个指针均为 NULL 时视为相等（返回 1�?
+;   - 仅一个为 NULL 时视为不相等（返�?0�?
+;   - 正常比较逐字符进行，直到遇到不同的字符或同时遇到终止�?
+; 寄存�? 保存 esi, edi, ebx（被调用者保存）
 ; ----------------------------------------------------------------------------
 _str_equal:
     push    ebp
@@ -454,24 +489,24 @@ _str_equal:
     mov     esi, [ebp+8]        ; str1
     mov     edi, [ebp+12]       ; str2
 
-    ; 处理空指针情况
+    ; 处理空指针情�?
     test    esi, esi
     jnz     .str1_not_null
     test    edi, edi
-    jnz     .not_equal          ; str1==NULL, str2!=NULL → 不等
-    ; 两者均为 NULL
+    jnz     .not_equal          ; str1==NULL, str2!=NULL �?不等
+    ; 两者均�?NULL
     mov     eax, 1
     jmp     .done
 
 .str1_not_null:
     test    edi, edi
-    jz      .not_equal          ; str1!=NULL, str2==NULL → 不等
+    jz      .not_equal          ; str1!=NULL, str2==NULL �?不等
 
 .loop:
-    mov     al, [esi]           ; 取 str1 当前字符
-    mov     bl, [edi]           ; 取 str2 当前字符
+    mov     al, [esi]           ; �?str1 当前字符
+    mov     bl, [edi]           ; �?str2 当前字符
     cmp     al, bl
-    jne     .not_equal          ; 字符不同 → 不等
+    jne     .not_equal          ; 字符不同 �?不等
     test    al, al              ; 是否为终止符 '\0'
     jz      .equal              ; 同时遇到终止符（因为字符相同）→ 相等
     inc     esi
@@ -497,23 +532,23 @@ _str_equal:
 ; 功能: 判断两个字符串是否不相等
 ; 参数: [ebp+8] = str1, [ebp+12] = str2
 ; 返回: eax = 1（不相等）或 0（相等）
-; 说明: 直接调用 _str_equal 后取反，保证与 _str_equal 的空指针处理一致
+; 说明: 直接调用 _str_equal 后取反，保证�?_str_equal 的空指针处理一�?
 ; ----------------------------------------------------------------------------
 _str_not_equal:
     push    ebp
     mov     ebp, esp
     ; 调用 _str_equal 进行比较
-    push    dword [ebp+12]   ; 第二个参数 str2
-    push    dword [ebp+8]    ; 第一个参数 str1
+    push    dword [ebp+12]   ; 第二个参�?str2
+    push    dword [ebp+8]    ; 第一个参�?str1
     call    _str_equal
-    add     esp, 8           ; 清理栈参数
-    xor     eax, 1           ; 取反：相等(1)→0，不等(0)→1
+    add     esp, 8           ; 清理栈参�?
+    xor     eax, 1           ; 取反：相�?1)�?，不�?0)�?
     pop     ebp
     ret
 
 ; ============================================================
-; _str_substring(char* str, int start, int length) → char*
-; 返回新分配的子串，调用者负责释放
+; _str_substring(char* str, int start, int length) �?char*
+; 返回新分配的子串，调用者负责释�?
 ; ============================================================
 _str_substring:
     push ebp
@@ -532,7 +567,7 @@ _str_substring:
     cmp ecx, 0
     jle .empty_str
     
-    ; 分配新内存 (length + 1)
+    ; 分配新内�?(length + 1)
     mov eax, ecx
     inc eax
     push 0
@@ -570,7 +605,7 @@ _str_substring:
     ret
 
 ; ============================================================
-; _str_char_at(char* str, int index) → int
+; _str_char_at(char* str, int index) �?int
 ; ============================================================
 global _str_char_at
 _str_char_at:
@@ -605,8 +640,8 @@ _str_char_at:
     ret
 
 ; ============================================================
-; _str_plus_char_2(str, ch) → 新字符串
-; 适配编译器生成的 2 参数调用，转为标准 3 参数调用
+; _str_plus_char_2(str, ch) �?新字符串
+; 适配编译器生成的 2 参数调用，转为标�?3 参数调用
 ; 参数1 [ebp+8]  = str (原字符串)
 ; 参数2 [ebp+12] = ch  (要追加的字符)
 ; 返回: eax = 新字符串指针
@@ -614,7 +649,7 @@ _str_char_at:
 _str_plus_char_2:
     push ebp
     mov  ebp, esp
-    sub  esp, 4               ; [ebp-4] 用来保存 GC 块指针
+    sub  esp, 4               ; [ebp-4] 用来保存 GC 块指�?
     push ebx
     push esi
     push edi
@@ -635,8 +670,8 @@ _str_plus_char_2:
     mov  [ebp-4], eax         ; 保存 GC 块地址
     mov  edi, eax
 
-    lea  ecx, [ebx + 1]       ; 新长度
-    mov  [edi], ecx           ; 写入长度头
+    lea  ecx, [ebx + 1]       ; 新长�?
+    mov  [edi], ecx           ; 写入长度�?
 
     lea  edi, [edi + 4]       ; data 区域
 
@@ -662,8 +697,8 @@ _str_plus_char_2:
     ret
 
 ; ============================================================
-; _char_plus_str_2(ch, str) → 新字符串
-; 适配编译器生成的 2 参数调用，转为标准 3 参数调用
+; _char_plus_str_2(ch, str) �?新字符串
+; 适配编译器生成的 2 参数调用，转为标�?3 参数调用
 ; 参数1 [ebp+8]  = ch  (字符)
 ; 参数2 [ebp+12] = str (原字符串)
 ; 返回: eax = 新字符串指针
@@ -681,17 +716,17 @@ _char_plus_str_2:
     call _str_length
     add  esp, 4               ; eax = len
     mov  ebx, eax             ; ebx = len
-    ; 2. 分配 GC 内存: 4(长度头) + 1(字符) + len + 1(NUL) = len + 6
+    ; 2. 分配 GC 内存: 4(长度�? + 1(字符) + len + 1(NUL) = len + 6
     lea  eax, [ebx + 6]
     push eax
     call _gc_alloc
     add  esp, 4               ; eax = GC 块地址
     mov  [ebp-4], eax         ; 保存 GC 块地址
-    mov  edi, eax             ; edi = GC 块起始
-    lea  ecx, [ebx + 1]       ; 新长度 = 原长度 + 1
-    mov  [edi], ecx           ; 写入长度头
+    mov  edi, eax             ; edi = GC 块起�?
+    lea  ecx, [ebx + 1]       ; 新长�?= 原长�?+ 1
+    mov  [edi], ecx           ; 写入长度�?
     lea  edi, [edi + 4]       ; edi 指向 data 区域
-    ; 3. 先写入字符 ch
+    ; 3. 先写入字�?ch
     mov  al, [ebp+8]
     mov  [edi], al
     inc  edi
@@ -702,9 +737,9 @@ _char_plus_str_2:
     cld
     rep  movsb
 .no_copy:
-    ; 5. 写入 NUL 终止符
+    ; 5. 写入 NUL 终止�?
     mov  byte [edi], 0
-    ; 6. 返回值 = data 部分指针 = GC块 + 4
+    ; 6. 返回�?= data 部分指针 = GC�?+ 4
     mov  eax, [ebp-4]
     add  eax, 4
     pop  edi
@@ -714,15 +749,15 @@ _char_plus_str_2:
     ret
 
 ; ============================================================
-; str 操作函数（接收胖指针 {ptr, len}）
+; str 操作函数（接收胖指针 {ptr, len}�?
 ; ============================================================
 
-; _str_len(str s) → int
+; _str_len(str s) �?int
 _str_len_str:
     mov eax, [esp+8]
     ret
 
-; _str_char_at_str(str s, int index) → int
+; _str_char_at_str(str s, int index) �?int
 _str_char_at_str:
     mov ecx, [esp+4]
     mov eax, [esp+8]
@@ -730,7 +765,7 @@ _str_char_at_str:
     movzx eax, byte [ecx + edx]
     ret
 
-; _str_concat_str(str a, str b) → string（返回 GC 管理的 string）
+; _str_concat_str(str a, str b) �?string（返�?GC 管理�?string�?
 ; a = {ptr: [esp+4], len: [esp+8]}
 ; b = {ptr: [esp+12], len: [esp+16]}
 _str_concat_str:
@@ -766,10 +801,10 @@ _str_concat_str:
     ret
 
 ; ============================================================
-; _str_to_string(str s) → string
-; 将胖指针 {ptr, len} 转换为 GC 管理的 C 字符串（分配新内存并复制）
+; _str_to_string(str s) �?string
+; 将胖指针 {ptr, len} 转换�?GC 管理�?C 字符串（分配新内存并复制�?
 ; 参数: [esp+4]=s.ptr, [esp+8]=s.len
-; 返回: eax = 新 string 的数据指针（GC 块 + 4）
+; 返回: eax = �?string 的数据指针（GC �?+ 4�?
 ; ============================================================
 _str_to_string:
     push ebp
@@ -808,10 +843,10 @@ _str_to_string:
     ret
 
 ; ============================================================
-; _str_substring_str(str s, int start, int n) → str
-; 零拷贝切片：返回新的胖指针，指向原数据
-; str 返回值通过隐藏指针传递（调用者在栈上分配空间，传指针为第一参数）
-; 参数: [ebp+8] = 隐藏返回值指针
+; _str_substring_str(str s, int start, int n) �?str
+; 零拷贝切片：返回新的胖指针，指向原数�?
+; str 返回值通过隐藏指针传递（调用者在栈上分配空间，传指针为第一参数�?
+; 参数: [ebp+8] = 隐藏返回值指�?
 ;       [ebp+12]= s.ptr, [ebp+16]= s.len
 ;       [ebp+20]= start, [ebp+24]= n
 ; 结果: *hidden = {s.ptr + start, min(n, s.len - start)}

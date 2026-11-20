@@ -3193,7 +3193,7 @@ static IR* generate_IR_impl(ASTNode* ast_node)
                 ADD_IR(push_for_strlen);
 
                 IR* strlen_call = create_IR(IR_CALL);
-                strlen_call->args1 = strdup("_str_length");
+                strlen_call->args1 = strdup("_cstr_scan_len");
                 strlen_call->result = create_temp();
                 assign_def_id(strlen_call);
                 strlen_call->data_type = DATA_INT;
@@ -3431,7 +3431,7 @@ static IR* generate_IR_impl(ASTNode* ast_node)
                     push_left->push_bytes = 4;
                     chain = connect_IR(chain, push_left);
                     IR* strlen_left = create_IR(IR_CALL);
-                    strlen_left->args1 = strdup("_str_length");
+                    strlen_left->args1 = strdup("_cstr_scan_len");
                     strlen_left->result = create_temp();
                     assign_def_id(strlen_left);
                     strlen_left->data_type = DATA_INT;
@@ -3495,7 +3495,7 @@ static IR* generate_IR_impl(ASTNode* ast_node)
                     push_right->push_bytes = 4;
                     chain = connect_IR(chain, push_right);
                     IR* strlen_right = create_IR(IR_CALL);
-                    strlen_right->args1 = strdup("_str_length");
+                    strlen_right->args1 = strdup("_cstr_scan_len");
                     strlen_right->result = create_temp();
                     assign_def_id(strlen_right);
                     strlen_right->data_type = DATA_INT;
@@ -4457,7 +4457,7 @@ static IR* generate_IR_impl(ASTNode* ast_node)
                 IR* strlen_call = create_IR(IR_CALL);
                 strlen_call->result = create_temp();
                 assign_def_id(strlen_call);
-                strlen_call->args1 = strdup("_str_length");
+                strlen_call->args1 = strdup("_cstr_scan_len");
                 strlen_call->data_type = DATA_INT;
                 strlen_call->call_func_args_num = 1;
                 strlen_call->total_push_bytes = 4;
@@ -5994,7 +5994,7 @@ static IR* generate_IR_impl(ASTNode* ast_node)
                 IR* len_call = create_IR(IR_CALL);
                 len_call->result = create_temp();
                 assign_def_id(len_call);
-                len_call->args1 = strdup("_str_length");
+                len_call->args1 = strdup("_cstr_scan_len");
                 len_call->data_type = DATA_INT;
                 len_call->call_func_args_num = 1;
                 len_call->total_push_bytes = 4;
@@ -6799,7 +6799,7 @@ static IR* generate_IR_impl(ASTNode* ast_node)
                 IR* len_call = create_IR(IR_CALL);
                 len_call->result = create_temp();
                 assign_def_id(len_call);
-                len_call->args1 = strdup("_str_length");
+                len_call->args1 = strdup("_cstr_scan_len");
                 len_call->data_type = DATA_INT;
                 len_call->call_func_args_num = 1;
                 len_call->total_push_bytes = 4;

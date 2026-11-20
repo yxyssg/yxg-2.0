@@ -2618,12 +2618,39 @@ void codegen_win32(FILE* output,IR* ir)
                     int offset = temp_map_get_offset(operand);
                     fprintf(output, "  lea esi, [ebp-%d]\n", offset);
                 } else if (ir_temp->is_str_param) {
+                    /* str 是 8 字节（数据指针 + 长度），按值整体拷到栈上。
+                       这里必须取「值所在的地址」，不能 cg_load 出指针再当源 ——
+                       那样会把指针指向的字符串内容当成长度拷过去。
+                       之前漏了 cache_flush_all，变量在寄存器缓存里时
+                       cg_address 会失败，于是掉进 cg_load 分支，长度就错了。 */
+                    cache_flush_all(output);
                     char str_addr[100];
+                    int str_idx = get_const(operand);
                     if (cg_address(output, operand, str_addr, sizeof(str_addr))) {
                         fprintf(output, "  lea esi, %s\n", str_addr);
+                    } else if (str_idx != -1) {
+                        switch (consts->storage[str_idx]) {
+                            case STORAGE_LOCAL:
+                                fprintf(output, "  lea esi, [ebp-%d]\n",
+                                        -consts->offset[str_idx]);
+                                break;
+                            case STORAGE_PARAM:
+                                fprintf(output, "  lea esi, [ebp+%d]\n",
+                                        consts->offset[str_idx]);
+                                break;
+                            case STORAGE_STATIC_LOCAL:
+                            case STORAGE_STATIC_GUARD:
+                            case STORAGE_GLOBAL:
+                                fprintf(output, "  lea esi, [%s]\n",
+                                        consts->name[str_idx]
+                                            ? consts->name[str_idx] : operand);
+                                break;
+                            default:
+                                fprintf(output, "  lea esi, [%s]\n", operand);
+                                break;
+                        }
                     } else {
-                        cg_load(output, operand, DATA_INT);
-                        fprintf(output, "  mov esi, eax\n");
+                        fprintf(output, "  mov esi, %s\n", operand);
                     }
                 } else {
                     int idx = get_const(operand);
@@ -3396,9 +3423,15 @@ void codegen_win32(FILE* output,IR* ir)
                     fprintf(output, "  mov dword [ebp-%d], %s\n",
                             result_offset - 4, ir_temp->args2);
                 } else {
-                    fprintf(output, "  mov eax, dword [eax - 4]\n");
+                    /* 长度必须扫描 C 字符串得到：这个指针可能是 argv / FFI 传进来
+                       的裸指针，前面没有长度字段（旧代码读 [eax-4]，读到的是
+                       别的内存，长度就成随机数）。 */
+                    fprintf(output, "  push eax\n");
+                    fprintf(output, "  call _cstr_scan_len\n");
+                    fprintf(output, "  add esp, 4\n");
                     fprintf(output, "  mov dword [ebp-%d], eax\n",
                             result_offset - 4);
+                    has_string_lib = true;
                 }
 
                 if (ir_temp->result && is_temp(ir_temp->result)) {
@@ -3887,6 +3920,34 @@ void codegen_win32(FILE* output,IR* ir)
 
                 DataType loaded_type = cg_load(output, src, src_type);
 
+                /* str 是 8 字节（数据指针 + 长度）。如果这里只 cg_store 一次，
+                   长度那半截就丢了 —— 变量能打印出内容但 .length 是随机数。
+                   从 temp 取值时把两半都搬过去。 */
+                if (var_type == DATA_STR && get_type_size(var_type) == 8) {
+                    if (is_temp((char*)src)) {
+                        int s_off = temp_map_get_offset(src);
+                        fprintf(output, "  mov eax, dword [ebp-%d]\n", s_off);
+                        fprintf(output, "  mov edx, dword [ebp-%d]\n", s_off - 4);
+                        cg_store(output, var_name, DATA_INT, false);
+                        char paddr[100];
+                        if (cg_address(output, var_name, paddr, sizeof(paddr))
+                            && paddr[0] != '0') {
+                            fprintf(output, "  mov [%s+4], edx\n", paddr);
+                        } else {
+                            fprintf(output, "  push edx\n");
+                            int idx2 = get_const(var_name);
+                            if (idx2 != -1) {
+                                fprintf(output, "  pop edx\n");
+                            } else {
+                                fprintf(output, "  pop edx\n");
+                            }
+                        }
+                    } else {
+                        cg_store(output, var_name, var_type, false);
+                    }
+                    break;
+                }
+
                 if ((var_type == DATA_FLOAT || var_type == DATA_UFLOAT)
                     && !(loaded_type == DATA_FLOAT || loaded_type == DATA_UFLOAT || loaded_type == DATA_FLOAT32 || loaded_type == DATA_UFLOAT32)) {
                     if (is_temp((char*)src)) {
@@ -4337,6 +4398,7 @@ void codegen_win32(FILE* output,IR* ir)
                     continue;
                 }
                 if (strcmp(ir_temp->args1, "_str_length") == 0 ||
+                        strcmp(ir_temp->args1, "_cstr_scan_len") == 0 ||
                         strcmp(ir_temp->args1, "_str_char_at") == 0 ||
                         strcmp(ir_temp->args1, "_str_substring") == 0 ||
                         strcmp(ir_temp->args1, "_str_plus_char") == 0 ||
@@ -5467,6 +5529,7 @@ void codegen_win32_end(FILE* output)
     if (has_string_lib)
     {
         fprintf(output,"extern _str_length\n");
+        fprintf(output,"extern _cstr_scan_len\n");
         fprintf(output,"extern _str_copy\n");
         fprintf(output,"extern _str_concat\n");
         fprintf(output,"extern _char_to_str\n");
