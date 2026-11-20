@@ -297,6 +297,7 @@ int dt = Window.get_ticks() - t0;
 | `set_resizable(int)` | 是否允许拖边框改变大小 |
 | `set_maximizable(int)` | 是否允许最大化 |
 | `minimize()` / `maximize()` / `restore()` | 最小化 / 最大化 / 还原 |
+| `set_fullscreen(int)` | 无边框全屏，`1` 进入 `0` 退出（见下） |
 
 **布尔参数一律传 `int`**：写 `set_maximizable(1)`，不是 `true`。字面量 `true`/`false` 走的是整型路径，`,` 后面接的必须是整数表达式。
 
@@ -324,6 +325,60 @@ pub void main() {
 ```
 
 `set_maximizable(0)` 和 `set_resizable(0)` 是两件事：前者只管最大化，后者只管拖拽缩放，**只设一个仍会留下另一个入口**。
+
+
+#### 全屏 `set_fullscreen`
+
+`set_fullscreen(1)` 进入全屏、`set_fullscreen(0)` 退出。它做的是**无边框全屏**：
+把窗口样式换成 `WS_POPUP`，再用 `SetWindowPos` 铺满整个屏幕，不是独占式/排他全屏。
+
+```yxg
+import yxg.Window;
+
+Window win;
+
+pub void main() {
+    win = new Window();
+    win.create("全屏测试", 640, 480);
+    win.show();
+
+    win.set_fullscreen(1);          // 进入：去边框 + 铺满屏幕
+
+    while win.update() != 0 {
+        win.clear(WindowColor.COLOR_BLACK);
+
+        if win.is_key_down(WindowKey.KEY_ESC) != 0 {
+            win.set_fullscreen(0);  // 退出：样式和窗口矩形都还原
+        }
+
+        win.flush();
+    }
+}
+```
+
+**可复原**：进入前会把原来的窗口样式和窗口矩形保存下来，退出时原样写回。
+实测（1920×1080 屏、`create(..., 640, 480)`，客户区 624×441）：
+
+```
+before        : 624x441
+fullscreen    : 2560x1440
+again (idem)  : 2560x1440
+restored      : 624x441
+restore again : 624x441
+is_visible=1 is_valid=1
+```
+
+注意第三行 —— **重复调用同一方向是幂等的**：已经在全屏时再传 `1` 不会二次保存样式，
+退出时仍能还原回 `624x441`；还没进全屏时传 `0` 也是空操作。
+
+几点要注意：
+
+- 参数是 `int`，写 `set_fullscreen(1)`，不要写 `true`。
+- 全屏后窗口样式变了，`get_width()` / `get_height()` 返回的是**屏幕尺寸**（上例 2560×1440，
+  含 DPI 缩放），不是 `create` 时传的客户区大小。按屏幕尺寸重新布局即可。
+- 想还原到全屏前的尺寸，只能靠 `set_fullscreen(0)`；手动 `resize()` 不会恢复原样式。
+- 进去之后标题栏、边框、最大化按钮全没了，**务必留一个退出热键**（上例是 ESC），
+  否则全屏窗口没法用鼠标关。
 
 #### 主动最大化 / 还原
 
