@@ -1986,7 +1986,8 @@ static bool is_ufloat_type(DataType t) {
     }
 }
 
-DataType L_A_R_get_Datatype(DataType left_type, DataType right_type, int line, int column) {
+DataType L_A_R_get_Datatype(DataType left_type, DataType right_type,
+                           const char* file, int line, int column) {
     if (left_type == right_type) return left_type;
 
     if (left_type == DATA_IDENTIFIER && right_type != DATA_ERROR)
@@ -2135,7 +2136,7 @@ DataType L_A_R_get_Datatype(DataType left_type, DataType right_type, int line, i
     if (left_type == DATA_CHAR && right_type == DATA_CHAR) return DATA_STRING;
 
     ERROR(ERR_SEM_INCOMPATIBLE_TYPES,
-          LOC(semantic_filename, line, column),
+          LOC(file ? file : semantic_filename, line, column),
           "incompatible types: '%s' and '%s'",
           data_type_to_string(left_type), data_type_to_string(right_type));
     return DATA_ERROR;
@@ -2275,7 +2276,7 @@ bool Operation_Check(AST_Binary* binary) {
     if (!types_compatible(left_type, right_type) &&
         !types_compatible(right_type, left_type)) {
         ERROR(ERR_SEM_INCOMPATIBLE_TYPES,
-              LOC(semantic_filename, binary->base.value.line, binary->base.value.column),
+              SEMLOC(binary->base.value),
               "incompatible types: '%s' and '%s'",
               data_type_to_string(left_type), data_type_to_string(right_type));
         return false;
@@ -2286,14 +2287,14 @@ bool Operation_Check(AST_Binary* binary) {
         DataType rt = get_expression_type(binary->right);
         if (!is_int_type(lt) && !is_uint_type(lt)) {
             ERROR(ERR_SEM_TYPE_MISMATCH,
-                  LOC(semantic_filename, binary->base.value.line, binary->base.value.column),
+                  SEMLOC(binary->base.value),
                   "shift operator requires integer left operand, got '%s'",
                   data_type_to_string(lt));
             return false;
         }
         if (!is_int_type(rt) && !is_uint_type(rt)) {
             ERROR(ERR_SEM_TYPE_MISMATCH,
-                  LOC(semantic_filename, binary->base.value.line, binary->base.value.column),
+                  SEMLOC(binary->base.value),
                   "shift amount must be integer, got '%s'",
                   data_type_to_string(rt));
             return false;
@@ -2311,8 +2312,7 @@ bool Operation_Check(AST_Binary* binary) {
         if ((!is_int_type(lt) && !is_uint_type(lt)) ||
             (!is_int_type(rt) && !is_uint_type(rt))) {
             ERROR(ERR_SEM_TYPE_MISMATCH,
-                  LOC(semantic_filename, binary->base.value.line,
-                      binary->base.value.column),
+                  SEMLOC(binary->base.value),
                   "bitwise operator requires integer operands, got '%s' and '%s'",
                   data_type_to_string(lt), data_type_to_string(rt));
             return false;
@@ -2354,7 +2354,7 @@ DataType Binary_get_Datatype(AST_Binary* binary) {
         binary->op.type == TOKEN_BITWISE_XOR) {
         DataType left_type = get_expression_type(binary->left);
         DataType right_type = get_expression_type(binary->right);
-        return L_A_R_get_Datatype(left_type, right_type,
+        return L_A_R_get_Datatype(left_type, right_type, binary->base.value.file,
                                   binary->base.value.line, binary->base.value.column);
     }
 
@@ -2366,7 +2366,7 @@ DataType Binary_get_Datatype(AST_Binary* binary) {
     DataType left_type = get_expression_type(binary->left);
     DataType right_type = get_expression_type(binary->right);
 
-    return L_A_R_get_Datatype(left_type, right_type,
+    return L_A_R_get_Datatype(left_type, right_type, binary->base.value.file,
         binary->base.value.line, binary->base.value.column);
 }
 
@@ -2380,7 +2380,7 @@ bool check_division_by_zero(AST_Binary* binary) {
             DataType lt = get_expression_type(binary->left);
             if (is_int_type(lt) || is_uint_type(lt)) {
                 ERROR(ERR_SEM_DIV_BY_ZERO,
-                      LOC(semantic_filename, binary->base.value.line, binary->base.value.column),
+                      SEMLOC(binary->base.value),
                       "division by zero");
                 return false;
             }
@@ -2389,6 +2389,24 @@ bool check_division_by_zero(AST_Binary* binary) {
     return true;
 }
 
+static bool sem_init_needs_runtime(ASTNode* n)
+{
+    if (n == NULL) return false;
+    switch (n->type) {
+    case AST_NEW_INSTANCE:
+    case AST_NEW_ARRAY:
+        return true;
+    case AST_LITERAL:
+        return ((AST_Literal*)n)->is_call_function;
+    case AST_BINARY:
+        return sem_init_needs_runtime(((AST_Binary*)n)->left)
+            || sem_init_needs_runtime(((AST_Binary*)n)->right);
+    case AST_UNARY:
+        return sem_init_needs_runtime(((AST_Unary*)n)->right);
+    default:
+        return false;
+    }
+}
 static int S_get_type_size(DataType type) {
     switch (type) {
     case DATA_CHAR:
@@ -9359,6 +9377,20 @@ static void analyze_node(ASTNode* temp) {
         if (literal->base.value.type == TOKEN_IDENTIFIER
             && literal->base.value.value != NULL
             && literal->base.value.file != NULL) {
+            /* 这一段原本是给「static 声明」做跨模块改名的（同一模块里同名的
+               static 变量/函数互不冲突）。但它以前对**任何**标识符都先按
+               "<模块>_<名字>" 拼一次再查函数表，于是普通局部变量/参数只要
+               名字恰好对得上「模块名_名字」的某个函数，就会被改名成那个函数：
+               `Run.yxg` 里的 `Run_frames(int frames)`，参数 frames 被改成
+               Run_frames，类型变成函数的 void 返回值 → "incompatible types:
+               'int' and 'void'"。
+               修法：只在标识符确实是 static 声明、且当前作用域里没有同名符号
+               时才改名。 */
+            /* 关键：如果这个标识符在当前作用域里已经能查到（局部变量、参数、
+               成员、全局变量），它就不是 static 符号，绝不能改名。 */
+            if (lookup_symbol(literal->base.value.value) != NULL) {
+                goto _literal_after_static_mangle;
+            }
             char mangled[512];
             make_static_mangled_name(literal->base.value.file,
                                      literal->base.value.value,
@@ -9378,6 +9410,7 @@ static void analyze_node(ASTNode* temp) {
                 }
             }
         }
+    _literal_after_static_mangle: ;
 
         if (literal->is_call_function
             && !literal->is_indirect_call
@@ -12518,6 +12551,7 @@ static void analyze_node(ASTNode* temp) {
             DataType then_type = get_expression_type(tern->then_expr);
             DataType else_type = get_expression_type(tern->else_expr);
             tern->resultType = L_A_R_get_Datatype(then_type, else_type,
+                                                   tern->base.value.file,
                                                    tern->base.value.line,
                                                    tern->base.value.column);
             break;
@@ -13437,6 +13471,10 @@ static void analyze_node(ASTNode* temp) {
         AST_Var* var = (AST_Var*)temp;
         if (var->Value) analyze_node(var->Value);
 
+
+
+
+
         if (var->Value != NULL
             && var->dataType == DATA_IDENTIFIER
             && var->internal_name != NULL
@@ -13782,9 +13820,23 @@ static void analyze_node(ASTNode* temp) {
                 sym->is_value_type = true;
             }
         } else if (sym->class_name != NULL) {
-            var->total_bytes = 4;
-            sym->total_bytes = 4;
-            sym->is_value_type = false;
+            /* 全局作用域声明的对象变量是「真对象」，要按类体大小分配存储
+               （IR 会带 stack_bytes -> .bss 里 resd N）；只有函数内的局部
+               对象变量才是 4 字节指针。以前这里无条件压成 4，导致
+               `pub P g_p;` 只分配 4 字节，g_p.field 写到野内存。 */
+            bool var_is_global_obj = (current_analyzing_function == NULL
+                                      && current_class == NULL);
+            if (false) {
+                /* class 变量统一按 4 字节指针处理（和局部变量、参数、字段一致）。
+                   以前这里让全局对象按类体大小内嵌，导致「全局是值、局部是指针」
+                   两套模型并存，g.field 与 g = new P() 互相打架。 */
+                var->total_bytes = 4;
+                sym->is_value_type = true;
+            } else {
+                var->total_bytes = 4;
+                sym->total_bytes = 4;
+                sym->is_value_type = false;
+            }
         } else if (var->ptr_depth > 0) {
             var->total_bytes = 4;
             sym->total_bytes = 4;
@@ -14652,9 +14704,23 @@ static void analyze_node(ASTNode* temp) {
                 }
             }
         } else if (sym->class_name != NULL) {
-            var->total_bytes = 4;
-            sym->total_bytes = 4;
-            sym->is_value_type = false;
+            /* 全局作用域声明的对象变量是「真对象」，要按类体大小分配存储
+               （IR 会带 stack_bytes -> .bss 里 resd N）；只有函数内的局部
+               对象变量才是 4 字节指针。以前这里无条件压成 4，导致
+               `pub P g_p;` 只分配 4 字节，g_p.field 写到野内存。 */
+            bool var_is_global_obj = (current_analyzing_function == NULL
+                                      && current_class == NULL);
+            if (false) {
+                /* class 变量统一按 4 字节指针处理（和局部变量、参数、字段一致）。
+                   以前这里让全局对象按类体大小内嵌，导致「全局是值、局部是指针」
+                   两套模型并存，g.field 与 g = new P() 互相打架。 */
+                var->total_bytes = 4;
+                sym->is_value_type = true;
+            } else {
+                var->total_bytes = 4;
+                sym->total_bytes = 4;
+                sym->is_value_type = false;
+            }
         } else if (var->ptr_depth > 0) {
             var->total_bytes = 4;
             sym->total_bytes = 4;
@@ -14688,6 +14754,8 @@ static void analyze_node(ASTNode* temp) {
 
     case AST_VAR_ASS: {
         AST_Var* ast_var_ass = (AST_Var*)temp;
+
+
 
         if (ast_var_ass->ptr_depth == -1 && ast_var_ass->deref_target != NULL) {
             analyze_node(ast_var_ass->deref_target);
@@ -16491,10 +16559,15 @@ static void analyze_node(ASTNode* temp) {
                 }
 
                 if (!found) {
-                    WARNING(ERR_SEM_FIELD_NOT_FOUND,
-                            SEMLOC(ma->base.value),
-                            "member '%s' not found in class '%s'",
-                            ma->member_name, target_class->name);
+                    /* 以前这里只发警告，然后 member_offset = -1 让 IR 当成
+                       「引用了未定义的全局符号」，生成的汇编里是一条悬空
+                       的 `on` 引用，nasm 阶段才报 symbol not defined，还会把
+                       后面函数的 label 一起带崩。成员不存在必须在语义阶段
+                       就报错。 */
+                    ERROR(ERR_SEM_FIELD_NOT_FOUND,
+                          SEMLOC(ma->base.value),
+                          "member '%s' not found in class '%s'",
+                          ma->member_name, target_class->name);
                     ma->member_type = DATA_INT;
                     ma->member_ptr_depth = 0;
                     ma->member_offset = -1;

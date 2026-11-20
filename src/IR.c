@@ -175,6 +175,34 @@ static void flatten_init_list(ASTNode* node, ASTNode*** out, int* count, int* ca
     }
 }
 
+static char** g_declared_names = NULL;
+static int    g_declared_count = 0;
+static int    g_declared_cap   = 0;
+
+static void ir_note_declared(const char* name)
+{
+    if (name == NULL) return;
+    for (int i = 0; i < g_declared_count; i++) {
+        if (strcmp(g_declared_names[i], name) == 0) return;
+    }
+    if (g_declared_count >= g_declared_cap) {
+        g_declared_cap = g_declared_cap ? g_declared_cap * 2 : 64;
+        g_declared_names = realloc(g_declared_names,
+                                   sizeof(char*) * (size_t)g_declared_cap);
+        if (!g_declared_names) OUT_OF_MEMORY();
+    }
+    g_declared_names[g_declared_count++] = strdup(name);
+}
+
+static bool ir_is_declared(const char* name)
+{
+    if (name == NULL) return false;
+    for (int i = 0; i < g_declared_count; i++) {
+        if (strcmp(g_declared_names[i], name) == 0) return true;
+    }
+    return false;
+}
+
 static IR* ir_hoist_global_decls(IR* head)
 {
     if (head == NULL || head->next == NULL) return head;
@@ -204,6 +232,96 @@ static IR* ir_hoist_global_decls(IR* head)
     return globals_head;
 }
 
+static char** g_gname = NULL;
+static int    g_gname_count = 0;
+static int    g_gname_cap = 0;
+
+static void ir_collect_gname(const char* name)
+{
+    if (name == NULL || name[0] == 0) return;
+    for (int i = 0; i < g_gname_count; i++) {
+        if (strcmp(g_gname[i], name) == 0) return;
+    }
+    if (g_gname_count >= g_gname_cap) {
+        g_gname_cap = g_gname_cap ? g_gname_cap * 2 : 64;
+        g_gname = realloc(g_gname, sizeof(char*) * (size_t)g_gname_cap);
+        if (!g_gname) OUT_OF_MEMORY();
+    }
+    g_gname[g_gname_count++] = strdup(name);
+}
+
+static bool ir_is_gname(const char* name)
+{
+    if (name == NULL) return false;
+    for (int i = 0; i < g_gname_count; i++) {
+        if (strcmp(g_gname[i], name) == 0) return true;
+    }
+    return false;
+}
+
+static void ir_collect_globals_from_ast(ASTNode* node)
+{
+    for (ASTNode* n = node; n != NULL; n = n->next) {
+        switch (n->type) {
+        case AST_VAR:
+        case AST_UNINIT_VAR:
+        case AST_VAR_ASS: {
+            AST_Var* v = (AST_Var*)n;
+            if (v->internal_name) ir_collect_gname(v->internal_name);
+            break;
+        }
+        case AST_ARRAY_DECL: {
+            AST_ArrayDecl* a = (AST_ArrayDecl*)n;
+            if (a->internal_name) ir_collect_gname(a->internal_name);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+}
+
+static int ir_mark_globals(IR* head)
+{
+    int marked = 0;
+    for (IR* n = head; n != NULL; n = n->next) {
+        if (n->type != IR_VAR && n->type != IR_VAR_UNINIT
+            && n->type != IR_ARRAY_DECL) continue;
+        if (!ir_is_gname(n->result)) continue;
+        if (!n->is_static_global) { n->is_static_global = true; marked++; }
+    }
+    return marked;
+}
+
+static IR* g_ginit_head = NULL;
+static IR* g_ginit_tail = NULL;
+
+static void ir_add_global_init(IR* chain)
+{
+    if (chain == NULL) return;
+    if (g_ginit_head == NULL) { g_ginit_head = g_ginit_tail = chain; }
+    else { g_ginit_tail->next = chain; }
+    while (g_ginit_tail->next != NULL) g_ginit_tail = g_ginit_tail->next;
+}
+
+static void ir_splice_global_init(IR* head)
+{
+    if (head == NULL || g_ginit_head == NULL) return;
+    for (IR* n = head; n != NULL; n = n->next) {
+        if (n->type == IR_LABEL && n->args1 != NULL
+            && strcmp(n->args1, "_main") == 0) {
+            IR* after = n->next;
+            n->next = g_ginit_head;
+            g_ginit_tail->next = after;
+            return;
+        }
+    }
+}
+
+static bool ir_is_temp_name(const char* s)
+{
+    return s != NULL && s[0] == '.' && s[1] == 't';
+}
 IR* parse_IR(ASTNode* ast_node)
 {
     if (ast_node == NULL)
@@ -211,7 +329,12 @@ IR* parse_IR(ASTNode* ast_node)
         INTERNAL_ERROR("IR: parse failed");
     }
 
-    return ir_hoist_global_decls(start_generate_IR(ast_node));
+    IR* ir_chain = start_generate_IR(ast_node);
+    ir_collect_globals_from_ast(ast_node);
+    ir_mark_globals(ir_chain);
+    ir_chain = ir_hoist_global_decls(ir_chain);
+    ir_splice_global_init(ir_chain);
+    return ir_chain;
 }
 
 /* 2.5.0：IR 生成时的当前源码位置 */
@@ -6340,6 +6463,36 @@ static IR* generate_IR_impl(ASTNode* ast_node)
         }
         if (current_ir_function == NULL) {
             Var_ir->is_static_global = true;
+            /* 全局变量 + 运行期初值（new / 函数调用）：把「算初值 + 存进变量」
+               收集到全局初始化表，由 parse_IR 插到 _main 开头执行；
+               这里只返回一条声明（.bss 里出 4 字节槽位）。 */
+            if (ir_is_temp_name(Var_ir->args1)) {
+                IR* gdecl = create_IR(IR_VAR_UNINIT);
+                gdecl->result = strdup(Var_ir->result);
+                gdecl->data_type = Var_ir->data_type;
+                gdecl->stack_bytes = Var_ir->stack_bytes;
+                gdecl->is_static_global = true;
+
+                IR* gaddr = create_IR(IR_ADDRESS_OF);
+                gaddr->result = create_temp();
+                assign_def_id(gaddr);
+                gaddr->args1 = strdup(Var_ir->result);
+                gaddr->args1_type = DATA_INT;
+                gaddr->data_type = DATA_INT;
+                gaddr->is_function_addr = false;
+
+                IR* gstore = create_IR(IR_PTR_STORE);
+                gstore->args1 = strdup(gaddr->result);
+                gstore->args1_type = DATA_INT;
+                gstore->args2 = strdup(Var_ir->args1);
+                gstore->args2_type = Var_ir->args1_type;
+                gstore->data_type = Var_ir->data_type;
+
+                connect_IR(Var_Value_IR, gaddr);
+                IR* init_chain = connect_IR(Var_Value_IR, gstore);
+                ir_add_global_init(init_chain);
+                return gdecl;
+            }
         } else if (ast_var->is_static) {
             Var_ir->is_static_local = true;
         }
@@ -6512,6 +6665,22 @@ static IR* generate_IR_impl(ASTNode* ast_node)
         }
 
         if (ast_var_ass->copy_bytes > 4 && !is_scalar_to_wide_ass) {
+            /* 全局对象变量在 AST_VAR_ASS 这条路径上没有自己的 IR_VAR_UNINIT
+               声明（只有 AST_UNINIT_VAR 才会生成），所以 codegen 里
+               get_const(名字) 查不到，AddressOf 会直接 FATAL
+               「unknown variable ... for address-of」。
+               这里补一条同名的全局存储声明，让 .bss 里有对应槽位。 */
+            IR* gdecl = NULL;
+            /* 注意：main 本身也是 AST_FUNCTION，这里 current_ir_function
+               通常不为 NULL，不能拿它判断作用域。改为看「这个名字是否
+               已经有存储」：没有就补一条全局声明（.bss 里出槽位）。 */
+            if (!ir_is_declared(ast_var_ass->internal_name)) {
+                gdecl = create_IR(IR_VAR_UNINIT);
+                gdecl->result = strdup(ast_var_ass->internal_name);
+                gdecl->data_type = DATA_INT;
+                gdecl->stack_bytes = ast_var_ass->copy_bytes;
+                gdecl->is_static_global = true;
+            }
             IR* dst_addr = create_IR(IR_ADDRESS_OF);
             dst_addr->result = create_temp();
             assign_def_id(dst_addr);
@@ -6534,8 +6703,9 @@ static IR* generate_IR_impl(ASTNode* ast_node)
             copy_ir->copy_bytes = ast_var_ass->copy_bytes;
             assign_def_id(copy_ir);
 
-            IR* chain = connect_IR(dst_addr, value_ir);
-            chain = connect_IR(chain, copy_ir);
+                        IR* chain = gdecl ? connect_IR(gdecl, dst_addr)
+                             : dst_addr;
+            chain = connect_IR(chain, value_ir);  chain = connect_IR(chain, copy_ir);
             return chain;
         }
 
@@ -6742,6 +6912,7 @@ static IR* generate_IR_impl(ASTNode* ast_node)
         if (ast_var_uninit->total_bytes > 4) {
             ir_var_uninit->stack_bytes = ast_var_uninit->total_bytes;
         }
+        ir_note_declared(ir_var_uninit->result);
         if (current_ir_function == NULL) {
             ir_var_uninit->is_static_global = true;
         } else if (ast_var_uninit->is_static) {
@@ -8510,6 +8681,22 @@ static IR* generate_IR_impl(ASTNode* ast_node)
         }
         char* obj_temp = obj_last->result;
 
+        /* 成员赋值前先对「对象指针本身」做一次空检查。
+           以前是先 add offset 再 test，对象为 null 时 add 之后变成 offset（非 0），
+           空检查永远放行，于是往地址 8 之类的野指针写 → 0xC0000005。
+           这里插一条 IR_LOAD_MEMBER(offset 0) 当探针：codegen 会先
+           test 基址、再解引用，正好把检查放在加偏移之前。
+           读出来的值进一个不用的临时变量，没有副作用。 */
+        {
+            IR* null_probe = create_IR(IR_LOAD_MEMBER);
+            null_probe->result = create_temp();
+            assign_def_id(null_probe);
+            null_probe->args1 = strdup(obj_temp);
+            null_probe->args2 = strdup("0");
+            null_probe->data_type = DATA_INT;
+            connect_IR(obj_ir, null_probe);
+            obj_last = null_probe;
+        }
         int offset = ass->member_offset;
         char offset_str[16];
         sprintf(offset_str, "%d", offset);
@@ -9896,6 +10083,7 @@ static IR* generate_IR_impl(ASTNode* ast_node)
     }
 }
 
+//注：这里为SSA扩展
 IR* ir_insert_after(IR* after, IR* new_ir) {
     if (!new_ir) return NULL;
     if (!after) return new_ir;
