@@ -294,6 +294,8 @@ WM_MEASUREITEM     equ 0x002C
 WM_NCPAINT         equ 0x0085
 CBS_OWNERDRAWFIXED equ 0x0010
 LBS_OWNERDRAWFIXED equ 0x0010
+CBS_HASSTRINGS     equ 0x0200
+LBS_HASSTRINGS     equ 0x0040
 EN_CHANGE          equ 0x0300
 BS_OWNERDRAW       equ 0x0000000B
 SS_OWNERDRAW       equ 0x0000000D
@@ -4777,7 +4779,7 @@ ComboBox_create_identifier_int_int_int_int:
     test ebx, ebx
     jz  .fail
     mov esi, [ebx+8]            ; 父窗�? hwnd
-    mov edx, WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED
+    mov edx, WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS
     mov eax, [ebp+16]
     mov ecx, [ebp+20]
     cmp eax, -1
@@ -5067,7 +5069,7 @@ ListBox_create_identifier_int_int_int_int:
     test ebx, ebx
     jz  .fail
     mov esi, [ebx+8]            ; 父窗�? hwnd
-    mov edx, WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_BORDER | WS_TABSTOP | LBS_NOTIFY | LBS_OWNERDRAWFIXED
+    mov edx, WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_BORDER | WS_TABSTOP | LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS
     mov eax, [ebp+16]
     mov ecx, [ebp+20]
     cmp eax, -1
