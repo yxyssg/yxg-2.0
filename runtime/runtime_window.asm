@@ -498,29 +498,8 @@ refresh_input_state:
     cmp edi, 256
     jl .key_loop
 
-    push VK_LBUTTON
-    call _GetAsyncKeyState@4
-    and eax, 0x8000
-    jz .m0_up
-    mov eax, 1
-.m0_up:
-    mov [prev_mouse+0], eax
-
-    push VK_RBUTTON
-    call _GetAsyncKeyState@4
-    and eax, 0x8000
-    jz .m1_up
-    mov eax, 1
-.m1_up:
-    mov [prev_mouse+4], eax
-
-    push VK_MBUTTON
-    call _GetAsyncKeyState@4
-    and eax, 0x8000
-    jz .m2_up
-    mov eax, 1
-.m2_up:
-    mov [prev_mouse+8], eax
+    ; 注意：prev_mouse 由 Window_is_mouse_clicked 自己维护（读时更新），
+    ; 这里不再覆盖，否则会与 is_mouse_clicked 的边沿检测互相打架。
 
     pop edi
     pop esi
@@ -2325,11 +2304,17 @@ Window_is_mouse_clicked_int:
     push eax
     call _GetAsyncKeyState@4
     and eax, 0x8000
-    jz .no
+    jz .release
+    ; 当前按住：对比自己记录的上次状态
     cmp dword [prev_mouse+esi*4], 0
     jne .no
+    ; 上次没按 + 现在按住 = 新点击；立刻记下，下次调用就不会再报 1
+    mov dword [prev_mouse+esi*4], 1
     mov eax, 1
     jmp .done
+.release:
+    ; 已松开：清状态，下次按下又能识别
+    mov dword [prev_mouse+esi*4], 0
 .no:
     xor eax, eax
 .done:
